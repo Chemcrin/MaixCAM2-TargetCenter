@@ -1,6 +1,6 @@
 # MaixCAM2 黑框中心：四边精修、快速跟踪与双轴云台瞄准
 
-构建号 `2026-10-10-lens-off-v19`，应用版本 `1.4.0`。在 MaixVision 中打开本文件夹，选择“运行项目”。
+构建号 `2026-10-10-v0.3.2-v9track`，应用版本 `0.3.2`（分支 `v0.3.2`：v20 基座 + 追踪手感回到 V9）。在 MaixVision 中打开本文件夹，选择“运行项目”。
 必须一起下发应用包内的 **12 个文件**（`app.yaml` / `main.py` / `config.py` / `target_api.py` /
 `assets/icon.png` / `vision/` 下 7 个 `.py`），不能只运行当前 `main.py`。
 
