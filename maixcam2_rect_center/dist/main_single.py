@@ -10,9 +10,9 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-10-11 00:23:28
-    config.py                    sha1=b3ddda21def8
-    main.py                      sha1=6f90a6134b12
+生成时间：2026-10-10 23:14:52
+    config.py                    sha1=084360a01ed2
+    main.py                      sha1=3082f43b61a9
     target_api.py                sha1=e334a5b938ac
     vision/gimbal_aim.py         sha1=9231e9b98ce5
     vision/gimbal_calibrate.py   sha1=819bd3980592
@@ -25,7 +25,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': 'b3ddda21def8df829f59eff4df037458a415f308', 'vision/rectangle_center.py': 'f779e749d2d853f982429c0a88a92b551bcbb46a', 'vision/laser_spot.py': 'd8d722904443201c539507baca6d69be668ade93', 'vision/gimbal_self_test.py': 'b21e1ea05d03c7cf760304a3b72d26ee4dae92a2', 'vision/gimbal_aim.py': '9231e9b98ce54a4015f7610256050a56cfb9a948', 'vision/stepper_link.py': 'c41fd48b7a2f45be83d8557f61ed35380ca3e006', 'vision/gimbal_calibrate.py': '819bd3980592796289004288d6e95fee5e9aa92f', 'target_api.py': 'e334a5b938ac1315d2111c16b90dd30467fc11f6', 'main.py': '6f90a6134b1207e5fc78f54f1fd5e734e30f8e39'}
+_SRC_SHA1 = {'config.py': '084360a01ed2591a1997330abe61f3f41074bef5', 'vision/rectangle_center.py': 'f779e749d2d853f982429c0a88a92b551bcbb46a', 'vision/laser_spot.py': 'd8d722904443201c539507baca6d69be668ade93', 'vision/gimbal_self_test.py': 'b21e1ea05d03c7cf760304a3b72d26ee4dae92a2', 'vision/gimbal_aim.py': '9231e9b98ce54a4015f7610256050a56cfb9a948', 'vision/stepper_link.py': 'c41fd48b7a2f45be83d8557f61ed35380ca3e006', 'vision/gimbal_calibrate.py': '819bd3980592796289004288d6e95fee5e9aa92f', 'target_api.py': 'e334a5b938ac1315d2111c16b90dd30467fc11f6', 'main.py': '3082f43b61a98e005684c245b788b8df16fb3a49'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -76,15 +76,6 @@ class Config:
     SHOW_SLOW_MIN_FPS = 2.0
     # Display.show 含 MaixVision 图传，网络超时可能阻塞 500ms。
     SHOW_SLOW_MS = 80.0
-    # ★★ 慢图传保护（同步显示路径）：每次 show 结束后，至少再等 `本次 show 耗时 × 本值` 的空闲，
-    #   才允许显示下一帧。只在"图传慢到 ≥ 目标周期"时起作用（快图传完全不受影响）。
-    #   动机：板端实测 MaixVision 单帧 show≈510ms，而 SHOW_SLOW_MIN_FPS=2.0 的周期是 0.5s；
-    #   旧节拍 `max(0, _period − show)` 此时得到 0 → **每个循环都 show** → 主循环被钉在
-    #   ≈1/show ≈ 1.9fps（识别只需 10.7ms，却被显示拖死，追踪控制率一起塌到 2Hz）。
-    #   取 1.0 ⇒ show 最多占一半时间，主循环至少拿回一半吞吐（≈30fps）；代价是预览刷新率
-    #   在极慢图传下降到 ~1fps。**想让预览更流畅就调小（但主循环更慢）；想追踪更快就调大。**
-    #   0 = 关闭保护（退回旧行为）。
-    SHOW_MIN_IDLE_RATIO = 1.0
     # ★ 慢帧的额外退避（秒）：仅 `SHOW_ASYNC=True` 的子进程路径使用（只补一点点）。
     #   旧值 2.0s 会让"图传一慢就睡 2 秒"，预览直接塌到 ~0.4fps（现场"画面极其卡顿"的来源之一）。
     SHOW_BACKOFF_S = 0.10
@@ -154,31 +145,28 @@ class Config:
     #    无减速机构时 = 8.89；装了 i:1 减速就填 8.89 × i。
     PULSES_PER_DEG_YAW = 8.89
     PULSES_PER_DEG_PITCH = 8.89
-    # ③ 单帧只修正误差的这个比例（必须 ≤1，否则增量闭环不收敛）。
-    #    ★ v0.3.2：按 **V9 手感**调回 0.5（v12 起为"更柔和"降到 0.3）。
-    #      ⚠ 更跟手但更易超调 —— 先架空验证，若过冲先降回 0.35~0.4。
-    GAIN_YAW = 0.5
-    GAIN_PITCH = 0.5
-    # ④ 转速与曲线。acc=0 会让位置模式**瞬时启停**（急停瞬间激光会晃开），故始终用 ACC_TRACK。
-    #    ★ v0.3.2：回到 **V9 转速档 120/400**（v13 起降到 60/150）。
-    RPM_FINE = 120
-    RPM_COARSE = 400
-    ACC_TRACK = 200        # V9 定案值：走曲线加减速；短行程自动退化为三角曲线
+    # ③ 单帧只修正误差的这个比例（必须 ≤1，否则增量闭环不收敛；0.2~0.4 是稳妥区）。
+    #    ⚠ 2026-10-10 由 0.5 降到 0.3 —— 现场反馈"调节过于激烈、旋转角度过大、超调"。
+    GAIN_YAW = 0.3
+    GAIN_PITCH = 0.3
+    # ④ 转速与曲线：慢 + 带曲线，让单帧修正真正走完再发下一帧，避免指令堆叠成"冲过头"。
+    #    acc=0 会让位置模式**瞬时启停**（急停瞬间激光会晃开），故用 ACC_TRACK。
+    RPM_FINE = 60
+    RPM_COARSE = 150
+    ACC_TRACK = 160        # 缩短 v15 过慢的曲线，仍保留非零加减速
     ACC_DEFAULT = 0        # 仅其它机会性发帧用；闭环追踪请用 ACC_TRACK
     # ⑤ 死区与单帧限幅：死区应 ≥1.5×实测回差（齿隙里来回抖）；限幅防单帧猛甩。
-    #    ★ v0.3.2：回到 **V9 值 2.0 / 360 / 0.08**（v13 起为 3.0 / 80 / 0.06）。
-    DEADBAND_PX = 2.0
-    MAX_STEP_PULSES = 360
-    COMMAND_INTERVAL_S = 0.08
-    # 对最终运动量滤波：★ v0.3.2：**关闭输出滤波栈**（V9 无低通/无限速）——
-    #   消除相位滞后，闭环更跟手（代价：更易超调）。置回 0.10 / 400 可恢复柔和。
-    AIM_OUTPUT_LPF_TAU_S = 0.0
-    AIM_OUTPUT_SLEW_PPS = 0.0
+    DEADBAND_PX = 3.0
+    MAX_STEP_PULSES = 80
+    COMMAND_INTERVAL_S = 0.06
+    # 对最终运动量滤波：增大时缓慢跟随，减小/进入死区/换向时立即收缩，避免低通拖尾。
+    # 时间常数越大越柔（0 = 关闭低通）；同时限制每秒运动量增长，0 = 关闭增长限速。
+    AIM_OUTPUT_LPF_TAU_S = 0.10
+    AIM_OUTPUT_SLEW_PPS = 400.0
     AIM_START_PULSES = 16
-    # 下一条相对位置命令等上一段曲线运动的估算时间 + 余量。
-    #   ★ v0.3.2：**置 False = 背靠背发帧**（V9 行为），避免"走—停—走"；
-    #   置 True 则每条命令等到运动估算时长走完再发下一条（更稳但更钝）。
-    AIM_WAIT_MOTION = False
+    # 下一条相对位置命令等上一段曲线运动的估算时间 + 余量，避免覆盖尚未完成的命令。
+    # 这是时间估算，不是驱动器到位反馈；机构慢时可增大余量。
+    AIM_WAIT_MOTION = True
     AIM_MOTION_MARGIN_S = 0.005
     # 兼容旧口径 / 标定输出：**仅当上面 DEG_PER_PX_x = 0 时**才回退到这里。
     # CALIBRATE_AXIS 实测完会把脉冲/像素写回这两个（可在日志里反算 DEG_PER_PX 填回 ①）。
@@ -244,10 +232,10 @@ class Config:
     JUMP_CONFIRM_FRAMES = 3
     # 粗/精两段增益：|e| > COARSE_PX 用 GAIN_COARSE（大步快速逼近），否则用 GAIN_YAW/PITCH。
     # 必须保持 gain <= 1，否则增量闭环不收敛（需求文档 §7.4）。
-    # ★ v0.3.2：按 **V9 手感**调回 0.9（v12 起为"避免冲过头"降到 0.5）。
+    # ⚠ 2026-10-10 由 0.9 降到 0.5 —— 大误差时同样要避免冲过头。
     # （转速 RPM_COARSE / RPM_FINE 已统一到上方「★ 追踪手感」④）
     COARSE_PX = 24.0
-    GAIN_COARSE = 0.9
+    GAIN_COARSE = 0.5
 
     # ---- 链路健康（ACK / E2 看门狗，需求文档 §7.9）------------------------
     ENABLE_ACK_WATCHDOG = True
@@ -2894,7 +2882,7 @@ from vision.gimbal_aim import GimbalAim
 from vision.gimbal_self_test import GimbalSelfTest, probe_imu
 from vision.gimbal_calibrate import GimbalCalibrator, AutoCalibrate
 
-BUILD_ID = "2026-10-11-v0.3.2-slowshow"
+BUILD_ID = "2026-10-10-fps-honest-v20"
 
 
 def _preview_loop(frames, ready, closing, elapsed, max_ms, shown, slow,
@@ -3003,8 +2991,6 @@ class SyncPreview:
         self._period = self._base_period
         self._min_period = 1.0 / max(0.1, float(getattr(cfg, "SHOW_SLOW_MIN_FPS", 1.0)))
         self._slow_ms = float(cfg.SHOW_SLOW_MS)
-        # ★ 慢图传保护系数：见 config.SHOW_MIN_IDLE_RATIO（0 = 关闭，退回旧节拍）。
-        self._min_idle_ratio = max(0.0, float(getattr(cfg, "SHOW_MIN_IDLE_RATIO", 1.0)))
         self._next = 0.0
         # 与 AsyncPreview 对齐的统计量（子进程版是 mp.Value，用 _stat() 统一读取）。
         self.elapsed = 0.0
@@ -3040,15 +3026,8 @@ class SyncPreview:
             # 旧阈值 0.5×(=40ms) 在真机 MaixVision 上几乎不满足 → 一旦降速就长期钉在最低帧率
             # （现场"帧率过低"的来源之一）。0.7 的步进也让恢复更快。
             self._period = max(self._base_period, self._period * 0.7)
-        # 下一次显示 = 现在 + idle。idle 取两者较大：
-        #   ① 目标周期 − 本次 show 耗时（快图传时让实际帧率贴近 SHOW_FPS）；
-        #   ② 本次 show 耗时 × SHOW_MIN_IDLE_RATIO（**慢图传保护**：图传慢到 ≥ 目标周期时，
-        #      保证"show 之后至少等 ratio×show_s 的空闲"，主循环得以在间隙里全速跑）。
-        #   板端实测 show≈510ms 时，旧写法 ① 得 0 → 每个循环都 show → 主循环被钉在 ≈1.9fps；
-        #   新增 ② 后主循环回到 ≈30fps，代价是预览刷新率降到 ~1fps（见 config 注释）。
-        show_s = show_ms / 1000.0
-        idle = max(self._period - show_s, show_s * self._min_idle_ratio)
-        self._next = time.perf_counter() + idle
+        # 下一次显示 = 现在 + (目标周期 − 本次 show 耗时)，实际帧率才真正贴近目标。
+        self._next = time.perf_counter() + max(0.0, self._period - show_ms / 1000.0)
         return True
 
     def close(self):

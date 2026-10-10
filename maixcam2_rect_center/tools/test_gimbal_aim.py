@@ -544,16 +544,13 @@ def test_deg_per_px_macro():
     back.DEG_PER_PX_YAW = 0.0
     back.PULSE_PER_PX_YAW = 3.67
     assert abs(GimbalAim(back)._pulse_per_px("yaw") - 3.67) < 1e-9    # 回退旧口径
-    # 真实 config 里宏必须已启用。
-    # ★ v0.3.2：**刻意回到 V9 手感** —— 细调 GAIN 0.5、粗调 GAIN_COARSE 0.9（>0.6）。
-    #   故这里只守增量闭环的收敛上界 gain ≤ 1，不再强制 ≤0.6（那是 v12~v20 的"柔和"策略）。
-    #   若把 config 调回 ≤0.6 的柔和档，本断言同样成立。
+    # 真实 config 里宏必须已启用，且 GAIN 已放缓（防"调节过于激烈/超调"回归）
     from config import Config
     assert float(getattr(Config, "DEG_PER_PX_YAW", 0)) > 0
     assert float(getattr(Config, "DEG_PER_PX_PITCH", 0)) > 0
     assert float(getattr(Config, "PULSES_PER_DEG_YAW", 0)) > 0
     for name in ("GAIN_YAW", "GAIN_PITCH", "GAIN_COARSE"):
-        assert 0 < float(getattr(Config, name)) <= 1.0, "%s 必须 ∈(0,1]（>1 增量闭环不收敛）" % name
+        assert 0 < float(getattr(Config, name)) <= 0.6, "%s 过大易超调" % name
 
 
 def test_calibrator_fails_fast_without_vision():
@@ -619,21 +616,8 @@ def test_diverge_guard():
 
 
 def _smooth_config(**overrides):
-    """构造被测配置。以下用例检验的是**平滑/滤波机制本身**（v15~v20 的柔和策略）。
-
-    ★ v0.3.2 已把**生产 config 切回 V9 手感**（关闭输出低通/增长限速、AIM_WAIT_MOTION=False）,
-      故这里**显式把该机制打开**作为被测对象，保证机制仍被回归覆盖；
-      需要别的组合时在 overrides 里覆盖即可（例如 `AIM_OUTPUT_SLEW_PPS=0`）。
-    """
     from config import Config
-    base = dict(
-        DIVERGE_GUARD=False,
-        AIM_OUTPUT_LPF_TAU_S=0.10,
-        AIM_OUTPUT_SLEW_PPS=400.0,
-        AIM_WAIT_MOTION=True,
-    )
-    base.update(overrides)
-    return type("SmoothConfig", (Config,), base)()
+    return type("SmoothConfig", (Config,), dict(DIVERGE_GUARD=False, **overrides))()
 
 
 def test_output_filter_spike_and_frame_rate():

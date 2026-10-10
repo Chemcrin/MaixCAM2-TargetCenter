@@ -9,7 +9,7 @@
 | 轨 | 目录 | BUILD_ID | 状态 |
 |---|---|---|---|
 | A（DeepSeek） | 根 | `2026-10-05-r7` | 性能治理 + 抗抖跟踪已完成 |
-| B（名义 GPT） | `maixcam2_rect_center/` | `2026-10-08-target-api-v3` | **已整轨回退到 v3 基线**（10-10 23:2x，committed `0f139b1`，用户指令"回退到 v9 之前重新调试"）—— 见下方 ★ |
+| B（名义 GPT） | `maixcam2_rect_center/` | `2026-10-10-v0.3.2-v9track` | **当前分支 `v0.3.2`**：v20 基座（含帧率优化 + 中心追踪）+ 追踪手感回到 V9 —— 见下方 ★★ |
 
 - ★ **B 轨回退定案（10-10）**：**git 里不存在 v9 快照**（`track-curve-v9` 是被外部进程覆写的未入库中间态；
   提交从 `b32cd08(v3)` 直接跳到 `v14`）。用户改选「回退到 v9 前最后一个提交 = `b32cd08`」。
@@ -18,6 +18,14 @@
   ⚠ 回退后**轴映射/方向是 v3 旧值**（`ttyS1`=yaw 无引脚、`ttyS0` 未用、`DIR_SIGN=+1/+1`，均未经 v8 实测校正），
   且用 `ACC_DEFAULT=0`（无曲线）、无上电自检优先/SyncPreview/LENS_CORR/帧率计量修复 —— **上板前必须重核标定**。
   ⚠ `tools/apply_gimbal_track_patch.py` 与 `tools/git_round.py` 是 v9+ 专用，对 v3 代码会误报/挡提交，**勿运行**。
+
+- ★★ **B 轨 v0.3.2 分支（10-10 23:4x，committed `c7bcf0b`）**：用户要「做回 V9 + 帧率优化 + 中心追踪，单独发 v0.3.2 分支」。
+  实现 = **以 v20 为基座**（`git checkout backup/b-track-v20-pre-v9-rollback -- maixcam2_rect_center/`，因 `CenterTracker`/帧率治理都在 v20），
+  **仅把 config.py「追踪手感」调回 V9**：`GAIN 0.5`/`GAIN_COARSE 0.9`/`RPM 120·400`/`MAX_STEP 360`/`DEADBAND 2.0`/
+  `COMMAND_INTERVAL 0.08`/`ACC_TRACK 200`/**关输出低通与限速**/`AIM_WAIT_MOTION False`（背靠背）。BUILD_ID=`2026-10-10-v0.3.2-v9track`、app.yaml `0.3.2`。
+  **为 V9 反向放宽了 3 处"柔和策略"断言**（`test_gimbal_aim.test_deg_per_px_macro` 上界 0.6→1.0；
+  `_smooth_config()` 显式打开 LPF/SLEW/WAIT 保机制覆盖；`test_main_self_test` 的 stop 计数按 `AIM_WAIT_MOTION` 取 2/1）。
+  门禁全过（72 OK、gimbal 29 PASS、perf 29/30·0.803px·0 误检）。**风险：更跟手但易超调，先架空验证。**
 
 - B 轨 v20（10-10）：**帧率"虚假显示 + 过低"定案修复**。根因 = 屏幕叠加的 `FPS` 曾画的是
   **主循环速率**（`1/EMA(主循环dt)`），而显示被 `can_submit()` 节流、"多数帧只算不画"，
