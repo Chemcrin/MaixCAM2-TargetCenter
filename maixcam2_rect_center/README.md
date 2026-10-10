@@ -1,11 +1,35 @@
 # MaixCAM2 黑框中心：四边精修、快速跟踪与双轴云台瞄准
 
-构建号 `2026-10-10-v0.3.2-v9track`，应用版本 `0.3.2`（分支 `v0.3.2`：v20 基座 + 追踪手感回到 V9）。在 MaixVision 中打开本文件夹，选择“运行项目”。
+构建号 `2026-10-11-v0.3.2-slowshow`，应用版本 `0.3.2`（分支 `v0.3.2`：v20 基座 + 追踪手感回到 V9）。在 MaixVision 中打开本文件夹，选择“运行项目”。
 必须一起下发应用包内的 **12 个文件**（`app.yaml` / `main.py` / `config.py` / `target_api.py` /
 `assets/icon.png` / `vision/` 下 7 个 `.py`），不能只运行当前 `main.py`。
 
 > 只想临时试参数时，也可以先 `python tools/build_single.py` 生成 `dist/main_single.py`，
 > 再用「运行当前文件」—— 那是自包含的单文件版，语义与分模块完全一致。改了源码记得重新生成。
+
+## 2026-10-11 改动⑫：慢图传不再拖死主循环——修「板端只有 2fps」（`-slowshow`）
+
+**现场现象**：`v0.3.2` 在板端稳定只有 ~2fps。板端日志给出决定性证据：
+
+```
+[perf] 2026-10-10-v0.3.2-v9track ... read=5.8 detect=10.7 ... show=509.1 loop=526.2 ms
+```
+
+**根因**：不是识别慢（`detect` 仅 10.7ms），而是 **MaixVision 图传单帧 `show` 阻塞 509ms**；
+而同步预览的节拍 `_next = now + max(0, _period − show_s)`，在 `show_s ≥ _period`（509ms ≥
+`1/SHOW_SLOW_MIN_FPS`=500ms）时恒为 0 → **每个循环都 show** → 主循环被钉在 `1/show` ≈ **1.9fps**，
+于是**追踪控制率也塌到 2Hz**（§V9 手感的增益/转速参数因此完全被埋没）。
+
+**改法**：`SyncPreview.submit()` 的节拍改为
+`idle = max(_period − show_s, show_s × SHOW_MIN_IDLE_RATIO)`，即 **show 之后至少留
+`ratio×show_s` 的空闲**（新增 `Config.SHOW_MIN_IDLE_RATIO`，默认 `1.0`）。快图传不受影响；
+极慢图传下主循环回到 ≈30fps，代价是预览刷新率降到 ~1fps。
+
+**回归**：新增 `test_runtime_performance.test_sync_preview_keeps_loop_alive_when_show_longer_than_period`
+（`show=0.6s > 周期 0.5s` → `ticks=92 / shows=2`，旧实现 `ticks≈shows`）。门禁 **72 OK / 0 FAIL**。
+
+> 若不需要预览，直接 `SHOW=False` 最彻底（主循环≈60fps）；`SHOW_MIN_IDLE_RATIO` 越大越保主循环、
+> 预览越卡；越小反之。**`SHOW_ASYNC=True` 那条路已被 v18 证伪（子进程推流会让 MaixVision 黑屏），勿用。**
 
 ## 2026-10-10 改动⑪：关掉未调参的镜头畸变校正——修「识别黑框时画面畸变」（`-lens-off-v19`）
 

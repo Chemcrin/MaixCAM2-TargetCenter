@@ -194,6 +194,66 @@ def test_sync_preview_is_inprocess_and_adaptive():
                 sys.modules[k] = saved[k]
 
 
+def test_sync_preview_keeps_loop_alive_when_show_longer_than_period():
+    """★ 板端 2fps 定案回归：当 MaixVision 的 show **比目标周期还慢**时，主循环绝不能被钉在 1/show。
+
+    旧节拍 `_next = now + max(0, _period − show_s)`：一旦 `show_s ≥ _period`（板端 show≈510ms
+    > SHOW_SLOW_MIN_FPS=2.0 的周期 0.5s），就恒得 0 → **每个循环都 show** → 主循环 = 1/show_s ≈ 1.9fps，
+    识别仅 10.7ms 却被显示拖死、追踪控制率一起塌到 2Hz。
+    修复：show 之后至少留 `SHOW_MIN_IDLE_RATIO × show_s` 的空闲，主循环在间隙里全速跑。
+    """
+    import sys
+    import types
+    calls = []
+    fake_maix = types.ModuleType("maix")
+    fake_display = types.ModuleType("maix.display")
+    fake_image = types.ModuleType("maix.image")
+
+    class FakeDisplay:
+        def __init__(self):
+            calls.append("display")
+
+        def show(self, img):
+            calls.append("show")
+            time.sleep(0.6)          # 比 _min_period(0.5s) 还慢 —— 正是板端病理
+
+        def close(self):
+            calls.append("close")
+
+    fake_display.Display = FakeDisplay
+    fake_image.cv2image = lambda view, bgr=True, copy=True: view
+    fake_maix.display, fake_maix.image = fake_display, fake_image
+    names = ("maix", "maix.display", "maix.image")
+    saved = {k: sys.modules.get(k) for k in names}
+    sys.modules.update({"maix": fake_maix, "maix.display": fake_display, "maix.image": fake_image})
+    frame = np.zeros((40, 60, 3), np.uint8)
+    cfg = type("SlowCfg", (Config,),
+               dict(SHOW_FPS=10, SHOW_SLOW_MS=80.0, SHOW_SLOW_MIN_FPS=2.0,
+                    SHOW_MIN_IDLE_RATIO=1.0))
+    try:
+        preview = SyncPreview(cfg)
+        t0 = time.perf_counter()
+        ticks = 0
+        while time.perf_counter() - t0 < 2.0:
+            ticks += 1
+            if preview.can_submit():
+                preview.submit(frame)
+            time.sleep(1.0 / 120)
+        # show 0.6s + idle≥0.6s → 周期 ≈1.2s，2s 内 show ≤2 次；
+        # 主循环在空闲间隙里跑了远多于 show 次数的 iteration（旧实现下两者几乎相等）。
+        assert preview.shown <= 2, preview.shown
+        assert ticks > preview.shown * 5, (ticks, preview.shown)
+        print("PASS: show(0.6s) > 周期(0.5s) 时主循环仍存活：ticks=%d shows=%d（旧实现 ticks≈shows）"
+              % (ticks, preview.shown))
+        preview.close()
+    finally:
+        for k in names:
+            if saved[k] is None:
+                sys.modules.pop(k, None)
+            else:
+                sys.modules[k] = saved[k]
+
+
 def test_uart_read_is_nonblocking_and_bounded():
     class Port:
         def __init__(self):
@@ -247,6 +307,7 @@ def main():
     cv2.setNumThreads(Config.OPENCV_THREADS)
     test_slow_preview_isolation()
     test_sync_preview_is_inprocess_and_adaptive()
+    test_sync_preview_keeps_loop_alive_when_show_longer_than_period()
     test_preview_reports_real_fps_without_long_freeze()
     test_search_work_is_bounded_and_current()
     test_uart_read_is_nonblocking_and_bounded()

@@ -10,9 +10,9 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-10-10 23:41:59
-    config.py                    sha1=a7bf60101926
-    main.py                      sha1=11ee88652ada
+生成时间：2026-10-11 00:23:28
+    config.py                    sha1=b3ddda21def8
+    main.py                      sha1=6f90a6134b12
     target_api.py                sha1=e334a5b938ac
     vision/gimbal_aim.py         sha1=9231e9b98ce5
     vision/gimbal_calibrate.py   sha1=819bd3980592
@@ -25,7 +25,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': 'a7bf60101926dcb7cce326849b5e9aed2076ce5b', 'vision/rectangle_center.py': 'f779e749d2d853f982429c0a88a92b551bcbb46a', 'vision/laser_spot.py': 'd8d722904443201c539507baca6d69be668ade93', 'vision/gimbal_self_test.py': 'b21e1ea05d03c7cf760304a3b72d26ee4dae92a2', 'vision/gimbal_aim.py': '9231e9b98ce54a4015f7610256050a56cfb9a948', 'vision/stepper_link.py': 'c41fd48b7a2f45be83d8557f61ed35380ca3e006', 'vision/gimbal_calibrate.py': '819bd3980592796289004288d6e95fee5e9aa92f', 'target_api.py': 'e334a5b938ac1315d2111c16b90dd30467fc11f6', 'main.py': '11ee88652ada8d6752500d4550a602331ca1d346'}
+_SRC_SHA1 = {'config.py': 'b3ddda21def8df829f59eff4df037458a415f308', 'vision/rectangle_center.py': 'f779e749d2d853f982429c0a88a92b551bcbb46a', 'vision/laser_spot.py': 'd8d722904443201c539507baca6d69be668ade93', 'vision/gimbal_self_test.py': 'b21e1ea05d03c7cf760304a3b72d26ee4dae92a2', 'vision/gimbal_aim.py': '9231e9b98ce54a4015f7610256050a56cfb9a948', 'vision/stepper_link.py': 'c41fd48b7a2f45be83d8557f61ed35380ca3e006', 'vision/gimbal_calibrate.py': '819bd3980592796289004288d6e95fee5e9aa92f', 'target_api.py': 'e334a5b938ac1315d2111c16b90dd30467fc11f6', 'main.py': '6f90a6134b1207e5fc78f54f1fd5e734e30f8e39'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -76,6 +76,15 @@ class Config:
     SHOW_SLOW_MIN_FPS = 2.0
     # Display.show 含 MaixVision 图传，网络超时可能阻塞 500ms。
     SHOW_SLOW_MS = 80.0
+    # ★★ 慢图传保护（同步显示路径）：每次 show 结束后，至少再等 `本次 show 耗时 × 本值` 的空闲，
+    #   才允许显示下一帧。只在"图传慢到 ≥ 目标周期"时起作用（快图传完全不受影响）。
+    #   动机：板端实测 MaixVision 单帧 show≈510ms，而 SHOW_SLOW_MIN_FPS=2.0 的周期是 0.5s；
+    #   旧节拍 `max(0, _period − show)` 此时得到 0 → **每个循环都 show** → 主循环被钉在
+    #   ≈1/show ≈ 1.9fps（识别只需 10.7ms，却被显示拖死，追踪控制率一起塌到 2Hz）。
+    #   取 1.0 ⇒ show 最多占一半时间，主循环至少拿回一半吞吐（≈30fps）；代价是预览刷新率
+    #   在极慢图传下降到 ~1fps。**想让预览更流畅就调小（但主循环更慢）；想追踪更快就调大。**
+    #   0 = 关闭保护（退回旧行为）。
+    SHOW_MIN_IDLE_RATIO = 1.0
     # ★ 慢帧的额外退避（秒）：仅 `SHOW_ASYNC=True` 的子进程路径使用（只补一点点）。
     #   旧值 2.0s 会让"图传一慢就睡 2 秒"，预览直接塌到 ~0.4fps（现场"画面极其卡顿"的来源之一）。
     SHOW_BACKOFF_S = 0.10
@@ -2885,7 +2894,7 @@ from vision.gimbal_aim import GimbalAim
 from vision.gimbal_self_test import GimbalSelfTest, probe_imu
 from vision.gimbal_calibrate import GimbalCalibrator, AutoCalibrate
 
-BUILD_ID = "2026-10-10-v0.3.2-v9track"
+BUILD_ID = "2026-10-11-v0.3.2-slowshow"
 
 
 def _preview_loop(frames, ready, closing, elapsed, max_ms, shown, slow,
@@ -2994,6 +3003,8 @@ class SyncPreview:
         self._period = self._base_period
         self._min_period = 1.0 / max(0.1, float(getattr(cfg, "SHOW_SLOW_MIN_FPS", 1.0)))
         self._slow_ms = float(cfg.SHOW_SLOW_MS)
+        # ★ 慢图传保护系数：见 config.SHOW_MIN_IDLE_RATIO（0 = 关闭，退回旧节拍）。
+        self._min_idle_ratio = max(0.0, float(getattr(cfg, "SHOW_MIN_IDLE_RATIO", 1.0)))
         self._next = 0.0
         # 与 AsyncPreview 对齐的统计量（子进程版是 mp.Value，用 _stat() 统一读取）。
         self.elapsed = 0.0
@@ -3029,8 +3040,15 @@ class SyncPreview:
             # 旧阈值 0.5×(=40ms) 在真机 MaixVision 上几乎不满足 → 一旦降速就长期钉在最低帧率
             # （现场"帧率过低"的来源之一）。0.7 的步进也让恢复更快。
             self._period = max(self._base_period, self._period * 0.7)
-        # 下一次显示 = 现在 + (目标周期 − 本次 show 耗时)，实际帧率才真正贴近目标。
-        self._next = time.perf_counter() + max(0.0, self._period - show_ms / 1000.0)
+        # 下一次显示 = 现在 + idle。idle 取两者较大：
+        #   ① 目标周期 − 本次 show 耗时（快图传时让实际帧率贴近 SHOW_FPS）；
+        #   ② 本次 show 耗时 × SHOW_MIN_IDLE_RATIO（**慢图传保护**：图传慢到 ≥ 目标周期时，
+        #      保证"show 之后至少等 ratio×show_s 的空闲"，主循环得以在间隙里全速跑）。
+        #   板端实测 show≈510ms 时，旧写法 ① 得 0 → 每个循环都 show → 主循环被钉在 ≈1.9fps；
+        #   新增 ② 后主循环回到 ≈30fps，代价是预览刷新率降到 ~1fps（见 config 注释）。
+        show_s = show_ms / 1000.0
+        idle = max(self._period - show_s, show_s * self._min_idle_ratio)
+        self._next = time.perf_counter() + idle
         return True
 
     def close(self):

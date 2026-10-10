@@ -26,7 +26,7 @@ from vision.gimbal_aim import GimbalAim
 from vision.gimbal_self_test import GimbalSelfTest, probe_imu
 from vision.gimbal_calibrate import GimbalCalibrator, AutoCalibrate
 
-BUILD_ID = "2026-10-10-v0.3.2-v9track"
+BUILD_ID = "2026-10-11-v0.3.2-slowshow"
 
 
 def _preview_loop(frames, ready, closing, elapsed, max_ms, shown, slow,
@@ -135,6 +135,8 @@ class SyncPreview:
         self._period = self._base_period
         self._min_period = 1.0 / max(0.1, float(getattr(cfg, "SHOW_SLOW_MIN_FPS", 1.0)))
         self._slow_ms = float(cfg.SHOW_SLOW_MS)
+        # ★ 慢图传保护系数：见 config.SHOW_MIN_IDLE_RATIO（0 = 关闭，退回旧节拍）。
+        self._min_idle_ratio = max(0.0, float(getattr(cfg, "SHOW_MIN_IDLE_RATIO", 1.0)))
         self._next = 0.0
         # 与 AsyncPreview 对齐的统计量（子进程版是 mp.Value，用 _stat() 统一读取）。
         self.elapsed = 0.0
@@ -170,8 +172,15 @@ class SyncPreview:
             # 旧阈值 0.5×(=40ms) 在真机 MaixVision 上几乎不满足 → 一旦降速就长期钉在最低帧率
             # （现场"帧率过低"的来源之一）。0.7 的步进也让恢复更快。
             self._period = max(self._base_period, self._period * 0.7)
-        # 下一次显示 = 现在 + (目标周期 − 本次 show 耗时)，实际帧率才真正贴近目标。
-        self._next = time.perf_counter() + max(0.0, self._period - show_ms / 1000.0)
+        # 下一次显示 = 现在 + idle。idle 取两者较大：
+        #   ① 目标周期 − 本次 show 耗时（快图传时让实际帧率贴近 SHOW_FPS）；
+        #   ② 本次 show 耗时 × SHOW_MIN_IDLE_RATIO（**慢图传保护**：图传慢到 ≥ 目标周期时，
+        #      保证"show 之后至少等 ratio×show_s 的空闲"，主循环得以在间隙里全速跑）。
+        #   板端实测 show≈510ms 时，旧写法 ① 得 0 → 每个循环都 show → 主循环被钉在 ≈1.9fps；
+        #   新增 ② 后主循环回到 ≈30fps，代价是预览刷新率降到 ~1fps（见 config 注释）。
+        show_s = show_ms / 1000.0
+        idle = max(self._period - show_s, show_s * self._min_idle_ratio)
+        self._next = time.perf_counter() + idle
         return True
 
     def close(self):
