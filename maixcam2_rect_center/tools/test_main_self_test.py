@@ -155,14 +155,18 @@ def test_fault_blocks_self_test_and_calibration():
 def test_tracking_filter_stops_reach_uart():
     """真实 main() 与 API 都要把控制器取消运动的决定发送为 0xFE，不能只停止生成新指令。"""
     with patch.dict(globals(), CLOCK_STEP_S=0.001):
+        # ★ v0.3.2：AIM_WAIT_MOTION=False（V9 背靠背发帧）时，控制器**不追踪"在途运动"**，
+        #   故死区/失锁/换向不会额外发 cancel-stop，只剩 main 正常退出的那一条 0xFE。
+        #   仅当开启 AIM_WAIT_MOTION 时才需要"取消在途运动"的额外 stop（=2 条）。
+        #   （cancel→0xFE 的机制覆盖仍由 test_gimbal_aim 的 _smooth_config 用例保证。）
+        expect_stops = 2 if getattr(entry.Config, "AIM_WAIT_MOTION", False) else 1
         for errors in ([100, 1], [100, None], [100, -100]):
             ports, _ = run(calibration="", iterations=2, tracking_errors=errors)
             yaw = ports[0]
             assert len(_motion_frames(yaw)) == 1, yaw.sent
             pulses = int.from_bytes(_motion_frames(yaw)[0][6:10], "big")
             assert pulses <= entry.Config.AIM_START_PULSES, pulses
-            # main 正常退出另外发一条 stop；退出前必须已因死区/失锁/换向发过 stop。
-            assert [p[1] for p in yaw.sent].count(0xFE) == 2, yaw.sent
+            assert [p[1] for p in yaw.sent].count(0xFE) == expect_stops, yaw.sent
     from target_api import AimLoop
     from vision.gimbal_aim import GimbalAim
 
@@ -188,7 +192,12 @@ def test_tracking_filter_stops_reach_uart():
     loop.tracker = types.SimpleNamespace(track=lambda frame, now: next(results))
     loop.step(None, now=0)
     stopped = loop.step(None, now=0.02)
-    assert loop.link.sent == [("yaw", 0xFD, entry.Config.AIM_START_PULSES, entry.Config.ACC_TRACK), ("yaw", 0xFE)], loop.link.sent
+    first = ("yaw", 0xFD, entry.Config.AIM_START_PULSES, entry.Config.ACC_TRACK)
+    if getattr(entry.Config, "AIM_WAIT_MOTION", False):
+        assert loop.link.sent == [first, ("yaw", 0xFE)], loop.link.sent
+    else:
+        # 背靠背模式（v0.3.2/V9）：进入死区只是"不再发新帧"，不额外发 cancel-stop。
+        assert loop.link.sent == [first], loop.link.sent
     assert stopped["aim_state"] == "SETTLE"
     print("PASS: main/API 大误差小步起动，死区/失锁/换向取消帧抵达电机链路")
 

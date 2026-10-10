@@ -22,7 +22,7 @@ ROOT = os.path.dirname(HERE)
 MAIN = os.path.join(ROOT, "main.py")
 
 # 恢复接线时顺便把入口构建号提到当前值（被整份覆盖时它也会一并退回旧值）。
-LATEST_BUILD = "2026-10-10-fps-honest-v20"
+LATEST_BUILD = "2026-10-10-v0.3.2-v9track"
 
 PATCHES = [
     (
