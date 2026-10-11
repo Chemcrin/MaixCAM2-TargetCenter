@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Step42 闭环步进驱动 / 42 导电滑环 —— 仓库借鉴分析</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#1c2430; --ink2:#4a5666; --ink3:#7b8798;
+    --line:#e3e7ee; --line2:#eef1f6;
+    --blue:#2563eb; --blue-bg:#eef4ff;
+    --green:#0f8a5f; --green-bg:#eaf7f1;
+    --amber:#b26a00; --amber-bg:#fff6e6;
+    --red:#c0392b; --red-bg:#fdeeec;
+    --purple:#6d4bb5; --purple-bg:#f3effd;
+    --mono:"Cascadia Mono","JetBrains Mono",Consolas,"Courier New",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+    font-size:15px;line-height:1.75;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:40px 24px 96px}
+
+  header.hero{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:30px 32px;margin-bottom:26px;box-shadow:0 1px 3px rgba(20,30,50,.05)}
+  header.hero .kicker{font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink3);font-weight:600;margin-bottom:10px}
+  header.hero h1{margin:0 0 12px;font-size:27px;line-height:1.35;letter-spacing:-.01em}
+  header.hero .sub{color:var(--ink2);font-size:14.5px}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+  .chip{font-size:12.5px;padding:4px 11px;border-radius:99px;background:#f2f4f8;
+    color:var(--ink2);border:1px solid var(--line);font-family:var(--mono)}
+
+  section{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:26px 30px;margin-bottom:22px;box-shadow:0 1px 3px rgba(20,30,50,.04)}
+  h2{margin:0 0 16px;font-size:20px;letter-spacing:-.01em;display:flex;align-items:baseline;gap:10px}
+  h2 .n{font-family:var(--mono);font-size:13px;color:var(--blue);background:var(--blue-bg);
+    border-radius:6px;padding:2px 8px;font-weight:600;flex:none}
+  h3{margin:24px 0 10px;font-size:16px;color:var(--ink)}
+  h4{margin:18px 0 8px;font-size:14.5px;color:var(--ink2);font-weight:600}
+  p{margin:10px 0}
+  ul,ol{margin:10px 0;padding-left:22px}
+  li{margin:5px 0}
+  code{font-family:var(--mono);font-size:12.8px;background:#f2f4f8;border:1px solid var(--line2);
+    border-radius:5px;padding:1px 5px;color:#33415c;white-space:nowrap}
+  pre{background:#f8f9fb;border:1px solid var(--line);border-left:3px solid var(--blue);
+    border-radius:8px;padding:14px 16px;overflow-x:auto;font-family:var(--mono);
+    font-size:12.6px;line-height:1.6;color:#33415c;margin:12px 0}
+  pre code{background:none;border:none;padding:0;white-space:pre}
+  .lead{font-size:16px;color:var(--ink2)}
+
+  table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13.6px}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:#f6f8fb;font-weight:600;color:var(--ink2);font-size:13px;white-space:nowrap}
+  td code{font-size:12.2px}
+  tbody tr:nth-child(even){background:#fcfdfe}
+
+  .grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin:14px 0}
+  .card{border:1px solid var(--line);border-radius:11px;padding:16px 18px;background:#fcfdfe}
+  .card h4{margin:0 0 6px;font-size:14.5px;color:var(--ink)}
+  .card p{margin:6px 0;font-size:13.6px;color:var(--ink2)}
+
+  .box{border-radius:10px;padding:14px 18px;margin:14px 0;border:1px solid;font-size:14px}
+  .box .tag{display:inline-block;font-size:12px;font-weight:700;letter-spacing:.05em;
+    padding:2px 9px;border-radius:99px;margin-bottom:6px}
+  .box.ok{background:var(--green-bg);border-color:#c9e8da}
+  .box.ok .tag{background:#d5f0e4;color:var(--green)}
+  .box.warn{background:var(--amber-bg);border-color:#f3e0bd}
+  .box.warn .tag{background:#fbe9c8;color:var(--amber)}
+  .box.stop{background:var(--red-bg);border-color:#f6d5d0}
+  .box.stop .tag{background:#fadbd6;color:var(--red)}
+  .box.info{background:var(--blue-bg);border-color:#d5e3fb}
+  .box.info .tag{background:#dbe7fd;color:var(--blue)}
+  .box p:first-of-type{margin-top:0}
+  .box p:last-child{margin-bottom:0}
+
+  .tierhead{display:flex;align-items:center;gap:12px;margin:24px 0 10px}
+  .tierhead .badge{font-family:var(--mono);font-weight:700;font-size:13px;color:#fff;
+    padding:3px 11px;border-radius:7px;flex:none}
+  .tierhead .t{font-size:15.5px;font-weight:600}
+  .tierhead .d{font-size:13px;color:var(--ink3)}
+  .bA{background:#0f8a5f}.bB{background:#2563eb}.bC{background:#7b8798}
+
+  .tl{border-left:2px solid var(--line);margin:16px 0 16px 6px;padding-left:0}
+  .tl .step{position:relative;padding:0 0 18px 24px}
+  .tl .step:last-child{padding-bottom:0}
+  .tl .step::before{content:"";position:absolute;left:-7px;top:7px;width:12px;height:12px;
+    border-radius:50%;background:#fff;border:2.5px solid var(--blue)}
+  .tl .step h4{margin:0 0 4px}
+  .tl .step p{margin:4px 0;font-size:13.8px;color:var(--ink2)}
+
+  td.c-red{color:#b23a2c;font-weight:600;white-space:nowrap}
+  td.c-amber{color:#a2620a;font-weight:600;white-space:nowrap}
+  td.c-green{color:#0d7a54;font-weight:600;white-space:nowrap}
+
+  .src{font-size:12.4px;color:var(--ink3);font-family:var(--mono)}
+  .src::before{content:"↳ "}
+  footer{color:var(--ink3);font-size:12.8px;text-align:center;padding:18px 0 0}
+  hr{border:none;border-top:1px solid var(--line);margin:22px 0}
+  .num{font-family:var(--mono);font-weight:600;color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="kicker">外部仓库调研 · 2026-10-08</div>
+  <h1>Step42 闭环步进驱动 / 42 导电滑环 —— 对当前项目的借鉴分析</h1>
+  <p class="sub">把两个上游仓库的设计与我们 B 轨（MaixCAM2 + 双 ZDT Emm_V5.0 云台闭环）逐项对齐，
+  筛出<strong>真正能落地的改进</strong>、<strong>值得付代价做架构改造的点</strong>，以及
+  <strong>明确不建议跟的部分</strong>。</p>
+  <div class="meta">
+    <span class="chip">github.com/1925loyve/Step42-ClosedLoop-Stepper-Drive</span>
+    <span class="chip">github.com/1925loyve/42-slip-ring</span>
+    <span class="chip">GPL-3.0-only（固件/SDK）</span>
+    <span class="chip">CERN-OHL-S-2.0（硬件）</span>
+  </div>
+</header>
+
+<section>
+  <h2><span class="n">结论</span>一句话</h2>
+  <p class="lead">两个仓库里<strong>只有 Step42 的固件有可抄价值</strong>，而且价值集中在一处：
+  它把「视觉只喂一个误差标量、驱动器自己跑 1 kHz 闭环、输出<em>速度</em>而不是<em>位置增量</em>」这套架构完整实现了，
+  并配了一整套围绕该架构的工程细节（预测补偿、连续增益、最小动作量、输入超时停机、遥测流）。
+  滑环仓库是纯机械件（3D 打印外壳 + 转接 PCB + BOM），
+  <strong>没有软件可抄</strong>，只在"将来真要走滑环过线"时作为机械参考 + 电气风险清单有用。</p>
+  <div class="box info">
+    <span class="tag">最关键的一条</span>
+    <p>我们现在的闭环是「每帧发一次<strong>相对脉冲增量</strong>」，被 <code>COMMAND_INTERVAL_S=0.08</code> 限到 <strong>≤12.5 Hz</strong>，
+    本质是一个低带宽位置环；步进电机每帧「起步—停」一次，方向每翻一次就要重吃一遍回差（≈9.7 px）。
+    Step42 的做法是「PID → <strong>速度指令</strong> → 驱动器连续走」，方向不变就不停，
+    且带 I 项后<strong>稳态误差与 <code>PULSE_PER_PX</code> 标定精度脱钩</strong> ——
+    这正好绕开我们登记在案的「3.67 是占位值」风险。</p>
+  </div>
+</section>
+
+<section>
+  <h2><span class="n">01</span>两个仓库到底是什么</h2>
+
+  <h3>1.1 Step42 —— 背挂式 42 步进闭环驱动器</h3>
+  <p>作者自己做的 ZDT 类闭环驱动器替代方案：<strong>STM32G431CBT6 + TMC2209 + MT6701 磁编码器</strong>，
+  一个 42mm 步进电机背面的控制板。三种通信：UART（二进制帧）/ Classic CAN 500 kbit/s / 舵机式 PWM 位置输入，
+  由两个开机采样的拨码开关选择。</p>
+<pre><code>Step42-ClosedLoop-Stepper-Drive/
+├── hardware/  ProPrj_ST-T42 V1.2_2026-08-20.epro2   (立创EDA专业版工程)
+└── firmware/
+    ├── STM32G431CBT6_test/     Keil + CubeMX 工程
+    │   ├── Core/  main.c  (外设)         UART_PROTOCOL.md  ← 协议说明
+    │   └── Src/   Step42Control.c (61KB) Step42Comms.c (48KB)
+    │              Step42Tracking.c ← ★ 外部误差跟踪 PID
+    │              Stepper.c        ← ★ 速度模式 + S/T 曲线规划
+    │              MT6701.c  Tmc2209.c  pid.c  Step42Sensors.c
+    ├── SDK/       step42_protocol.h/.c  ← 传输无关的帧构造/解析
+    │              step42_stm32_hal.* / step42_can_transport.*
+    ├── release/   ST-T42_V1.2.hex
+    └── tools/upper-computer/  Step42上位机.exe (11.9 MB)</code></pre>
+  <p class="src">firmware/STM32G431CBT6_test/Src/Step42Control.h、UART_PROTOCOL.md、SDK/README.md</p>
+
+  <h3>1.2 42-slip-ring —— 42mm 导电滑环的机械封装</h3>
+  <pre><code>42-slip-ring/
+├── 3d_model模型/  导电滑环底板外壳.stl / 顶板外壳.stl / 整外壳.stl
+├── PCB文件/       导电滑环底板.epro2 / 导电滑环顶板.epro2
+├── BOM清单/BOM清单.txt
+└── LICENSE        CERN-OHL-S-2.0</code></pre>
+  <p>BOM 全文只有九行：3 件 3D 打印外壳、2 块沉金转接 PCB、<strong>充电座弹片 6P 间距 2.0mm ×2~4</strong>、
+  M3 铜柱/螺丝若干、杜邦铜线若干。<strong>滑环本体需自行采购</strong> —— 这个仓库给的是"壳 + 转接板 + 弹片触点"的装配方案，
+  不是滑环的电气规格书（额定电流/通路数/接触电阻/转速全都没有）。</p>
+  <p class="src">BOM清单/BOM清单.txt（原文：<code>采购- 充电座弹片6p间距2.0 x（2 or 4）</code>）</p>
+</section>
+
+<section>
+  <h2><span class="n">02</span>Step42 值得学的五个设计</h2>
+
+  <h3>① 内外环分层：视觉 60 fps 喂误差，驱动器 1 kHz 跑环</h3>
+  <p>它的 <code>TRACK_PID</code> 模式专门为"视觉模块"设计。视觉端只需发一行 ASCII 十进制整数（换行结束），
+  不带 CRC、不带 ACK，40 Hz~60 Hz 都够用；驱动器在 1 kHz 节拍上继续跑 PID，
+  <strong>帧间自己外推</strong>，并在输入超时（默认 250 ms）后自动停机。</p>
+<pre><code>-123\n          ← 视觉端唯一要发的东西（范围 -10000 ~ +10000）</code></pre>
+  <p>关键取舍：<em>高频通道（视觉误差）与低频通道（控制指令）分离</em>。
+  换行作帧边界意味着丢字节永远不会让解析器永久错位 —— 二进制帧一旦错位可能长期失步。</p>
+  <p class="src">UART_PROTOCOL.md §"Visual Error Fast Path"；Step42Comms.c <code>Ctrl_ParseVisionError()</code> / <code>Ctrl_ProcessVisionErrorByte()</code></p>
+
+  <h3>② 误差低通 + <em>导数外推</em>，而不是"用原始值换低滞后"</h3>
+  <p>它不靠降低滤波强度来换相位，而是先低通保留抑噪，再用滤波误差的导数把误差<strong>超前外推</strong>
+  <code>prediction_ms</code> 毫秒：</p>
+<pre><code>filtered  += alpha * (raw - filtered);          // alpha 默认 0.25
+derivative = (filtered - prev_filtered) / dt;
+predicted  = filtered + derivative * prediction_ms * 0.001;</code></pre>
+  <p class="src">Step42Tracking.c <code>Step42Tracking_Update()</code>，第 241–254 行</p>
+  <div class="box warn">
+    <span class="tag">直接命中我们的痛点</span>
+    <p>我们因为「<code>CENTER_ALPHA=0.70</code> 附加 ≈28 ms 滞后、底盘运动时直接变瞄准误差」，
+    只好把闭环口径切成 <code>AIM_USE_RAW=True</code> —— 用"完全不滤"换相位，代价是噪声全进闭环。
+    这个外推项让两个目标<strong>可以同时拿到</strong>，而且几乎不增加算力（每帧两次减法 + 一次乘加）。</p>
+  </div>
+
+  <h3>③ 连续增益调度，而不是二段硬切换</h3>
+  <pre><code>gain = gain_min + (gain_max - gain_min) * clamp(|predicted| / full_error, 0, 1)</code></pre>
+  <p>误差越大增益越高，按误差幅值<strong>线性插值</strong>。<code>full_error</code> 是"满增益误差"。
+  好处很实际：在切换点附近不会产生指令突变（我们不连续，<code>|e|</code> 跨过 24 px 时增益从 0.5 跳到 0.9），
+  对云台这种有惯性的负载，突变就是一次可听可见的抖动。</p>
+  <p class="src">Step42Tracking.c 第 255–257 行，参数经 <code>0x12 TRACK_ADVANCED</code> 下发</p>
+
+  <h3>④ "决定要动，就至少动这么多"——最小修正速度</h3>
+<pre><code>#define WEAK_PID_MIN_CORRECTION_SPEED (80.0f)   // steps/s
+if ((output > 0) &amp;&amp; (output &lt; 80.0f))  output = 80.0f;
+if (AbsF(output) &lt; 1.0f) { Stepper_Stop(...); return; }</code></pre>
+  <p>逻辑是分段的：小于 1 steps/s → 干脆停；在 1~80 之间 → 抬到 80。它拒绝"以极低速爬行"这个区间，
+  因为静摩擦 + 回差会让爬行变成"抖而不动"。<strong>这一条对我们尤其对味</strong>：我们的闭环有
+  <code>MAX_STEP_PULSES=360</code> 上限，却<strong>没有下限</strong>，理论上可以发出 1 脉冲的指令 —— 那连回差都咬不穿。</p>
+  <p class="src">Step42Control.c <code>WeakPID_Update()</code> 第 933–971 行</p>
+
+  <h3>⑤ 换向清停 + 斜率限制 + 超时停机，三件事缺一不可</h3>
+  <ul>
+    <li><strong>换向清停</strong>：速度模式下一旦目标速度与当前速度符号相反，先 <code>Stepper_Stop()</code> 再反向重启，
+      不做"直接翻转"（步进电机直接反相会丢步）。</li>
+    <li><strong>斜率限制</strong>：支持梯形与 S 曲线两档，S 曲线用 <code>jerk = accel / 30 ms</code> 限加加速度，
+      并在脉冲级（TIM1 中断里）逐脉冲更新 <code>ARR</code>，规划器与 PID 的职责严格分离
+      （<em>TIM6 里的 PID 只写 target_speed，永不写 TIM1 的时序寄存器</em>）。</li>
+    <li><strong>超时停机</strong>：<code>timeout_ms</code>（默认 250 ms）内没收到新的误差 → 停。</li>
+  </ul>
+  <p class="src">Stepper.c <code>Stepper_UpdateSCurveAtPulse()</code> / <code>Stepper_Set_Speed_Profile()</code>；Step42Tracking.c 第 234 行</p>
+</section>
+
+<section>
+  <h2><span class="n">03</span>逐项对照：Step42 vs 我们（B 轨云台闭环）</h2>
+  <table>
+    <thead>
+      <tr><th>维度</th><th>Step42 固件</th><th>我们当前（B 轨）</th><th>差距性质</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>闭环执行位置</strong></td>
+        <td>驱动器内部 <strong>1 kHz</strong>（可配 1–10 kHz）</td>
+        <td>MaixCAM2 主循环，被 <code>COMMAND_INTERVAL_S=0.08</code> 限到 <strong>≤12.5 Hz</strong></td>
+        <td class="c-red">架构差</td>
+      </tr>
+      <tr>
+        <td><strong>控制量</strong></td>
+        <td>速度 steps/s → 速度模式持续走</td>
+        <td>相对脉冲数 → <code>0xFD mode=0</code>（每帧走完就停）</td>
+        <td class="c-red">架构差</td>
+      </tr>
+      <tr>
+        <td><strong>视觉输入</strong></td>
+        <td>一个带符号整数（换行结束，无 CRC 无 ACK）</td>
+        <td><code>dx</code>/<code>dy</code> 两个分量，走二进制帧</td>
+        <td class="c-green">我们更精细</td>
+      </tr>
+      <tr>
+        <td><strong>误差滤波</strong></td>
+        <td>一阶低通 <code>alpha=0.25</code></td>
+        <td><code>AIM_USE_RAW=True</code>，闭环<strong>完全不滤</strong>（为避 28 ms 滞后）</td>
+        <td class="c-red">可互补</td>
+      </tr>
+      <tr>
+        <td><strong>相位补偿</strong></td>
+        <td><code>prediction_ms</code> 导数外推（默认 0，可开）</td>
+        <td>无</td>
+        <td class="c-red"><strong>纯缺口</strong></td>
+      </tr>
+      <tr>
+        <td><strong>增益</strong></td>
+        <td>连续插值 <code>gain_min…gain_max</code> / <code>full_error=10</code></td>
+        <td>二段硬切换：<code>|e|&gt;COARSE_PX(24)</code> → 0.9，否则 0.5</td>
+        <td class="c-amber">可改进</td>
+      </tr>
+      <tr>
+        <td><strong>死区</strong></td>
+        <td>单环/外环/内环<strong>各有独立 deadband</strong></td>
+        <td>全局 <code>DEADBAND_PX=2.0</code></td>
+        <td class="c-amber">可改进</td>
+      </tr>
+      <tr>
+        <td><strong>积分项</strong></td>
+        <td>有 I，带 <code>integral_limit</code> 钳位</td>
+        <td>无 I 项（纯比例 + 步进电机自身积分特性）</td>
+        <td class="c-amber">可改进</td>
+      </tr>
+      <tr>
+        <td><strong>最小动作量</strong></td>
+        <td>≥80 steps/s，否则停</td>
+        <td>无下限（可发 1 脉冲）</td>
+        <td class="c-red"><strong>纯缺口</strong></td>
+      </tr>
+      <tr>
+        <td><strong>单帧限幅</strong></td>
+        <td>输出钳到 <code>max_speed</code></td>
+        <td><code>MAX_STEP_PULSES=360</code></td>
+        <td class="c-green">持平</td>
+      </tr>
+      <tr>
+        <td><strong>加减速规划</strong></td>
+        <td>梯形 / S 曲线（jerk 限制，ramp 30 ms）</td>
+        <td><code>ACC_DEFAULT=0</code>（不做规划）</td>
+        <td class="c-amber">可改进</td>
+      </tr>
+      <tr>
+        <td><strong>离群拒收</strong></td>
+        <td>无独立机制（靠 <code>full_error</code> 与限幅）</td>
+        <td><code>JUMP_REJECT_PX=400</code> × 连续 3 帧</td>
+        <td class="c-green">我们更强</td>
+      </tr>
+      <tr>
+        <td><strong>失链保护</strong></td>
+        <td>输入超时 250 ms → 自动停</td>
+        <td>E2 洪水 + ACK 硬超时 → FAULT；视觉失效 → HOLD（不发指令）</td>
+        <td class="c-green">我们更严（但缺"主动停"）</td>
+      </tr>
+      <tr>
+        <td><strong>协议</strong></td>
+        <td><code>A5 5A LEN CMD SEQ PAYLOAD CRC8</code>，7 种状态码，SEQ 回显匹配</td>
+        <td>ZDT 固定 <code>0x6B</code> 校验，无 SEQ，只判"有没有确认帧"</td>
+        <td class="c-amber">可改进</td>
+      </tr>
+      <tr>
+        <td><strong>遥测</strong></td>
+        <td>可开周期遥测流（误差/输出/位置/转速/温度）</td>
+        <td>每 2 s 一行日志 + <code>status_line()</code></td>
+        <td class="c-amber">可改进</td>
+      </tr>
+      <tr>
+        <td><strong>温度/堵转</strong></td>
+        <td>ADC 过温锁停 + 堵转故障 + LED 分级闪烁</td>
+        <td>靠 ZDT 自身的 <code>0xE2</code> 上报</td>
+        <td class="c-green">够用</td>
+      </tr>
+    </tbody>
+  </table>
+  <p style="font-size:13.4px;color:var(--ink3)">对照依据：<code>maixcam2_rect_center/config.py</code>（云台组/闭环口径/链路健康组）、
+  <code>vision/gimbal_aim.py</code>、<code>vision/stepper_link.py</code>、<code>main.py</code> 主循环。</p>
+</section>
+
+<section>
+  <h2><span class="n">04</span>借鉴清单（按"该不该现在做"分三档）</h2>
+
+  <div class="tierhead"><span class="badge bA">A 档</span>
+    <span class="t">立刻可抄 · 低风险 · 不改架构</span>
+    <span class="d">预计只动 2~3 个文件 + 加若干 config 项</span></div>
+  <table>
+    <thead><tr><th>#</th><th>改什么</th><th>落地位置</th><th>为什么值</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>A1</td>
+        <td><strong>误差导数外推</strong>（借鉴 <code>prediction_ms</code>）</td>
+        <td><code>config.py</code> 新增 <code>PREDICT_MS</code>；<code>gimbal_aim</code> 或 <code>laser_spot.deviation</code>
+          后加一级一阶低通 + 外推</td>
+        <td>补掉 <code>CENTER_ALPHA=0.70</code> 的 ≈28 ms 滞后，同时把噪声滤掉 ——
+          不再是"滤噪 vs 相位"二选一</td>
+      </tr>
+      <tr>
+        <td>A2</td>
+        <td><strong>二段增益 → 连续增益</strong></td>
+        <td><code>config.py</code> 加 <code>GAIN_FULL_PX</code>；改写 <code>gimbal_aim._gain()</code></td>
+        <td>消除 <code>|e|=24px</code> 处 0.5↔0.9 的指令突变；代码量约 5 行</td>
+      </tr>
+      <tr>
+        <td>A3</td>
+        <td><strong>最小动作量</strong>（借鉴 80 steps/s 那条）</td>
+        <td><code>config.py</code> 加 <code>MIN_STEP_PULSES</code>；<code>gimbal_aim._axis_command()</code>
+          的 <code>max(1, …)</code> 改成 <code>max(MIN_STEP_PULSES, …)</code></td>
+        <td>直接缓解"回差 1°≈9.7px 吃掉整个预算"：要么不动，要么一步咬穿回差</td>
+      </tr>
+      <tr>
+        <td>A4</td>
+        <td><strong>失锁后主动停机</strong></td>
+        <td><code>config.py</code> 加 <code>LOST_STOP_FRAMES</code>；<code>gimbal_aim._on_lost()</code>
+          在 <code>HOLD</code> 累计到阈值时返回一个 stop 动作，由 <code>AimLoop</code> 调 <code>link.stop()</code></td>
+        <td>现在 HOLD 只是<em>不发指令</em>。若将来改成速度模式，不发指令 = 一直按上次速度走，
+          这是安全事故。即便保持位置模式，"主动停"也更明确</td>
+      </tr>
+      <tr>
+        <td>A5</td>
+        <td><strong>ACK 看门狗加 SEQ/命令回显匹配</strong></td>
+        <td><code>stepper_link._ingest()</code>：记录最近发出的命令，比对返回帧功能码</td>
+        <td>现在只判"有没有收到确认帧"，不判"回的是不是我刚发的那条"。多轴/混合命令时可能误判健康</td>
+      </tr>
+      <tr>
+        <td>A6</td>
+        <td><strong>遥测流</strong>（借鉴 <code>0x06 Stream</code>）</td>
+        <td><code>main.py</code>：新增 <code>TELEMETRY_INTERVAL_S</code>，周期打印
+          <code>yaw: e/out/rpm/ok/e2</code> 结构化的单行 CSV</td>
+        <td>PC 侧可以直接喂进脚本画波形调参；现在 2 s 一行日志基本没法调 PID</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="tierhead"><span class="badge bB">B 档</span>
+    <span class="t">值得做的架构改造 · 中等风险 · 收益最大</span>
+    <span class="d">建议先在 PC 仿真里跑通再上板</span></div>
+
+  <div class="box ok">
+    <span class="tag">B1 · 首推</span>
+    <p><strong>把"每帧相对脉冲增量"改成"速度指令"闭环。</strong>
+    好消息是<strong>管道已经铺好了</strong>：<code>vision/stepper_link.py</code> 里
+    <code>cmd_speed()</code>（ZDT <code>0xF6</code>）和 <code>link.speed()</code> 都已实现并有单测
+    （<code>tools/test_gimbal_aim.py</code> 第 84 行逐字节校验），只是闭环路径<strong>没调用</strong>它。</p>
+    <p>收益：</p>
+    <ul>
+      <li>方向不变就<strong>不停</strong>，回差只在真正换向时吃一次（现在是每帧都吃）；</li>
+      <li>加上 I 项后<strong>稳态误差与 <code>PULSE_PER_PX</code> 精度解耦</strong> ——
+        直接绕开"3.67 是占位值、标定错就正反馈"的风险；</li>
+      <li>12.5 Hz 的更新率不再是硬瓶颈：速度指令的低频更新只影响加速快慢，不影响稳态指向。</li>
+    </ul>
+    <p>必须同时补上的三件事（缺一个就会出问题）：<strong>斜率限制</strong>（限制相邻两帧速度指令的变化量）、
+    <strong>换向清停</strong>（借用 Step42 的 <code>stop → 反向 restart</code>）、
+    <strong>超时停机</strong>（A4）。ZDT 速度模式的 <code>acc</code> 参数与我们现在的
+    "增量闭环必须 acc=0"经验不冲突 —— 那是位置模式的约束。</p>
+  </div>
+
+  <div class="box info">
+    <span class="tag">B2 · 可选，需评估</span>
+    <p><strong>把内环下放到 MSPM0G3507。</strong>
+    Step42 之所以稳，根子在于"环在电机旁边、跑 1 kHz"。我们没有这样的驱动器能力（ZDT 不支持外部误差输入），
+    但我们有一条现成的 <strong>MaixCAM2 ↔ 3507 的 SPI 链路</strong>。
+    理论上可以让 3507 跑 200 Hz~1 kHz 的位置/速度环，MaixCAM2 只经 SPI 喂 <code>dx/dy</code>，
+    这样视觉帧率抖动不会直接进入控制环。</p>
+    <p><strong>代价</strong>：多一跳延迟（SPI + 3507 调度）、3507 要占引脚和算力、调试面扩大一倍。
+    <strong>建议</strong>：先做 B1；只有当实测发现"12.5 Hz 外环带宽真的不够"时，再考虑 B2。
+    不要为了架构漂亮而先做 B2。</p>
+  </div>
+
+  <div class="box info">
+    <span class="tag">B3 · 可选</span>
+    <p><strong>串级控制：外环视觉误差 → 内环陀螺角速度。</strong>
+    Step42 的 <code>TRACK_CASCADE</code> 模式就是"<code>outer</code>（慢，视觉误差）+ <code>inner</code>（快，陀螺/速率反馈）"。
+    我们 <code>main.py</code> 已经有 <code>probe_imu()</code> 探测到 IMU
+    （日志 <code>[imu] sample via …</code>）。若打算做"底盘运动时瞄准"，陀螺进内环比在视觉误差上做外推（A1）更本质
+    —— 视觉误差里混了底盘运动和真实瞄准误差，陀螺能干净地分离出前者。</p>
+  </div>
+
+  <div class="tierhead"><span class="badge bC">C 档</span>
+    <span class="t">备查 · 现在不做，但记一笔</span></div>
+  <ul>
+    <li><strong>自研驱动板选型</strong>：STM32G431 + TMC2209 + MT6701（14 bit，SPI，帧带 CRC-6 <code>x⁶+x+1</code>）
+      —— 若将来要脱离 ZDT 做定制板，这套 BOM 与 <code>SDK/step42_protocol.c</code> 可直接抄。</li>
+    <li><strong>CAN 传输</strong>：同一套帧拆成 8 字节 CAN 包（<code>A0</code> 起始 / <code>B1..BF</code> 续帧），
+      ID <code>0x300+node</code> / <code>0x340+node</code>，30 ms 内顺序到达，端到端 CRC 不变。
+      若将来云台总线化（多轴 + 3507 共线），这是现成模板。</li>
+    <li><strong>Flash 配置持久化</strong>：<code>magic + version + CRC</code> 结构体 + 保留旧版布局以便兼容读取。
+      我们的标定结果目前靠"打印 → 人工回填 <code>config.py</code>"，可参考这个做法落盘。</li>
+    <li><strong>调试口权限隔离</strong>：Step42 在 CAN 模式下把 Debug UART 限制为"只能 Query/遥测/调 PID"，
+      <strong>禁止发运动指令</strong>。我们可以照做：MaixVision/串口调试只读，运动指令只走电机串口。</li>
+    <li><strong>状态码集合</strong>：<code>OK / BAD_LEN / RANGE / UNKNOWN_CMD / BAD_MODE / BUSY / DENIED</code>
+      —— 比"成功/失败"两态更能定位问题。</li>
+  </ul>
+</section>
+
+<section>
+  <h2><span class="n">05</span>滑环仓库：能给什么、不能给什么</h2>
+  <table>
+    <thead><tr><th>它能给的</th><th>它给不了的</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>
+          <ul style="margin:0">
+            <li>42mm 滑环的<strong>机械封装</strong>：三件 3D 打印外壳（顶板/底板/整壳）STL</li>
+            <li>顶/底板<strong>转接 PCB</strong>（立创EDA 专业版工程，含导入说明）</li>
+            <li>装配 BOM：6P 2.0mm 弹片触点 ×2~4、M3 铜柱螺丝、杜邦线</li>
+            <li>作者 B 站 UID（源视频出处）</li>
+          </ul>
+        </td>
+        <td>
+          <ul style="margin:0">
+            <li><strong>滑环本体规格全无</strong>：通路数、额定电流/电压、转速、接触电阻、寿命</li>
+            <li><strong>没有任何软件</strong>（无固件、无驱动、无协议）</li>
+            <li>没有走线方案说明（哪几路进滑环、几根线、屏蔽怎么做）</li>
+          </ul>
+          <p style="margin-top:8px"><strong>结论：纯机械参考件</strong>。软件层面零可借鉴。</p>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>如果将来真要走滑环过线 —— 四条电气提醒</h3>
+  <div class="box warn">
+    <span class="tag">与我们的现状直接相关</span>
+    <ol>
+      <li><strong>UART 穿滑环会引入接触噪声与瞬时断路。</strong>这恰好印证了 B 轨已经做的
+        <strong>ACK 硬超时 + E2 洪水看门狗</strong>是对的方向；若板端实测误码变多，
+        建议<strong>降波特率</strong>（115200 → 57600 甚至 38400）并补 CRC + 重传，而不是加大重试次数硬扛。</li>
+      <li><strong>电机相电流不要过滑环。</strong>斩波噪声会串进信号线；且滑环接触电阻波动会让驱动器供电跌落，
+        被误判为 <code>0xE2</code>（未使能/堵转）甚至复位 —— 而我们现在的策略是 E2 洪水直接 FAULT 停机，
+        会产生"莫名其妙就停了"的假故障。</li>
+      <li><strong>电源与信号走不同环道</strong>，信号线尽量双绞 + 就近接地，弹片触点选镀金。</li>
+      <li>若云台需<strong>连续 360° 旋转</strong>（而不是现在的往复摆动），滑环才有必要；
+        否则线束的"软限位 + 累计脉冲上限"（我们已有 <code>SCAN_LIMIT_PULSES</code> 这类思路）更便宜可靠。</li>
+    </ol>
+  </div>
+</section>
+
+<section>
+  <h2><span class="n">06</span>明确不建议跟的地方</h2>
+  <table>
+    <thead><tr><th>Step42 的做法</th><th>为什么我们不跟</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>把 PID 放进驱动器，视觉只喂一个标量误差</td>
+        <td>ZDT Emm_V5.0 <strong>不支持外部误差输入</strong>，这条路在我们的硬件上不存在。
+          能借的是"输出速度而非位置增量"这个结果（即 B1），不是它的实现方式。</td>
+      </tr>
+      <tr>
+        <td>ASCII 纯文本误差通道（无 CRC、无 ACK）</td>
+        <td>我们能直接拿到 <code>dx</code>/<code>dy</code> 两个分量，二进制帧更省带宽也更精确。
+          它的 ASCII 通道是为了"让任何视觉模块都能 5 分钟接上"，我们没有这个兼容性需求。
+          唯一值得记的是<strong>设计思想</strong>：高频数据通道和低频控制通道分开。</td>
+      </tr>
+      <tr>
+        <td><code>program</code> 程序化运动（8 步、可存 Flash、KEY1 长按离线运行）</td>
+        <td>我们的任务是实时瞄准，不是跑示教程序。复杂度远大于收益。</td>
+      </tr>
+      <tr>
+        <td>整块移植 <code>Step42Control.c</code>（61 KB）</td>
+        <td>它是"驱动器固件"，我们的 <code>gimbal_aim.py</code> 只有 178 行、是"外环控制器"。
+          移植会产生大量无用抽象。只抄算法片段（<code>Step42Tracking.c</code> 300 行不到）。</td>
+      </tr>
+      <tr>
+        <td>直接使用它的硬件替代 ZDT 驱动器</td>
+        <td>硬件是 CERN-OHL-S-2.0（强互惠）+ 固件 GPL-3.0-only：一旦基于它做修改并对外分发，
+          有源码公开义务。电赛作品通常不涉及分发，但若后续要开源/商用需先确认许可影响。
+          <strong>纯"读代码学思路"不受影响。</strong></td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2><span class="n">07</span>建议的落地顺序</h2>
+  <div class="tl">
+    <div class="step">
+      <h4>第 1 步 · 只改控制律，不动链路（A1 + A2 + A3）</h4>
+      <p>在 <code>gimbal_aim.py</code> 里加"低通 + 外推"、把二段增益换成连续插值、加最小动作量下限。
+      三个都可以在 PC 上用现成的 <code>tools/test_gimbal_aim.py</code> 离线回归（该测试已有闭环收敛用例）。</p>
+    </div>
+    <div class="step">
+      <h4>第 2 步 · 补安全项（A4 + A5）</h4>
+      <p>失锁主动停机 + ACK 带命令回显匹配。这两条是 B1 的前置条件 —— 没有它们就切速度模式是危险的。</p>
+    </div>
+    <div class="step">
+      <h4>第 3 步 · 加遥测流（A6）</h4>
+      <p>先把"看得见"做好。切速度模式后如果没有结构化遥测，调参基本靠猜。</p>
+    </div>
+    <div class="step">
+      <h4>第 4 步 · 上板标定，拿到真实回差与 <code>PULSE_PER_PX</code></h4>
+      <p>跑现有的 <code>CALIBRATE_AXIS="yaw"/"pitch"</code> 各一次。这一步是 B1 能不能成的判据来源：
+      实测回差有多大，直接决定 <code>MIN_STEP_PULSES</code> 和死区该取多少。</p>
+    </div>
+    <div class="step">
+      <h4>第 5 步 · 切速度模式闭环（B1）</h4>
+      <p>写一个 <code>SpeedAim</code> 变体（复用 <code>GimbalAim</code> 状态机 + <code>link.speed()</code>），
+      与现有位置增量闭环<strong>同进程 A/B 对照</strong>（沿用本项目"性能结论必须交错对比"的铁律）。
+      实测确实更好再切默认。</p>
+    </div>
+    <div class="step">
+      <h4>第 6 步 · 视结果决定是否做 B2 / B3</h4>
+      <p>只有当实测证明 12.5 Hz 外环带宽真不够、或底盘运动时瞄准误差压不下来，才考虑
+      3507 内环（B2）或陀螺串级（B3）。</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  报告基于 <strong>2026-08-20</strong> 提交的仓库快照（<code>Step42</code> @ <code>511e659</code>、<code>42-slip-ring</code> @ <code>aed9f2a</code>）<br>
+  逐字节核对过 <code>step42_protocol.h</code> / <code>Step42Tracking.c</code> / <code>Stepper.c</code> / <code>UART_PROTOCOL.md</code> / <code>Tmc2209.c</code> 等源文件
+</footer>
+
+</div>
+</body>
+</html>

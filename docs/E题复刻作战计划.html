@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2025电赛E题「简易自行瞄准装置」复刻作战计划</title>
+<style>
+:root{
+  --bg:#f5f6f9; --card:#ffffff; --ink:#161b26; --ink2:#48536b; --ink3:#8b95a8;
+  --line:#e4e8ef; --accent:#2563eb; --accent-soft:#e9effd;
+  --warn:#c2740c; --warn-soft:#fdf2e3;
+  --ok:#047857; --ok-soft:#e5f5ef;
+  --danger:#c62828; --danger-soft:#fdecec;
+  --purple:#6d28d9; --purple-soft:#f2ebfd;
+  --teal:#0d7f76; --teal-soft:#e2f4f2;
+  --pink:#be1a63; --pink-soft:#fdeaf3;
+  --cyan:#0e7490; --cyan-soft:#e3f2f7;
+  --slate:#5a6579;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);
+ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+ line-height:1.68;-webkit-font-smoothing:antialiased;font-size:15px}
+.wrap{max-width:1100px;margin:0 auto;padding:44px 26px 90px}
+
+/* hero */
+.hero{background:linear-gradient(135deg,#1e3a8a 0%,#2563eb 55%,#0d9488 100%);
+ border-radius:18px;padding:36px 34px;color:#fff;position:relative;overflow:hidden;
+ box-shadow:0 14px 36px rgba(30,58,138,.22)}
+.hero:after{content:"";position:absolute;right:-70px;top:-70px;width:260px;height:260px;
+ border-radius:50%;background:rgba(255,255,255,.08)}
+.hero .tagline{font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;opacity:.78;font-weight:600}
+.hero h1{margin:10px 0 6px;font-size:30px;line-height:1.28;font-weight:800;letter-spacing:-.01em}
+.hero p{margin:0;opacity:.9;font-size:14.5px;max-width:760px}
+.hero .meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
+.chip{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.26);
+ padding:6px 13px;border-radius:999px;font-size:13px;font-weight:600;backdrop-filter:blur(4px)}
+
+/* sections */
+section{margin-top:44px}
+h2{font-size:20px;font-weight:800;margin:0 0 6px;letter-spacing:-.01em;display:flex;align-items:center;gap:10px}
+h2 .n{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;flex:0 0 26px;
+ background:var(--accent);color:#fff;border-radius:8px;font-size:13px;font-weight:800}
+.sub{color:var(--ink2);font-size:13.5px;margin:0 0 18px;padding-left:36px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+ box-shadow:0 1px 3px rgba(20,30,60,.05)}
+
+/* table */
+.tbl{width:100%;border-collapse:collapse;font-size:13.6px;overflow:hidden;border-radius:14px}
+.tbl th{background:#f0f3f8;color:var(--ink2);font-weight:700;text-align:left;
+ padding:11px 14px;font-size:12.5px;letter-spacing:.03em;border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+.tbl tr:last-child td{border-bottom:none}
+.tbl tr:hover td{background:#fafbfd}
+.tbl .num{font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent)}
+.pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;font-weight:700;white-space:nowrap}
+.p0{background:var(--danger-soft);color:var(--danger)}
+.p1{background:var(--warn-soft);color:var(--warn)}
+.p2{background:#eef1f6;color:var(--slate)}
+.g0{background:var(--ok-soft);color:var(--ok)}
+
+/* gantt */
+.gantt{padding:20px 22px 14px}
+.g-legend{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:18px;font-size:12.5px;color:var(--ink2)}
+.g-legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.g-axis{display:grid;grid-template-columns:212px 1fr;align-items:end;margin-bottom:6px}
+.g-axis .ticks{position:relative;height:30px}
+.g-axis .ticks .tk{position:absolute;bottom:0;transform:translateX(-50%);font-size:11.5px;
+ color:var(--ink3);font-weight:700;white-space:nowrap}
+.g-axis .ticks .tk b{display:block;color:var(--ink2);font-size:12px}
+.g-track{position:relative;display:grid;grid-template-columns:212px 1fr;align-items:center;
+ min-height:34px;border-radius:8px}
+.g-track:nth-child(even){background:#fafbfd}
+.g-track .lbl{font-size:13px;padding:7px 12px 7px 2px;color:var(--ink);font-weight:600;
+ display:flex;align-items:center;gap:7px;line-height:1.35}
+.g-track .lbl em{font-style:normal;font-size:11px;color:var(--ink3);font-weight:600;white-space:nowrap}
+.g-rail{position:relative;height:34px}
+.g-bar{position:absolute;top:50%;transform:translateY(-50%);height:20px;border-radius:6px;
+ font-size:11px;color:#fff;font-weight:700;display:flex;align-items:center;padding:0 8px;
+ white-space:nowrap;overflow:hidden;box-shadow:0 1px 3px rgba(20,30,60,.16)}
+.g-band{position:absolute;top:0;bottom:0;width:4.76%;background:repeating-linear-gradient(45deg,#e6e9f0,#e6e9f0 5px,#eef1f6 5px,#eef1f6 10px);
+ border-radius:4px;z-index:0}
+.g-grid{position:absolute;inset:0;pointer-events:none;z-index:0}
+.g-grid span{position:absolute;top:0;bottom:0;width:1px;background:#edf0f5}
+.g-grid span.day{background:#dbe1ea}
+.g-ms{position:absolute;top:50%;transform:translate(-50%,-50%);z-index:3;
+ background:#fff;border:2px solid var(--ok);color:var(--ok);font-size:10.5px;font-weight:800;
+ padding:1px 7px;border-radius:999px;white-space:nowrap}
+.milestone-row{display:grid;grid-template-columns:212px 1fr;align-items:center;
+ background:#f4f8ff;border:1px dashed #b9cdf3;border-radius:9px;margin:8px 0;padding:9px 12px 9px 2px}
+.milestone-row .mlbl{font-size:12.5px;font-weight:800;color:var(--accent);padding-left:2px}
+.milestone-row .mtext{font-size:12.8px;color:var(--ink2)}
+.milestone-row .mtext b{color:var(--ink)}
+
+/* misc */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;
+ box-shadow:0 1px 3px rgba(20,30,60,.05)}
+.box h3{margin:0 0 10px;font-size:15px;font-weight:800;display:flex;align-items:center;gap:8px}
+.box h3 .dot{width:8px;height:8px;border-radius:50%;flex:0 0 8px}
+.box ul{margin:0;padding-left:18px}
+.box li{margin:5px 0;font-size:13.4px;color:var(--ink2)}
+.box li b{color:var(--ink)}
+.callout{border-left:4px solid var(--accent);background:var(--accent-soft);
+ border-radius:0 12px 12px 0;padding:15px 20px;font-size:13.8px;color:#1e3a8a}
+.callout.warn{border-color:var(--warn);background:var(--warn-soft);color:#7a4708}
+.callout.ok{border-color:var(--ok);background:var(--ok-soft);color:#065f46}
+
+.steps{counter-reset:s;display:grid;gap:12px}
+.step{display:grid;grid-template-columns:34px 1fr;gap:14px;align-items:start}
+.step .idx{counter-increment:s;width:34px;height:34px;border-radius:10px;background:var(--accent);
+ color:#fff;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center}
+.step .idx:before{content:counter(s)}
+.step .body{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 18px}
+.step .body h4{margin:0 0 4px;font-size:14.5px;font-weight:800}
+.step .body p{margin:0;font-size:13.3px;color:var(--ink2)}
+.step .body .t{float:right;font-size:12px;font-weight:800;color:var(--accent);
+ background:var(--accent-soft);padding:2px 10px;border-radius:999px}
+
+footer{margin-top:52px;padding-top:22px;border-top:1px solid var(--line);
+ font-size:12.5px;color:var(--ink3)}
+footer b{color:var(--ink2)}
+@media(max-width:860px){
+ .grid2,.grid3{grid-template-columns:1fr}
+ .g-axis,.g-track,.milestone-row{grid-template-columns:140px 1fr}
+ .wrap{padding:26px 14px 60px}
+ .hero{padding:26px 22px}
+ .hero h1{font-size:23px}
+ .g-band{display:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <div class="tagline">2025 TI 杯全国大学生电子设计竞赛 · 本科组 E 题</div>
+    <h1>简易自行瞄准装置 · 复刻作战计划</h1>
+    <p>自动寻迹小车 + 二维云台激光瞄准模块。目标：基本要求全拿、发挥部分含「同步画圆」跑通。本计划按 4 天 3 夜（84 小时）实战节奏编排。</p>
+    <div class="meta">
+      <span class="chip">⏱ 7/30 08:00 → 8/2 20:00 · 84h</span>
+      <span class="chip">👥 3 人分工</span>
+      <span class="chip">🎯 基本 50 + 发挥 50 + 报告 20</span>
+      <span class="chip">🔧 硬件基础：已备齐</span>
+    </div>
+  </div>
+
+  <!-- 1 得分地图 -->
+  <section>
+    <h2><span class="n">1</span>得分地图：先决定"不做什么"</h2>
+    <p class="sub">时间就是分数。基本要求三条是"入场券"，必须先锁死；发挥(3) 画圆是难度天花板，只有在动态瞄准稳定后才投入。</p>
+    <table class="tbl">
+      <thead><tr><th>条目</th><th>关键指标</th><th>分值</th><th>难度</th><th>优先级</th></tr></thead>
+      <tbody>
+        <tr><td><b>基本(1)</b> 自动循迹</td><td>N＝1~5 可设，t ≤ 20s/圈（瞄准模块断电）</td><td class="num">10</td><td>★★☆☆☆</td><td><span class="pill p0">必拿</span></td></tr>
+        <tr><td><b>基本(2)</b> 任意位置静态瞄准</td><td>场地任意位姿，2s 内击中靶心，D₁ ≤ 2cm</td><td class="num">20</td><td>★★★★☆</td><td><span class="pill p0">必拿</span></td></tr>
+        <tr><td><b>基本(3)</b> 指定位置静态瞄准</td><td>轨迹指定点、朝向任意，4s 内击中，D₁ ≤ 2cm</td><td class="num">20</td><td>★★★☆☆</td><td><span class="pill p0">必拿</span></td></tr>
+        <tr><td><b>发挥(1)</b> 动态瞄准 1 圈</td><td>AB 段对齐 AC 出发，N=1，t ≤ 20s，D₁ ≤ 2cm，全程激光连续</td><td class="num">15</td><td>★★★★★</td><td><span class="pill p1">主攻</span></td></tr>
+        <tr><td><b>发挥(2)</b> 动态瞄准 2 圈</td><td>N=2，t ≤ 40s，D₁ ≤ 2cm</td><td class="num">15</td><td>★★★★★</td><td><span class="pill p1">主攻</span></td></tr>
+        <tr><td><b>发挥(3)</b> 同步画圆</td><td>N=1，t ≤ 20s，沿半径 6cm 红圆画，D₂ ≤ 2cm，同步误差 &lt; 1/4 圈</td><td class="num">15</td><td>★★★★★</td><td><span class="pill p1">冲刺</span></td></tr>
+        <tr><td><b>发挥(4)</b> 其他</td><td>自主扩展功能</td><td class="num">5</td><td>—</td><td><span class="pill p2">有余力</span></td></tr>
+        <tr><td><b>设计报告</b></td><td>方案论证 / 理论分析 / 电路程序 / 测试数据 / 规范性</td><td class="num">20</td><td>★★★☆☆</td><td><span class="pill p0">每天写</span></td></tr>
+      </tbody>
+    </table>
+    <div class="callout warn" style="margin-top:16px">
+      <b>两条会直接归零的规则，必须刻在墙上：</b><br>
+      ①「所有含时间的测试项，超时该项计 0 分」——每项都要按指标留 30% 余量设计，不要贴着 20s 做。<br>
+      ②「行驶中小车投影必须落在轨迹线上，完全脱离即本次测试失败、该项不得分」——循迹的鲁棒性优先级高于速度。<br>
+      ③ Di ≤ 2cm 为满分，每多 1cm 扣 1 分（不足 1cm 按 1cm 计）——精度就是扣分项，靶心锁定必须闭环到像素级。
+    </div>
+  </section>
+
+  <!-- 2 系统架构 -->
+  <section>
+    <h2><span class="n">2</span>系统架构：双 MCU 解耦</h2>
+    <p class="sub">题目强制「寻迹必须用 MSPM0」，但瞄准侧的视觉+云台算力需求远高于 M0。因此采用双控制器分工，唯一耦合点是串口。</p>
+    <div class="card" style="padding:22px">
+      <svg viewBox="0 0 1040 470" width="100%" style="display:block" font-family="-apple-system,BlinkMacSystemFont,'PingFang SC','Microsoft YaHei',sans-serif">
+        <defs>
+          <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+            <path d="M0,0 L7,3 L0,6 z" fill="#7b8699"/>
+          </marker>
+          <marker id="ar2" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+            <path d="M0,0 L7,3 L0,6 z" fill="#be1a63"/>
+          </marker>
+        </defs>
+
+        <!-- 电源系统 -->
+        <rect x="20" y="20" width="1000" height="86" rx="12" fill="#fdf2e3" stroke="#e8c9a0" stroke-width="1.5"/>
+        <text x="38" y="46" font-size="13.5" font-weight="800" fill="#8a5308">电源系统（强制：两路独立开关 + 发光管指示）</text>
+        <rect x="60" y="58" width="110" height="34" rx="8" fill="#fff" stroke="#d9b384"/>
+        <text x="115" y="80" font-size="12.5" fill="#8a5308" text-anchor="middle" font-weight="700">锂电池 2S/3S</text>
+        <rect x="220" y="58" width="150" height="34" rx="8" fill="#fff" stroke="#d9b384"/>
+        <text x="295" y="80" font-size="12.5" fill="#8a5308" text-anchor="middle" font-weight="700">开关1 → 5V/3.3V</text>
+        <rect x="420" y="58" width="150" height="34" rx="8" fill="#fff" stroke="#d9b384"/>
+        <text x="495" y="80" font-size="12.5" fill="#8a5308" text-anchor="middle" font-weight="700">开关2 → 5V/6V</text>
+        <rect x="620" y="58" width="170" height="34" rx="8" fill="#fff" stroke="#d9b384"/>
+        <text x="705" y="80" font-size="12.5" fill="#8a5308" text-anchor="middle" font-weight="700">LED 指示 ×2</text>
+        <rect x="840" y="58" width="150" height="34" rx="8" fill="#fff" stroke="#d9b384"/>
+        <text x="915" y="80" font-size="12.5" fill="#8a5308" text-anchor="middle" font-weight="700">大电容+磁珠防扰</text>
+
+        <!-- 小车系统 -->
+        <rect x="20" y="140" width="480" height="300" rx="14" fill="#e9effd" stroke="#a9c2f2" stroke-width="1.6"/>
+        <text x="42" y="170" font-size="14" font-weight="800" fill="#1e40af">寻迹小车系统 · 强制 MSPM0</text>
+        <text x="42" y="190" font-size="12" fill="#3b5bab">（巡迹 + 电机控制必须由 MSPM0 完成）</text>
+
+        <rect x="48" y="208" width="200" height="52" rx="10" fill="#fff" stroke="#a9c2f2"/>
+        <text x="148" y="230" font-size="12.5" fill="#1e40af" text-anchor="middle" font-weight="700">TI MSPM0G3507</text>
+        <text x="148" y="248" font-size="11.5" fill="#4a5f8f" text-anchor="middle">80MHz · PID · 里程解算</text>
+
+        <rect x="272" y="208" width="200" height="52" rx="10" fill="#fff" stroke="#a9c2f2"/>
+        <text x="372" y="230" font-size="12.5" fill="#1e40af" text-anchor="middle" font-weight="700">8 路灰度/红外阵列</text>
+        <text x="372" y="248" font-size="11.5" fill="#4a5f8f" text-anchor="middle">权值 + 归一化 偏差</text>
+
+        <rect x="48" y="278" width="200" height="52" rx="10" fill="#fff" stroke="#a9c2f2"/>
+        <text x="148" y="300" font-size="12.5" fill="#1e40af" text-anchor="middle" font-weight="700">电机驱动 TB6612/AT8236</text>
+        <text x="148" y="318" font-size="11.5" fill="#4a5f8f" text-anchor="middle">PWM 差速</text>
+
+        <rect x="272" y="278" width="200" height="52" rx="10" fill="#fff" stroke="#a9c2f2"/>
+        <text x="372" y="300" font-size="12.5" fill="#1e40af" text-anchor="middle" font-weight="700">编码器 ×2 (霍尔)</text>
+        <text x="372" y="318" font-size="11.5" fill="#4a5f8f" text-anchor="middle">速度环 + 里程/圈进度</text>
+
+        <rect x="48" y="348" width="424" height="46" rx="10" fill="#fff" stroke="#a9c2f2" stroke-dasharray="5 4"/>
+        <text x="260" y="368" font-size="12.5" fill="#1e40af" text-anchor="middle" font-weight="700">⛔ 禁：履带 / 麦克纳姆轮</text>
+        <text x="260" y="385" font-size="11.5" fill="#4a5f8f" text-anchor="middle">车体总尺寸 ≤ 25 × 15 × 25 cm</text>
+
+        <!-- 瞄准系统 -->
+        <rect x="540" y="140" width="480" height="300" rx="14" fill="#f2ebfd" stroke="#c4b0f2" stroke-width="1.6"/>
+        <text x="562" y="170" font-size="14" font-weight="800" fill="#5b21b6">瞄准模块系统 · 高性能 MCU</text>
+        <text x="562" y="190" font-size="12" fill="#6d4fa8">（K230 / MaixCam / STM32H7 + 摄像头）</text>
+
+        <rect x="568" y="208" width="200" height="52" rx="10" fill="#fff" stroke="#c4b0f2"/>
+        <text x="668" y="230" font-size="12.5" fill="#5b21b6" text-anchor="middle" font-weight="700">摄像头 (靶心 + 激光点)</text>
+        <text x="668" y="248" font-size="11.5" fill="#6d4fa8" text-anchor="middle">透视变换 → 靶心坐标</text>
+
+        <rect x="792" y="208" width="200" height="52" rx="10" fill="#fff" stroke="#c4b0f2"/>
+        <text x="892" y="230" font-size="12.5" fill="#5b21b6" text-anchor="middle" font-weight="700">二维云台 (步进/舵机)</text>
+        <text x="892" y="248" font-size="11.5" fill="#6d4fa8" text-anchor="middle">水平 Pan + 俯仰 Tilt</text>
+
+        <rect x="568" y="278" width="200" height="52" rx="10" fill="#fff" stroke="#c4b0f2"/>
+        <text x="668" y="300" font-size="12.5" fill="#5b21b6" text-anchor="middle" font-weight="700">姿态传感器 IMU</text>
+        <text x="668" y="318" font-size="11.5" fill="#6d4fa8" text-anchor="middle">角速度前馈 / 反自旋</text>
+
+        <rect x="792" y="278" width="200" height="52" rx="10" fill="#fff" stroke="#c4b0f2"/>
+        <text x="892" y="300" font-size="12.5" fill="#5b21b6" text-anchor="middle" font-weight="700">405nm 激光笔 ≤10mW</text>
+        <text x="892" y="318" font-size="11.5" fill="#6d4fa8" text-anchor="middle">光斑 ≤ 0.5cm · 继电器开关</text>
+
+        <rect x="568" y="348" width="424" height="46" rx="10" fill="#fff" stroke="#c4b0f2" stroke-dasharray="5 4"/>
+        <text x="780" y="368" font-size="12.5" fill="#5b21b6" text-anchor="middle" font-weight="700">核心闭环：图像里「激光点」不断逼近「靶心」</text>
+        <text x="780" y="385" font-size="11.5" fill="#6d4fa8" text-anchor="middle">视觉位置环 + 陀螺前馈 + 速度模式驱动</text>
+
+        <!-- 串口 -->
+        <line x1="248" y1="234" x2="568" y2="234" stroke="#7b8699" stroke-width="2.2" marker-end="url(#ar)"/>
+        <rect x="352" y="440" width="336" height="24" rx="12" fill="#eef1f6" stroke="#ccd4e0"/>
+        <text x="520" y="457" font-size="12" fill="#48536b" text-anchor="middle" font-weight="700">UART 双向：位置/里程/圈进度 ⇄ 瞄准状态</text>
+
+        <!-- 动态补偿 -->
+        <line x1="372" y1="330" x2="668" y2="330" stroke="#be1a63" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#ar2)"/>
+        <rect x="404" y="386" width="232" height="26" rx="13" fill="#fdeaf3" stroke="#f0b0cd"/>
+        <text x="520" y="404" font-size="11.5" fill="#9d1455" text-anchor="middle" font-weight="700">◀ 发挥部分关键：里程/姿态前馈补偿</text>
+      </svg>
+    </div>
+    <div class="callout" style="margin-top:16px">
+      <b>为什么双 MCU：</b>M0 只负责"把车开稳、把里程数准"；视觉与云台解算放在算力更强的 MCU 上，两边只靠一行串口协议通信。<b>唯一耦合点越简单，联调越快</b>——这是 4 天里能否腾出时间做画圆的关键。
+    </div>
+  </section>
+
+  <!-- 3 赛前半成品包 -->
+  <section>
+    <h2><span class="n">3</span>复刻的核心优势：赛前必须完成的"半成品包"</h2>
+    <p class="sub">复刻 ≠ 从零。84 小时里没有时间做探索，只有时间做装配、标定、调参、写报告。以下 8 项必须在赛前完成，否则第 1 天就会崩。</p>
+    <div class="grid2">
+      <div class="box">
+        <h3><span class="dot" style="background:#2563eb"></span>代码与固件</h3>
+        <ul>
+          <li><b>CCS 工程骨架</b>：MSPM0 的 PWM / 编码器 / 定时器 / 串口外设全部跑通并点灯验证</li>
+          <li><b>循迹 PID 框架</b>：权值归一化 + PID + 差速，参数空槽，赛场上只调不改结构</li>
+          <li><b>视觉工程</b>：靶纸识别（黑框 + 红圆 + 靶心）已在桌面跑通，输出靶心坐标</li>
+          <li><b>云台 PID + 串口协议文档</b>：帧头/长度/校验/字段全部定死</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3><span class="dot" style="color:#6d28d9"></span>硬件与机械</h3>
+        <ul>
+          <li><b>电源板</b>已打样/洞洞板焊好：两路独立开关 + 双 LED 指示 + 5V/3.3V 降压</li>
+          <li><b>云台加工件</b>已试装：相机 - 激光笔 - 云台转轴必须<b>同轴/共面标定过</b></li>
+          <li><b>车体尺寸已卡</b>：总轮廓 ≤ 25×15×25cm，云台举高后不超限</li>
+          <li><b>备用件</b>：激光笔 ×2、紫外感光纸 ×N、电机/驱动各 1 备</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3><span class="dot" style="background:#0d7f76"></span>场地与标定流程</h3>
+        <ul>
+          <li><b>喷绘布场地</b>：100×100cm、黑线宽 1.8cm，白底哑光，除边线外无任何标记</li>
+          <li><b>A4 紫外感光纸靶</b>：1.8cm 黑胶带外框 + 红点靶心 + 半径 2/4/6/8/10cm 红圆</li>
+          <li><b>红外阈值标定流程文档</b>：垂直移过引导线取 min/max 写数组</li>
+          <li><b>相机-云台-激光标定流程</b>：像素误差 → 云台角度的映射系数</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h3><span class="dot" style="background:#5a6579"></span>提效工具</h3>
+        <ul>
+          <li><b>无线/OLED 调参台</b>：PID 六参数在屏上改，不必反复烧录（赛场 3 分钟整定一个环）</li>
+          <li><b>VOFA+ / 串口波形</b>：编码器、灰度、图像误差实时可视化</li>
+          <li><b>报告模板 + 图表规范</b>：方案论证/理论分析/电路程序/测试数据四段式骨架</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 模块准备时间表 -->
+  <section>
+    <h2><span class="n">4</span>各模块准备时间与依赖</h2>
+    <p class="sub">"赛中耗时"是 84 小时内实际投入的工时（3 人并行，非日历时间）。</p>
+    <table class="tbl">
+      <thead><tr><th>模块</th><th>工作内容</th><th>赛中耗时</th><th>前置依赖</th><th>优先级</th></tr></thead>
+      <tbody>
+        <tr><td><b>机械总装</b></td><td>底盘、电机座、云台支架、相机/激光笔同轴安装、尺寸卡限</td><td>8~10h</td><td>—</td><td><span class="pill p0">P0 关键路径</span></td></tr>
+        <tr><td><b>电源系统</b></td><td>两路独立开关 + 双 LED 指示、5V/3.3V 降压、防电机扰动</td><td>4~6h</td><td>机械（走线空间）</td><td><span class="pill p0">P0 强制项</span></td></tr>
+        <tr><td><b>循迹小车</b></td><td>红外标定、PID 循迹、圈数计数、编码器里程/速度环</td><td>12~16h</td><td>机械 + 电源</td><td><span class="pill p0">P0</span></td></tr>
+        <tr><td><b>视觉识别</b></td><td>靶心识别、激光点识别、透视变换、串口坐标输出</td><td>10~14h</td><td>机械（相机固定）</td><td><span class="pill p0">P0</span></td></tr>
+        <tr><td><b>二维云台</b></td><td>图像误差→云台闭环 PID、激光点闭环、角度解算</td><td>10~14h</td><td>视觉 + 机械</td><td><span class="pill p0">P0</span></td></tr>
+        <tr><td><b>双机通信</b></td><td>MSPM0 ↔ 瞄准 MCU 串口协议、位置/里程/圈进度上报</td><td>3~5h</td><td>两侧 MCU 骨架</td><td><span class="pill p1">P1</span></td></tr>
+        <tr><td><b>动态算法</b></td><td>陀螺前馈/反自旋、里程-云台角补偿、画圆进度解算</td><td>12~18h</td><td>上述全部</td><td><span class="pill p1">P1 决定发挥</span></td></tr>
+        <tr><td><b>调参中控</b></td><td>OLED/按键/无线改参、指令下发</td><td>2~4h</td><td>—</td><td><span class="pill p2">P2 提效</span></td></tr>
+        <tr><td><b>设计报告</b></td><td>方案论证、理论分析、电路程序、测试数据、规范排版</td><td>8~10h（并行）</td><td>—</td><td><span class="pill p0">P0 每天写</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 5 甘特 -->
+  <section>
+    <h2><span class="n">5</span>84 小时排期（7/30 08:00 → 8/2 20:00）</h2>
+    <p class="sub">灰斜纹 = 强制轮换休息窗口。里程碑是"必须通过"的关卡，不过关就要立刻砍后续项、保基本分。</p>
+    <div class="card gantt">
+      <div class="g-legend">
+        <span><i style="background:#64748b"></i>准备/报告</span>
+        <span><i style="background:#6d28d9"></i>机械结构</span>
+        <span><i style="background:#c2740c"></i>电源</span>
+        <span><i style="background:#2563eb"></i>循迹小车</span>
+        <span><i style="background:#0d7f76"></i>视觉</span>
+        <span><i style="background:#8b5cf6"></i>云台</span>
+        <span><i style="background:#047857"></i>集成联调</span>
+        <span><i style="background:#be1a63"></i>动态/画圆</span>
+        <span><i style="background:#0e7490"></i>测评验证</span>
+      </div>
+
+      <div class="g-axis">
+        <div></div>
+        <div class="ticks">
+          <span class="tk" style="left:0%"><b>7/30</b>08:00</span>
+          <span class="tk" style="left:14.29%">20:00</span>
+          <span class="tk" style="left:28.57%"><b>7/31</b>08:00</span>
+          <span class="tk" style="left:42.86%">20:00</span>
+          <span class="tk" style="left:57.14%"><b>8/1</b>08:00</span>
+          <span class="tk" style="left:71.43%">20:00</span>
+          <span class="tk" style="left:85.71%"><b>8/2</b>08:00</span>
+          <span class="tk" style="left:100%">20:00</span>
+        </div>
+      </div>
+
+      <div id="rows"></div>
+
+      <div class="milestone-row"><div class="mlbl">★ M1 · 7/31 24:00</div>
+        <div class="mtext"><b>基本要求全绿</b>：循迹 N=1~5 稳定、2s 静态打靶、4s 任意朝向打靶，三次复现都过</div></div>
+      <div class="milestone-row"><div class="mlbl">★ M2 · 8/1 24:00</div>
+        <div class="mtext"><b>动态瞄准过关</b>：发挥(1)(2) 稳定在 D₁≤2cm；画圆首版能跑出闭合圆</div></div>
+      <div class="milestone-row"><div class="mlbl">★ M3 · 8/2 18:00</div>
+        <div class="mtext"><b>冻结封版</b>：全套模拟测评通过、程序/电路图归档、报告定稿</div></div>
+    </div>
+    <div class="callout ok" style="margin-top:16px">
+      <b>排期逻辑：</b>第 1 天只做"平台"（机械 + 电源 + 两侧代码环境），这是所有模块的公约数；第 2 天把循迹、视觉、云台三条线并行打通，晚上做第一次集成；第 3 天整段留给动态补偿与画圆——这是唯一真正的难点；第 4 天不开发新功能，只做"稳"和"报告"。
+    </div>
+  </section>
+
+  <!-- 6 三人分工 -->
+  <section>
+    <h2><span class="n">6</span>三人分工与并行原则</h2>
+    <p class="sub">电赛限 3 人。分工按"物理子系统"切，而不是按"软件/硬件"切——这样每人都有独立可验证的产出。</p>
+    <div class="grid3">
+      <div class="box"><h3><span class="dot" style="background:#2563eb"></span>队员 A · 车体</h3>
+        <ul>
+          <li>机械总装、电机/驱动/编码器</li>
+          <li>红外标定 + 循迹 PID</li>
+          <li>圈数计数、里程解算</li>
+          <li>串口上报位置/进度</li>
+          <li><b>产出：</b>能稳定跑 5 圈的车</li>
+        </ul></div>
+      <div class="box"><h3><span class="dot" style="background:#0d7f76"></span>队员 B · 视觉+云台</h3>
+        <ul>
+          <li>相机固定与标定</li>
+          <li>靶心/激光点识别</li>
+          <li>云台双环 PID</li>
+          <li>动态补偿与画圆解算</li>
+          <li><b>产出：</b>能锁靶心、能画圆的云台</li>
+        </ul></div>
+      <div class="box"><h3><span class="dot" style="background:#8b5cf6"></span>队员 C · 系统+报告</h3>
+        <ul>
+          <li>电源板、走线、抗扰</li>
+          <li>通信协议落地与调参台</li>
+          <li>全场测评、数据记录、拍照留证</li>
+          <li>报告撰写（每天 2h 滚动）</li>
+          <li><b>产出：</b>可复现的测试数据 + 报告</li>
+        </ul></div>
+    </div>
+    <div class="callout" style="margin-top:16px">
+      <b>并行铁律：</b>① 每天 08:00 / 20:00 各站会 10 分钟，只回答"昨晚卡在哪、今天要什么资源"；② 任何人不得长时间独自 debug 超过 2 小时，卡住就喊人；③ 每完成一个可跑状态立即提交/备份代码（带时间戳），第 4 天不再信任"凭记忆还原"。
+    </div>
+  </section>
+
+  <!-- 7 关键路径 -->
+  <section>
+    <h2><span class="n">7</span>关键路径与风险</h2>
+    <div class="steps">
+      <div class="step"><div class="idx"></div><div class="body">
+        <span class="t">H2 → H12</span>
+        <h4>① 机械总装（最长的单点）</h4>
+        <p>云台举高、相机与激光笔的相对位姿一旦定死就难改。<b>先画尺寸约束（25×15×25cm），再装。</b>相机、激光笔必须与云台两轴同轴/共面，否则后面所有解算都要加一堆补偿系数。</p>
+      </div></div>
+      <div class="step"><div class="idx"></div><div class="body">
+        <span class="t">H13 → H28</span>
+        <h4>② 循迹稳定（10 分也是发挥部分的地基）</h4>
+        <p>发挥部分全程要求"投影不脱线"，且画圆要靠<b>里程/圈进度</b>驱动。先求稳再求快：能 25s 稳定跑完比 18s 发抖更有价值。</p>
+      </div></div>
+      <div class="step"><div class="idx"></div><div class="body">
+        <span class="t">H24 → H42</span>
+        <h4>③ 静态打靶闭环（基本 40 分）</h4>
+        <p>用图像误差做位置环，激光点当反馈。基本(2) 只有 2s，必须支持<b>无目标时先扫描搜索</b>；基本(3) 有 4s，可加一次粗校准。</p>
+      </div></div>
+      <div class="step"><div class="idx"></div><div class="body">
+        <span class="t">H46 → H66</span>
+        <h4>④ 动态补偿 + 同步画圆（决定上限）</h4>
+        <p>小车运动时云台要反向补偿：用 IMU 角速度做前馈、用编码器里程算云台所需角度。画圆则把"圈进度 0~100%"映射成靶面 6cm 圆上的目标点，再反解云台角。这是本题的分数天花板。</p>
+      </div></div>
+    </div>
+
+    <div class="grid2" style="margin-top:20px">
+      <div class="box"><h3><span class="dot" style="background:#c62828"></span>高频风险与对策</h3>
+        <ul>
+          <li><b>视觉在运动/复杂光照下抖动</b> → ROI 裁剪 + 候选轮廓筛选 + 数字滤波 + IMU 前馈；必要时 AI 检测兜底</li>
+          <li><b>云台虚位/背隙</b> → 金属齿舵机或步进闭环；控制上留死区补偿</li>
+          <li><b>电机启停导致 MCU 复位</b> → 电机/舵机独立供电 + 大电容 + 磁珠，逻辑地单点接地</li>
+          <li><b>尺寸超限被拒测</b> → 结构设计阶段就卡死轮廓，留 5mm 余量</li>
+          <li><b>超时归零</b> → 每项按指标的 70% 时间设计</li>
+          <li><b>感光痕迹 20~60s 消失</b> → 打靶后立即拍照留证、贴标签记录</li>
+        </ul>
+      </div>
+      <div class="box"><h3><span class="dot" style="background:#047857"></span>砍项决策线（保分优先级）</h3>
+        <ul>
+          <li><b>8/1 12:00 未拿下动态瞄准(1)</b> → 停止攻画圆，全力打磨静态瞄准精度与循迹稳定</li>
+          <li><b>8/1 20:00 画圆未出闭合圆</b> → 降级为"固定半径近似"，优先保证 D₂ 与不脱线</li>
+          <li><b>8/2 12:00 任何基本项不可复现</b> → 冻结所有发挥项，只保基本 50 分 + 报告</li>
+          <li><b>任何时候</b>：报告 <b>不能</b> 被牺牲，20 分是性价比最高的分</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 验收 -->
+  <section>
+    <h2><span class="n">8</span>自测验收清单（按正式测评流程走）</h2>
+    <table class="tbl">
+      <thead><tr><th>#</th><th>测试项</th><th>通过标准</th><th>留证</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>外观与合规检查</td><td>MSPM0 芯片裸露可见；两路独立开关 + 双发光管；尺寸 ≤25×15×25cm；轮式 3~4 轮</td><td>照片</td></tr>
+        <tr><td>2</td><td>循迹 N=1 / 3 / 5</td><td>t ≤ 20s/圈，全程投影在线上</td><td>秒表 + 视频</td></tr>
+        <tr><td>3</td><td>静态瞄准（任意位姿）</td><td>2s 内命中，D₁ ≤ 2cm</td><td>感光纸照片 + 卡尺</td></tr>
+        <tr><td>4</td><td>静态瞄准（指定点，任意朝向）</td><td>4s 内命中，D₁ ≤ 2cm</td><td>感光纸照片</td></tr>
+        <tr><td>5</td><td>动态瞄准 N=1</td><td>t ≤ 20s，全程激光连续，D₁ ≤ 2cm</td><td>视频</td></tr>
+        <tr><td>6</td><td>动态瞄准 N=2</td><td>t ≤ 40s，D₁ ≤ 2cm</td><td>视频</td></tr>
+        <tr><td>7</td><td>同步画圆</td><td>t ≤ 20s，沿 6cm 红圆，D₂ ≤ 2cm，同步误差 &lt; 1/4 圈</td><td>感光纸照片</td></tr>
+        <tr><td>8</td><td>报告</td><td>方案论证 / 理论分析 / 电路程序 / 测试数据 四段完整</td><td>PDF</td></tr>
+      </tbody>
+    </table>
+    <div class="callout" style="margin-top:16px">
+      <b>建议：</b>8/2 上午做<b>至少两轮完整模拟测评</b>，每轮都按上述顺序从头走一遍并计时记录。赛场上的失分几乎都不是"做不出来"，而是"做出来但复现不了"。
+    </div>
+  </section>
+
+  <footer>
+    <b>参考开源实现（可直接对照复刻）</b><br>
+    ① ShiJiang-hub / 2025-E-（GitHub，国一）：MSPM0G3507 + STM32H750 + 树莓派 + ESP32-S3 中控台，含补偿算法与无线调参<br>
+    ② 立创开源「简易自行瞄准装置」：MSPM0G3507 + TB6612FNG + 八路灰度 + 42 步进云台 + K230<br>
+    ③ MaixCam 方案报告：MSPM0G3507 + STM32F407ZGT6 + YOLO+OpenCV 透视变换取靶心<br>
+    ④ STM32F103RCT6 + K230 + 双轴无刷云台串口驱动方案（视觉闭环 + 陀螺前馈）<br><br>
+    题目原文：nuedc.org 2025 年 E 题《简易自行瞄准装置》。本计划根据官方题面整理，所有指标以官方题面为准。
+  </footer>
+</div>
+
+<script>
+const T=[
+ {l:"选题·方案定型·分工·物料清点",s:0,e:1.5,c:"#64748b"},
+ {l:"缺件补采买（并行推进）",s:1.5,e:4,c:"#64748b"},
+ {l:"机械总装（底盘/电机/云台/相机/激光笔）",s:2,e:12,c:"#6d28d9"},
+ {l:"电源系统（双路独立开关 + 双 LED 指示）",s:4,e:10,c:"#c2740c"},
+ {l:"MSPM0 / CCS 环境 + 电机驱动点亮",s:8,e:14,c:"#2563eb"},
+ {l:"视觉模块环境 + 摄像头出图",s:9,e:15,c:"#0d7f76"},
+ {l:"红外/灰度传感器标定",s:13,e:18,c:"#2563eb"},
+ {l:"靶心识别 + 透视变换 + 坐标输出",s:15,e:24,c:"#0d7f76"},
+ {l:"循迹 PID 调参 + 稳定跑圈",s:18,e:28,c:"#2563eb"},
+ {l:"圈数计数 + 编码器里程/速度环",s:26,e:32,c:"#2563eb"},
+ {l:"云台双环 PID 闭环",s:24,e:34,c:"#8b5cf6"},
+ {l:"双机串口通信协议打通",s:31,e:36,c:"#475569"},
+ {l:"静态打靶联调（基本 2 / 3）",s:34,e:42,c:"#047857"},
+ {l:"设计报告撰写（并行滚动，每天 2h）",s:40,e:80,c:"#94a3b8"},
+ {l:"动态追踪（发挥 1）",s:46,e:54,c:"#be1a63"},
+ {l:"画圆数学解算（圈进度 → 靶面目标点）",s:50,e:58,c:"#be1a63"},
+ {l:"2 圈稳定性 + 陀螺/里程前馈（发挥 2）",s:54,e:60,c:"#be1a63"},
+ {l:"同步画圆联调（发挥 3）",s:58,e:66,c:"#be1a63"},
+ {l:"画圆精调：D₂≤2cm、同步误差 < 1/4 圈",s:70,e:76,c:"#be1a63"},
+ {l:"全场模拟测评（按正式流程走）",s:74,e:80,c:"#0e7490"},
+ {l:"鲁棒性/边界测试 + 代码备份",s:78,e:82,c:"#0e7490"},
+ {l:"报告定稿 + 程序清单/电路图 + 封箱",s:80,e:84,c:"#64748b"}
+];
+const NIGHT=[[16,22],[42,46],[66,70]];
+const rows=document.getElementById('rows');
+rows.innerHTML=T.map(t=>{
+  const L=t.s/84*100, W=(t.e-t.s)/84*100;
+  return `<div class="g-track"><div class="lbl">${t.l}</div><div class="g-rail">
+    <div class="g-grid">${[7,14.29,21.43,28.57,35.71,42.86,50,57.14,64.29,71.43,78.57,85.71,92.86].map(p=>`<span style="left:${p}%"></span>`).join('')}
+    ${[28.57,57.14,85.71].map(p=>`<span class="day" style="left:${p}%"></span>`).join('')}</div>
+    ${NIGHT.map(n=>`<div class="g-band" style="left:${n[0]/84*100}%;width:${(n[1]-n[0])/84*100}%"></div>`).join('')}
+    <div class="g-bar" style="left:${L}%;width:${W}%;background:${t.c}">${W>16?t.l:''}</div>
+  </div></div>`;
+}).join('');
+</script>
+</body>
+</html>

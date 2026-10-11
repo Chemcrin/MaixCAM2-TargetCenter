@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>轨道 B · v0.3.2 变更与效果预览</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1b1f24; --sub:#5b6472; --line:#e4e7ec;
+    --accent:#2563eb; --accent-soft:#eef3ff; --ok:#0f9d58; --warn:#b7791f; --warn-soft:#fff7e6;
+    --risk:#c53030; --risk-soft:#fdecec; --code:#f2f4f7;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:-apple-system,"Segoe UI","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+       line-height:1.6;font-size:15px}
+  .wrap{max-width:960px;margin:0 auto;padding:32px 22px 64px}
+  header{border-bottom:2px solid var(--line);padding-bottom:16px;margin-bottom:24px}
+  h1{font-size:24px;margin:0 0 6px}
+  .sub{color:var(--sub);font-size:14px}
+  h2{font-size:18px;margin:34px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:18px 0}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .card .k{font-size:12px;color:var(--sub);letter-spacing:.03em}
+  .card .v{font-size:16px;font-weight:600;margin-top:4px;word-break:break-all}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);
+        border-radius:10px;overflow:hidden;font-size:14px}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line)}
+  th{background:#fafbfc;font-weight:600;color:#333}
+  tr:last-child td{border-bottom:none}
+  td.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .v9{color:var(--accent);font-weight:600}
+  .was{color:var(--sub)}
+  code{background:var(--code);border:1px solid var(--line);border-radius:4px;padding:1px 6px;
+       font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace;font-size:13px}
+  .note{background:var(--accent-soft);border:1px solid #cfe0ff;border-radius:10px;padding:14px 16px;margin:16px 0}
+  .risk{background:var(--risk-soft);border:1px solid #f5c2c2;border-radius:10px;padding:14px 16px;margin:16px 0}
+  .warn{background:var(--warn-soft);border:1px solid #f2dca0;border-radius:10px;padding:14px 16px;margin:16px 0}
+  .tag{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px;background:var(--accent-soft);
+       color:var(--accent);border:1px solid #cfe0ff;margin-right:6px}
+  .tag.ok{background:#e9f7ef;color:var(--ok);border-color:#c3ebd4}
+  .tag.risk{background:var(--risk-soft);color:var(--risk);border-color:#f5c2c2}
+  ol,ul{padding-left:22px;margin:10px 0}
+  li{margin:4px 0}
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px}
+  .arrow{color:var(--sub)}
+  footer{margin-top:40px;color:var(--sub);font-size:13px;border-top:1px solid var(--line);padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>轨道 B · v0.3.2 变更与效果预览</h1>
+  <div class="sub">MaixCAM2 靶心识别 · 云台闭环 · 单文件应用 &nbsp;|&nbsp; 生成于 2026-10-10</div>
+</header>
+
+<div class="cards">
+  <div class="card"><div class="k">GIT 分支</div><div class="v">v0.3.2</div></div>
+  <div class="card"><div class="k">BUILD_ID</div><div class="v">2026-10-11-v0.3.2-slowshow</div></div>
+  <div class="card"><div class="k">app.yaml version</div><div class="v">0.3.2</div></div>
+  <div class="card"><div class="k">提交</div><div class="v">9d1807a</div></div>
+</div>
+
+<h2>一句话说明</h2>
+<div class="note">
+  <b>v0.3.2 = 保留 v20 的「帧率优化」与「中心追踪」，只把云台「追踪手感」调回 V9。</b><br>
+  基座取最新 v20（<code>CenterTracker</code> 窄带跟踪、显示帧率计量、慢帧降速等都还在），
+  仅改 <code>config.py</code> 的「★ 追踪手感」一组参数 —— 因为现场曾反馈 <b>v9 的追踪又猛又快</b>。
+</div>
+
+<h2>参数对照：v20 → v0.3.2（回到 V9）</h2>
+<table>
+  <thead><tr><th>参数</th><th>v20（柔和档）</th><th>v0.3.2 / V9</th><th>影响</th></tr></thead>
+  <tbody>
+    <tr><td><code>GAIN_YAW / GAIN_PITCH</code>（细调增益）</td><td class="num was">0.3</td><td class="num v9">0.5</td><td>每帧修正比例 ↑67%</td></tr>
+    <tr><td><code>GAIN_COARSE</code>（粗调增益）</td><td class="num was">0.5</td><td class="num v9">0.9</td><td>大误差逼近速度 ↑80%</td></tr>
+    <tr><td><code>RPM_FINE / RPM_COARSE</code>（转速）</td><td class="num was">60 / 150</td><td class="num v9">120 / 400</td><td>转速 ≈×2 ~ ×2.7</td></tr>
+    <tr><td><code>MAX_STEP_PULSES</code>（单帧限幅）</td><td class="num was">80</td><td class="num v9">360</td><td>单帧行程 ×4.5（一帧走完的量不再分 4~5 帧）</td></tr>
+    <tr><td><code>DEADBAND_PX</code>（死区）</td><td class="num was">3.0</td><td class="num v9">2.0</td><td>小误差更早介入</td></tr>
+    <tr><td><code>COMMAND_INTERVAL_S</code>（发帧间隔）</td><td class="num was">0.06</td><td class="num v9">0.08</td><td>略放慢，避免指令过密</td></tr>
+    <tr><td><code>ACC_TRACK</code>（ZDT 加减速曲线）</td><td class="num was">160</td><td class="num v9">200</td><td>仍走曲线（防急停晃激光）</td></tr>
+    <tr><td><code>AIM_OUTPUT_LPF_TAU_S</code>（输出低通）</td><td class="num was">0.10</td><td class="num v9">0（关闭）</td><td>消除相位滞后</td></tr>
+    <tr><td><code>AIM_OUTPUT_SLEW_PPS</code>（增长限速）</td><td class="num was">400</td><td class="num v9">0（关闭）</td><td>不再限制上升速率</td></tr>
+    <tr><td><code>AIM_WAIT_MOTION</code>（等运动完成）</td><td class="was">True（走走停停）</td><td class="v9">False（背靠背发帧）</td><td>云台连续跟随，不再是"走—停—走"</td></tr>
+  </tbody>
+</table>
+
+<h2>预期效果</h2>
+<table>
+  <thead><tr><th>维度</th><th>说明</th><th>板端判据</th></tr></thead>
+  <tbody>
+    <tr><td><b>帧率优化</b></td><td>屏幕 FPS 分口径显示；图传慢时自动降速但不冻结、不再塌到 1fps</td><td>屏幕左下 <code>FPS &lt;disp&gt; loop &lt;loop&gt;</code>；<code>[preview] 实测显示 FPS</code>、<code>[perf-max] show=</code></td></tr>
+    <tr><td><b>中心追踪</b></td><td>窄带跟踪为主 → 失锁 ROI 搜索 → 全图重捕获；稳态中心误差 ≤0.803px</td><td><code>test_performance</code>：29/30 检出、0 误检、<code>reacquired=True</code></td></tr>
+    <tr><td><b>追踪手感</b></td><td>更跟手：增益/转速/单帧行程集体上调，背靠背发帧 + 无输出滞后</td><td>架空云台人为给误差，看是否"一下子跟上"、是否过冲</td></tr>
+  </tbody>
+</table>
+
+<h2>2026-10-11 增补：板端 2fps 定案修复（慢图传不再拖死主循环）</h2>
+<div class="note">
+  板端日志给出决定性证据：<code>[perf] ... read=5.8 detect=10.7 ... show=509.1 loop=526.2 ms</code> ——
+  <b>识别只要 10.7ms，而 MaixVision 图传单帧 <code>show</code> 阻塞 509ms</b>。同步预览旧节拍
+  <code>_next = now + max(0, _period − show_s)</code> 在 <code>show_s ≥ _period</code>（509ms ≥ 500ms）时恒为 0
+  → <b>每个循环都 show</b> → 主循环被钉在 ≈1.9fps，<b>追踪控制率也塌到 2Hz</b>，V9 手感参数被完全埋没。
+</div>
+<table>
+  <thead><tr><th>指标</th><th>修复前</th><th>修复后</th></tr></thead>
+  <tbody>
+    <tr><td>MaixVision 单帧 show</td><td class="num was">≈509ms</td><td class="num">≈509ms（链路固有，不变）</td></tr>
+    <tr><td>主循环 loop（即追踪控制率）</td><td class="num was">≈1.9fps</td><td class="num v9">≈30fps（间隙全速跑）</td></tr>
+    <tr><td>预览显示帧率</td><td class="num was">≈2fps</td><td class="num">≈1fps（代价）</td></tr>
+  </tbody>
+</table>
+<p>改法：<code>idle = max(_period − show_s, show_s × SHOW_MIN_IDLE_RATIO)</code> —— <b>show 之后至少留
+<code>ratio×show_s</code> 的空闲</b>（新增 <code>Config.SHOW_MIN_IDLE_RATIO</code>，默认 <code>1.0</code>）。
+快图传完全不受影响。回归用例 <code>test_sync_preview_keeps_loop_alive_when_show_longer_than_period</code>
+实测 <code>ticks=92 / shows=2</code>（旧实现 <code>ticks≈shows</code>）。</p>
+<div class="risk">
+  <b>取舍</b>：<code>SHOW_MIN_IDLE_RATIO</code> 越大越保主循环、预览越卡；越小反之。
+  <b>不需要预览就直接 <code>SHOW=False</code></b>（主循环≈60fps，最彻底）。<code>SHOW_ASYNC=True</code> 已被 v18 证伪，勿用。
+</div>
+
+<h2>⚠ 风险与回调旋钮</h2>
+<div class="risk">
+  <b>主要风险：超调 / 过冲。</b> 当初把 <code>GAIN 0.5→0.3</code>、关滤波、加限速，正是因为现场反馈"旋转角度过大、超调"。
+  本版把它们<b>整体调回</b>，跟手度上升、稳定性下降。<b>上电前务必先架空云台试跑。</b>
+</div>
+<table>
+  <thead><tr><th>若出现</th><th>回调做法</th></tr></thead>
+  <tbody>
+    <tr><td>大误差时冲过头</td><td><code>GAIN_COARSE</code> 0.9 → 0.7（或 0.5）</td></tr>
+    <tr><td>停下瞬间激光晃动</td><td><code>AIM_OUTPUT_SLEW_PPS</code> 0 → 400（重新开启增长限速）</td></tr>
+    <tr><td>持续抖 / 不收敛</td><td><code>GAIN_YAW/PITCH</code> 0.5 → 0.35；或 <code>DEADBAND_PX</code> 调大</td></tr>
+    <tr><td>想整体回柔和档</td><td><code>git checkout backup/b-track-v20-pre-v9-rollback -- maixcam2_rect_center/</code></td></tr>
+  </tbody>
+</table>
+
+<h2>上板怎么验</h2>
+<ol>
+  <li>MaixVision 打开 <code>maixcam2_rect_center/dist/main_single.py</code> → 点「运行当前文件」。</li>
+  <li>启动日志应出现 <code>[rect-center] 2026-10-11-v0.3.2-slowshow</code>（<b>逐字一致</b>才算新代码）。</li>
+  <li>观察时序：<b>上电自检 4 步</b>（pitch 上→下、yaw 左→右）→ <b>自动标定</b> → <b>闭环解锁开始追踪</b>。</li>
+  <li>重点看：① 追踪是否更跟手；② 是否过冲；③ 屏幕 FPS 是否正常（不再虚高/过低）。</li>
+</ol>
+<div class="flow">
+  <span class="step">上电</span><span class="arrow">→</span>
+  <span class="step">自检 4 步（不需靶纸）</span><span class="arrow">→</span>
+  <span class="step">自动标定（需画面有靶心）</span><span class="arrow">→</span>
+  <span class="step">解锁追踪</span>
+</div>
+
+<h2>门禁结果（全过）</h2>
+<table>
+  <thead><tr><th>检查</th><th>结果</th></tr></thead>
+  <tbody>
+    <tr><td><code>check_app --manifest</code></td><td><span class="tag ok">72 OK / 0 FAIL</span>包内 12 文件</td></tr>
+    <tr><td><code>test_gimbal_aim</code></td><td><span class="tag ok">PASS (29)</span></td></tr>
+    <tr><td><code>test_target_api</code> / <code>test_laser</code></td><td><span class="tag ok">全部通过</span></td></tr>
+    <tr><td><code>test_main_self_test</code></td><td><span class="tag ok">3 PASS</span>（自检优先 / FAULT 阻断 / 取消帧）</td></tr>
+    <tr><td><code>test_runtime_performance</code></td><td><span class="tag ok">全 PASS</span>显示帧率可测、慢帧降速不塌</td></tr>
+    <tr><td><code>test_performance</code></td><td><span class="tag ok">29/30 · 0.803px · 0 误检</span>#2 强反光属安全失败</td></tr>
+  </tbody>
+</table>
+
+<div class="warn">
+  <b>为适配 V9 反向放宽的 3 处测试断言</b>（它们编码的是 v12~v20 的"柔和"口径）：
+  <ul>
+    <li><code>test_gimbal_aim.test_deg_per_px_macro</code>：增益上界 <code>≤0.6</code> → <code>≤1.0</code>（只守收敛上界）。</li>
+    <li><code>test_gimbal_aim._smooth_config()</code>：显式打开 LPF/SLEW/WAIT_MOTION 作为被测对象，保住滤波机制覆盖。</li>
+    <li><code>test_main_self_test</code>：stop 帧计数按 <code>AIM_WAIT_MOTION</code> 取 2/1（背靠背模式不追踪在途运动 → 不发 cancel-stop）。</li>
+  </ul>
+</div>
+
+<footer>
+  分支 <code>v0.3.2</code> · 提交 <code>9d1807a</code> · 安全分支 <code>backup/b-track-v20-pre-v9-rollback</code>（v20 原样）<br>
+  本页由工程内改动生成，供上板前快速核对；参数以 <code>maixcam2_rect_center/config.py</code> 为准。
+</footer>
+</div>
+</body>
+</html>
