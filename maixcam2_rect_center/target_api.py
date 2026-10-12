@@ -88,9 +88,14 @@ if _HERE not in sys.path:
 
 from vision.rectangle_center import RectangleCenterDetector
 from vision.laser_spot import LaserSpotDetector, deviation
+from vision.aim_control import VisionControl
+from vision.gimbal_search import SearchSweep
+from vision.imu_heading import HeadingFeedforward
+from vision.app_runtime import TrackingApplication
 
 __all__ = ["Result", "load_config", "to_gray", "detect_black_frame",
-           "CenterTracker", "track_center", "reset", "AimLoop"]
+           "CenterTracker", "track_center", "reset", "AimLoop",
+           "TrackingApplication", "SearchSweep", "HeadingFeedforward"]
 
 _default_tracker = None
 
@@ -148,6 +153,8 @@ def to_gray(frame, image_module=None):
                 from maix import image as image_module
             a = image_module.image2cv(frame, ensure_bgr=False, copy=False)
     a = np.asarray(a)
+    if a.size == 0:
+        return None
     if a.ndim == 3 and a.shape[2] == 1:
         a = a[:, :, 0]
     elif a.ndim == 3 and a.shape[2] == 3:
@@ -222,12 +229,13 @@ class CenterTracker:
         return self
 
     def track(self, frame, now=None):
-        """追踪一帧：返回 ``Result``；``valid`` 表示本帧是否拿到靶心。"""
+        """追踪一帧；now 为单调递增的采图时刻（秒），供丢帧后的运动预测使用。"""
         gray = to_gray(frame)
-        if gray is None:
+        if gray is None or gray.size == 0:
+            self.detector.reset()
             return Result(valid=False, stage="empty_frame", center=None,
                           dx=None, dy=None, aim_valid=False, ms=0.0)
-        raw = self.detector.process(gray)
+        raw = self.detector.process(gray, timestamp=now)
         res = _wrap(raw, gray)
         if not res.get("valid"):
             return res
@@ -269,8 +277,12 @@ class AimLoop:
         cmds       dict  {"yaw": (ccw, pulses, rpm) or None, "pitch": ...}
     """
 
-    def __init__(self, cfg=None, enable_motors=True, with_laser=True):
+    def __init__(self, cfg=None, enable_motors=True, with_laser=True, clock=None, heading=None):
         self.cfg = cfg if cfg is not None else load_config()
+        self._clock = clock if clock is not None else time
+        self._stopped = True
+        self._controller = None
+        self.heading = heading
         self.tracker = CenterTracker(self.cfg, with_laser=with_laser)
         self.link = None
         self.aim = None
@@ -282,31 +294,78 @@ class AimLoop:
             self.aim = GimbalAim(self.cfg)
 
     def step(self, frame, now=None):
-        now = time.perf_counter() if now is None else float(now)
-        res = self.tracker.track(frame, now)
+        """处理一帧；now 为采图时刻，与 clock.perf_counter 使用同一单调时钟。"""
+        captured = self._clock.perf_counter() if now is None else float(now)
+        res = self.tracker.track(frame, captured)
+        now = self._clock.perf_counter()
+        res["captured_at"] = captured
+        res["age_s"] = max(0.0, now - captured)
+        if not 0 <= now - captured <= float(getattr(self.cfg, "RESULT_MAX_AGE_S", 0.20)):
+            res["aim_valid"] = False
         res["aim_state"] = None
         res["cmds"] = {"yaw": None, "pitch": None}
         if self.aim is None or self.link is None:
             return res
-        if self.aim.state != "FAULT":
-            out = self.aim.update(res, now=now)
-            res["aim_state"] = out["state"]
-            for axis, command in out["cmds"].items():
-                if command is not None:
-                    ccw, pulses, rpm = command
-                    self.link.move(axis, ccw, pulses, rpm,
-                                   getattr(self.cfg, "ACC_DEFAULT", 0), now=now)
-                    res["cmds"][axis] = command
-        fb = self.link.poll(now)
-        if fb.get("fault"):
-            self.link.stop(now=now)
-            self.aim.fault("link:%s" % fb["reason"])
-            res["aim_state"] = "FAULT"
+        controller = self._control()
+        controller.accept_result(res, captured, res.get("laser"))
+        res["aim_state"] = self.aim.state
+        res["cmds"] = dict(controller.last_commands)
+        res["control_source"] = controller.control_source
+        res["search_state"] = controller.search.state if controller.search is not None else None
+        self._stopped = controller.stale_stopped
         return res
 
-    def stop(self):
+    def _control(self):
+        if (self._controller is None or self._controller.link is not self.link or
+                self._controller.aim is not self.aim):
+            self._controller = VisionControl(self.cfg, self.link, self.aim, None, None,
+                                             clock=self._clock, heading=self.heading)
+            self.heading = self._controller.heading
+        return self._controller
+
+    def request_search(self):
+        """启动/取消 SEARCH；由 step()/idle() 消费请求，不在按钮线程写串口。"""
+        if self.link is None or self.aim is None:
+            return False
+        self._control().request_search.set()
+        return True
+
+    def calibrate_imu_bias(self):
+        """请求静止偏置标定；先停机，运行时仍需保持底盘和云台静止。"""
+        controller = self._control()
+        if controller.heading is None or self.link is None or self.aim is None:
+            return False
+        controller.request_imu_bias.set()
+        return True
+
+    def imu_status(self):
+        return self._control().imu_status()
+
+    def idle(self):
+        """无新图像时维持 ACK、搜索、IMU 补偿和视觉过期停机。"""
+        self._control().idle()
+
+    def stop(self, now=None):
+        now = self._clock.perf_counter() if now is None else float(now)
+        if self._controller is not None:
+            accepted = self._controller.stop(now)
+            self._stopped = True if accepted else self._stopped
+            return accepted
         if self.link is not None:
-            self.link.stop()
+            if self.link.stop(now=now) is False:
+                if self.aim is not None:
+                    self.aim.fault("stop:all")
+                return False
+        if self.aim is not None:
+            self.aim.motion_stopped(now=now)
+        self._stopped = True
+        return True
 
     def close(self):
         self.stop()
+        if self._controller is not None:
+            self._controller.close()
+        if self.link is not None:
+            close = getattr(self.link, "close", None)
+            if close is not None:
+                close()

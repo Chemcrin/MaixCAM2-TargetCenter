@@ -22,3 +22,5 @@ debug_*.png
 
 # ⚠ 注意：tools/negative_e421.png / tools/negative_e880.png 是**测试输入固件**（负样本），
 #    被 tools/test_images_e2e.py 引用，**必须进库** —— 不要在此忽略它们。
+# ⚠ tools/real_scene_corner_gap.png 同理：v0.6.2 起是 tools/test_real_scene.py 的**真实场景
+#    回归固件**（角落胶带缺失的黑框，对应实机"基本识别不到"），**必须进库**。

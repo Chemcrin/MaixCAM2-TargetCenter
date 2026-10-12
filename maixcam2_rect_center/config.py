@@ -20,18 +20,25 @@ class Config:
     SHOW_WIDTH = 0
     SHOW_FPS = 30
     SHOW_JPEG_QUALITY = 70   # 只影响 MaixVision JPEG 图传，检测始终用原始灰度图。
-    # ★ MaixVision 图传总开关（决定"能跑满全帧"还是"被 500ms 忙等拖垮"）。
+    # ★ MaixVision 图传总开关。
     #   背景：MaixCDK 的 maixvision_mode() 只看**环境变量 MAIXVISION 是否为 "1"**；
     #   display.Display() 构造时据此创建图传通道 img_trans，而 show() 的第一步就是
     #   img_trans->send_image()。若处于 MaixVision 模式但画面预览**没真正连上**，
     #   该函数会 `while(!init){ if(ticks-t>500) return; }` **忙等 500ms 并空转 CPU**
     #   （源码 components/vision/src/maix_image_trans.cpp）——以 ~2 次/秒计 ≈ 烧掉近一个核，
     #   相机 read / 识别 / 闭环随之塌方（板端实测 show≈505ms、read≈107ms、detect_fps=0）。
-    #   True（默认）：main() 在建 Display **之前**把 MAIXVISION 置 "0" ⇒ 不建图传 ⇒ show() 只
-    #     画本地屏（官方 1~5ms）⇒ 全帧。代价：MaixVision 的"画面预览"面板收不到图（终端日志照常）。
-    #   False：保留图传。想用 MaixVision 看画面、且能保证预览真连上（连上后是异步入队，不忙等）时再设。
-    #   注：从设备本地启动应用时本来就没有图传，此开关无副作用。
-    DISABLE_MAIXVISION_STREAM = True
+    #   v0.6.0 默认 False：保留原 MAIXVISION 会话；Preview 只在打开本地 Display 时临时
+    #   置 0，避免创建原生 img_trans，之后立即还原。图传改由独立进程编码/连接本机桥，
+    #   因此未连预览不会让原生 send_image() 的忙等占住 Python GIL。
+    #   True = 显式仅用本地屏，关闭图传。设备本地启动且无 MAIXVISION 会话时不启动图传进程。
+    DISABLE_MAIXVISION_STREAM = False
+    # MaixVision 仍使用原会话/本机桥接服务；编码和网络由独立进程承担。
+    SHOW_STREAM_HOST = "127.0.0.1"
+    SHOW_STREAM_PORT = 7899
+    SHOW_STREAM_WIDTH = 480
+    SHOW_STREAM_SLOW_MS = 300.0
+    SHOW_STREAM_RETRY_S = 2.0
+    SHOW_STREAM_RETRY_MAX_S = 15.0
     VISION_ASYNC = True
     # ★ 显示线程化：True = 绘制完成后把画布交给**独立显示线程**去 show()，主循环**永不等待 show**。
     #   屏幕驱动或 MaixVision 图传慢时，只表现为"预览掉帧"（丢帧而非排队），
@@ -43,6 +50,7 @@ class Config:
     # ---- 屏幕交互：把「上电自检」做成屏幕上的可点击按钮（不再上电自动跑）----
     # True=在显示画布右上角画 SELF-TEST 按钮，点一下才触发自检；无显示/无触摸屏时自动禁用。
     ENABLE_TOUCH_BUTTON = True
+    ENABLE_SEARCH_BUTTON = True
     OPENCV_THREADS = 1
     LOG_INTERVAL = 2.0
     # ---- 双 ZDT 云台链路 -------------------------------------------------
@@ -70,15 +78,29 @@ class Config:
     DIR_SIGN_PITCH = -1
     PULSE_PER_PX_YAW = 3.67       # 必须用实机开环标定替换
     PULSE_PER_PX_PITCH = 3.67     # 必须用实机开环标定替换
-    GAIN_YAW = 0.5
-    GAIN_PITCH = 0.5
+    GAIN_YAW = 0.30
+    GAIN_PITCH = 0.30
     DEADBAND_PX = 2.0
-    MAX_STEP_PULSES = 360
-    RPM_FINE = 300
+    MAX_STEP_PULSES = 80
+    RPM_FINE = 60
     # 曲线加减速档位（位置模式）：0 = 不用曲线、直接以设定速度瞬时启停（卡顿/冲击根源，勿用）；
     # ≠0 时每 (256-acc)*50us 变 1RPM，acc 越小越柔（常用 20~80）。自检与闭环共用本值。
     ACC_DEFAULT = 80
+    ACC_TRACK = 80               # 追踪独立于自检，非零档位使动作按曲线启停
     COMMAND_INTERVAL_S = 0.08
+    # ★ 闭环"跟手 ↔ 柔和"档位（历史教训：v9 很猛、v12+ 逐版放缓；这是跷跷板不是 bug）。
+    #   "smooth"（默认）= 现有值：冲击与超调小，但接近目标偏慢（用户实报"慢慢挪过去"）。
+    #   "responsive"    = v9 风格：大步长 + 高转速，明显跟手；代价是超调与机械抖动风险更高，
+    #                     切换前先架空试、确认机械行程与限位。
+    #   生效方式：本文件末尾会把该档位的 6 个参数写回 Config（只覆盖增益/转速/限幅，
+    #   死区、低通、加减速档不动）。
+    AIM_PROFILE = "smooth"
+    # 接近靶心时两轴分别连续减小增益/转速，不因另一轴误差大而高速微调。
+    AIM_PROGRESSIVE = True
+    # 相对动作完成后还要等待一张采图时间晚于动作完成的画面，避免旧误差叠加指令。
+    AIM_WAIT_MOTION = True
+    AIM_MOTION_MARGIN_S = 0.03
+    AIM_HISTORY_MAX_GAP_S = 0.30
 
     # 上电自检：度数对应的脉冲数必须按实际减速机构标定。
     # 0 表示未标定，程序跳过自动扫动，避免用错误比例撞限位。
@@ -112,8 +134,8 @@ class Config:
     # 粗/精两段增益：|e| > COARSE_PX 用 GAIN_COARSE（大步快速逼近），否则用 GAIN_YAW/PITCH。
     # 必须保持 gain <= 1，否则增量闭环不收敛（需求文档 §7.4）。
     COARSE_PX = 24.0
-    GAIN_COARSE = 0.9
-    RPM_COARSE = 1200
+    GAIN_COARSE = 0.65
+    RPM_COARSE = 150
 
     # ---- 链路健康（ACK / E2 看门狗，需求文档 §7.9）------------------------
     ENABLE_ACK_WATCHDOG = True
@@ -136,6 +158,56 @@ class Config:
     SCAN_LIMIT_PULSES = 400
     SCAN_RPM = 60
     SCAN_STEP_INTERVAL_S = 0.15
+
+    # 手动 SEARCH：相对点击时的姿态，两轴各覆盖 ±45°。
+    SEARCH_YAW_DEG = 45.0
+    SEARCH_PITCH_DEG = 45.0
+    SEARCH_RPM = 60
+    SEARCH_ACC = 60
+    SEARCH_SETTLE_S = 0.10
+    SEARCH_TIMEOUT_S = 60.0
+    # ★ 未标定"脉冲/度"时的兜底扫描幅度（脉冲）。与 SELF_TEST_PULSES 同口径：
+    #   >0 ⇒ 即使 YAW/PITCH_PULSES_PER_DEG 与 GIMBAL_GEAR_RATIO 都是 0，SEARCH
+    #   也**真的会扫**（+P → −2P → +P，每轴三段）。旧行为是直接 UNCALIBRATED 一动不动，
+    #   实机表现就是"按 SEARCH 和没按一样"。置 0 可显式退回旧行为。
+    SEARCH_PULSES = 400
+    # ★ IMU 辅助收段：启用且陀螺仪相对朝向可用时，每段按**实测角度**提前收段，
+    #   于是 ±45° 与真实角度一致，不依赖脉冲/度标定（这才是"和陀螺仪结合查找"）。
+    #   未标定/无样本时自动退回脉冲口径，行为不变。
+    SEARCH_USE_IMU = True
+    SEARCH_IMU_MARGIN_DEG = 3.0   # 实测角度进入目标 ±该值即收段
+
+    # 内置 IMU 在摄像头/云台上；相机姿态已包含电机运动，不再减去请求的步数。
+    # 需先标定安装轴和陀螺仪偏置，再启用；仅陀螺仪提供相对朝向，不是绝对航向。
+    ENABLE_IMU_FEEDFORWARD = False
+    IMU_SENSOR_MOUNT = "camera"
+    IMU_YAW_AXIS = (0.0, 0.0, 1.0)
+    IMU_PITCH_AXIS = (0.0, -1.0, 0.0)
+    IMU_AXES_CALIBRATED = False
+    IMU_BIAS_DPS = None
+    IMU_CALIBRATE_ON_START = False
+    IMU_BIAS_CALIBRATE_S = 1.0
+    IMU_BIAS_MAX_STD_DPS = 0.25
+    IMU_BIAS_MAX_DPS = 2.0
+    IMU_POLL_HZ = 200.0
+    IMU_MAX_AGE_S = 0.10
+    IMU_READ_MAX_S = 0.10
+    IMU_MAX_PITCH_DEG = 80.0
+    IMU_MAX_GAP_S = 0.20
+    IMU_MAX_RATE_DPS = 450.0
+    IMU_REFERENCE_MAX_AGE_S = 0.03
+    IMU_HISTORY_S = 1.0
+    IMU_HISTORY_MAX_SAMPLES = 256
+    IMU_MAX_PREDICT_S = 0.05
+    IMU_LEAD_S = 0.03
+    IMU_VISUAL_GAP_S = 0.05
+    IMU_HOLD_MAX_S = 4.0
+    IMU_MAX_CORRECTION_DEG = 100.0
+    # 图像暂时丢失时的姿态补偿按已标定角度限幅，避免沿用视觉微调的 80 脉冲上限。
+    IMU_MAX_STEP_DEG = 30.0
+    IMU_GAIN = 0.75
+    IMU_RPM = 180
+    IMU_ACC = 80
 
     # ---- 开环标定（一次性；标完把 CALIBRATE_AXIS 置回 ""）----------------
     # "yaw"/"pitch"：开机只做该轴开环标定，实测并打印 PULSE_PER_PX/DIR_SIGN/交叉项/回差。
@@ -170,7 +242,21 @@ class Config:
     #   宁可单帧轻一点也不在乎多花几帧时才开。
     SEARCH_SPLIT_FRAMES = False
     SEARCH_BUDGET_MS = 25.0      # 仅在 SEARCH_SPLIT_FRAMES=True 时生效的软预算
-    SEARCH_MAX_PROPOSALS = 128   # 单帧验证候选数硬上限（安全阀，正常场景远用不到）
+    # ⚠ 实测「实际是死参数」：单帧候选数有**构造上限** ——
+    #   最多 (Otsu + DARK_THRESHOLDS + 复用的上次阈值) 档 × MAX_CANDIDATES 个
+    #   + Canny 支 MAX_CANDIDATES 个 × 2 种 kind ≈ 96 个 < 128，**永远够不到**。
+    #   实测：真实帧 1~6、负样本 3~6、纯噪声 0、满屏 15 个人造黑框也才 16。
+    #   ⇒ 默认配置下本上限从不生效；只有把它手工调小（≤96）才真正裁决。
+    SEARCH_MAX_PROPOSALS = 128   # 单帧验证候选数硬上限（仅 SEARCH_EXHAUSTIVE=False 且调小到 ≤96 时才可能生效）
+    # ★ 搜索口径：True = 「搜索永不截断」（对齐 v1–v3 的 `laser-readout-v1`/`target-api-v3`）。
+    #   那两版的 `_search` 里根本没有候选预算（`SEARCH_MAX_PROPOSALS` 当时是死参数），
+    #   跑完全部阈值 + Canny 兜底、验证每个候选 —— 用户实感"虽然卡顿但一点不丢"。
+    #   本工程后来引入预算后，一次 ROI 搜索就能把它烧光，真正的候选永远轮不到，
+    #   表现为"黑框清清楚楚却丢帧"（连续几帧即肉眼可见丢锁）。
+    #   · True（默认，用户明确要求回到 v1–v3 的稳定性）：失锁帧可能明显变慢（卡顿可接受，
+    #     丢锁不可接受）。稳态仍在 track 快路径上，不受影响。
+    #   · False：有界口径，按 SEARCH_MAX_PROPOSALS 截断（快，但可能丢帧）。
+    SEARCH_EXHAUSTIVE = True
     SEARCH_GEOMETRY_STEPS = 8
     MAX_CONTOURS = 128
     LINE_MAX_PROPOSALS = 36
@@ -185,6 +271,23 @@ class Config:
     MAX_CANDIDATES = 8
     EDGE_SAMPLES = 24
     REFINE_RADIUS = 6
+    # ★ 宽半径兜底精修（2026-10-13 实机定位）：候选四边形可能整体偏离真边——
+    #   实机实测：掩膜给出的候选顶边比胶带外沿低约 14px，而 `_verify` 只从边向里采
+    #   2.2~6.5px（0.2~0.6×BLACK_FRAME_MM）⇒ 直接采到纸面、把纸当成"暗带"而误拒。
+    #   窄半径（REFINE_RADIUS=6 / TRACK_RADIUS=12）都纠不动这种十几 px 的偏差，
+    #   于是画面里黑框清清楚楚却永远判 no_black_frame。
+    #   改动：`_verify` 失败时先用本半径精修一次把四边拉回真边再验；
+    #   0 或 <= REFINE_RADIUS 表示关闭该兜底（退回旧行为）。
+    REFINE_RADIUS_WIDE = 20
+    # ★ 宽半径"救回"路径的确证门槛：救回后的候选必须**确凿落在真胶带上**。
+    #   实测（2026-10-13）：真靶纸中位对比度 **123**，而负样本 negative_e880 靠宽半径
+    #   救回后只有 **40** —— 用通用的 MIN_EDGE_CONTRAST=20 会直接变成误检。
+    #   只在宽半径路径上要求（不影响常规候选，常规路径仍用 MIN_EDGE_CONTRAST）。
+    RECOVER_MIN_CONTRAST = 80.0
+    # ★ 且**四边暗带灰度的最大值**必须够黑（≤ 本值）：真胶带四边都黑，而"纸边/褶皱"
+    #   这类假边界总有一两条边只是中灰。实测：真靶纸 dark=62/49/75/78（max 78）、
+    #   负样本 e880 dark=140/74/121/64（max 140）⇒ 本值取 100 可分开，且两侧都有余量。
+    RECOVER_MAX_DARK = 100.0
     TRACK_RADIUS = 12
     # 运动预测（治"速度快捕获不到"）：窄带精修的搜索半径 TRACK_RADIUS 保持小值（定位精度高），
     # 靠"外推本帧位置"来跟上快速移动：用上两帧四角的**逐角位移**（含平移/缩放/旋转）预测本帧
@@ -192,10 +295,21 @@ class Config:
     # PREDICT_MAX_PX 是单帧预测位移上限，防噪点把预测甩飞（板端帧率低、目标位移可能很大时才需调大）。
     ENABLE_MOTION_PREDICT = True
     PREDICT_MAX_PX = 60.0
+    # 捕获时间间隔超过此值或时钟回退时重建速度，避免断流后沿旧速度外推。
+    PREDICT_MAX_GAP_S = 0.25
     ROI_PADDING = 0.20
     MIN_EDGE_COVERAGE = 0.55
     MAX_DARK_BRIGHT_RATIO = 0.72
     WEAK_EDGE_COVERAGE = 0.25
+    # ★ 允许"一条边缺失"的阈值（实机必需）：黑胶带环在角落断开、或被强反光洗白是常态，
+    #   旧规则要求四边覆盖率都 ≥WEAK_EDGE_COVERAGE，实测会把唯一正确候选拒掉
+    #   （现象：画面里黑框清晰可见，却一直显示 NO BLACK RECTANGLE）。
+    #   豁免条件：另三条边的覆盖率都 ≥STRONG_EDGE_COVERAGE 才允许第四条边缺失。
+    STRONG_EDGE_COVERAGE = 0.85
+    # ★ 凸包兜底候选的启用条件：轮廓面积 / 凸包面积 < 此值才算"环形带"。
+    #   只有带（黑胶带环、U 形缺口环）需要凸包补缺口；实心背景/阴影块不启用，
+    #   否则每条掩膜会凭空多出大片假候选，白耗 SEARCH_MAX_PROPOSALS 验证预算。
+    HULL_FILL_RATIO = 0.60
     FILTER_RESET_PX = 25.0
     MIN_AREA_RATIO = 0.025
     MAX_AREA_RATIO = 0.92
@@ -244,3 +358,23 @@ class Config:
     LASER_MAX_JUMP_PX = 40.0
     # 位置平滑（0 = 不平滑，直接用最新质心）。
     LASER_SMOOTH_ALPHA = 0.60
+
+
+# =============================================================================
+# 闭环档位落地：按 Config.AIM_PROFILE 覆盖增益/转速/单帧限幅。
+#   · 现场只改上面的 `AIM_PROFILE = "smooth"`（或 "responsive"）这一行即可，
+#     不需要逐个调 6 个参数（它们容易被改歪，见根 AGENTS.md §6 的跷跷板说明）。
+#   · 只覆盖列出的 6 项；DEADBAND_PX / 低通 / ACC_TRACK / AIM_WAIT_MOTION 一律不动。
+#   · 未识别的档位名 → 直接报错（宁可启动失败，也不要在板上悄悄用错参数）。
+# =============================================================================
+AIM_PROFILES = {
+    "smooth": dict(GAIN_YAW=0.30, GAIN_PITCH=0.30, GAIN_COARSE=0.65,
+                   RPM_FINE=60, RPM_COARSE=150, MAX_STEP_PULSES=80),
+    "responsive": dict(GAIN_YAW=0.50, GAIN_PITCH=0.50, GAIN_COARSE=0.90,
+                       RPM_FINE=120, RPM_COARSE=400, MAX_STEP_PULSES=360),
+}
+if Config.AIM_PROFILE not in AIM_PROFILES:
+    raise ValueError("Config.AIM_PROFILE 必须是 %s 之一，当前为 %r"
+                     % (sorted(AIM_PROFILES), Config.AIM_PROFILE))
+for _name, _value in AIM_PROFILES[Config.AIM_PROFILE].items():
+    setattr(Config, _name, _value)

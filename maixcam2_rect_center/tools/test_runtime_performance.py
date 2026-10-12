@@ -11,6 +11,7 @@ import cv2
 import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+import main as entry
 from config import Config
 from main import (_FrameRate, _LatestVision, _Preview, _VisionControl, _display_result,
                   _apply_maixvision_stream_policy)
@@ -66,39 +67,157 @@ def test_stale_and_single_control_update():
         def stop(self, **kwargs): self.stops += 1
     link = Link()
     cfg = type("Cfg", (Config,), dict(RESULT_MAX_AGE_S=.2))
-    control = _VisionControl(cfg, link, GimbalAim(cfg), None, None)
+    current = [1000.0]
+    clock = types.SimpleNamespace(perf_counter=lambda: current[0])
+    control = _VisionControl(cfg, link, GimbalAim(cfg), None, None, clock=clock)
     valid = {"valid": True, "u": 320, "v": 240, "raw_u": 320, "raw_v": 240,
              "stage": "track", "search_count": 0}
     with patch.object(control.detector, "process", return_value=valid):
-        snap = control.process(np.zeros((480, 640), np.uint8), time.perf_counter())
+        snap = control.process(np.zeros((480, 640), np.uint8), current[0])
     assert link.moves
     count = len(link.moves)
     for _ in range(20): control.idle()
     assert len(link.moves) == count, "idle 不得重复发送旧测量"
     with patch.object(control.detector, "process", return_value=dict(valid)):
-        snap = control.process(np.zeros((480, 640), np.uint8), time.perf_counter() - 1)
+        snap = control.process(np.zeros((480, 640), np.uint8), current[0] - 1)
+    assert len(link.moves) == count and link.stops == 0, "倒序图像不得打断仍有效的新测量"
+    current[0] += .3
+    for _ in range(20): control.idle()
     assert len(link.moves) == count and link.stops == 1
-    result, _, age = _display_result(snap, time.perf_counter(), .2)
+    result, _, age = _display_result(snap, current[0], .2)
     assert not result["valid"] and result["stage"] == "stale" and age >= 1
+
+
+def test_capture_intervals_reach_detector():
+    """采图时间沿最新帧槽进入识别；可变处理延迟不能改变运动预测的时间轴。"""
+    current = [1000.0]
+    clock = types.SimpleNamespace(perf_counter=lambda: current[0])
+    cfg = type("Cfg", (Config,), dict(ENABLE_LASER=False))
+    control = _VisionControl(cfg, None, None, None, None, clock=clock)
+    worker = _LatestVision(control.process, asynchronous=False, clock=clock)
+    q = np.array([[100, 90], [240, 90], [240, 300], [100, 300]], np.float32)
+    stages, errors = [], []
+    try:
+        for offset, timestamp, latency in zip(
+                (0, 10, 40, 50, 80, 90, 120),
+                (0.0, .033, .133, .166, .266, .299, .399),
+                (.005, .030, .002, .020, .035, .001, .025)):
+            captured = 1000.0 + timestamp
+            current[0] = captured + latency
+            image, truth = scene(q + [offset, 0])
+            worker.submit(image, captured)
+            snapshot, _, _ = worker.snapshot(current[0])
+            assert snapshot["captured_at"] == captured
+            result = snapshot["result"]
+            assert result["valid"], result
+            stages.append(result["stage"])
+            errors.append(float(np.linalg.norm(
+                [result["raw_u"], result["raw_v"]] - truth)))
+    finally:
+        worker.close()
+    assert max(errors) < 1.5, errors
+    assert stages == ["full_search"] + ["track"] * 6, stages
+
+
+def test_sync_camera_gap_stops_once():
+    """真实主循环的同步模式：相机停帧后仍收 ACK，并在过期后停一次，不重发旧误差。"""
+    class Link:
+        def __init__(self):
+            self.moves, self.stops, self.polls = [], 0, 0
+
+        def poll(self, now):
+            self.polls += 1
+            return {"fault": False}
+
+        def move(self, *args, **kwargs):
+            self.moves.append(args)
+
+        def stop(self, **kwargs):
+            self.stops += 1
+
+    current, reads = [0.0], [0]
+    clock = types.SimpleNamespace(perf_counter=lambda: current[0])
+    cfg = type("Cfg", (Config,), dict(
+        SHOW=False, ENABLE_TOUCH_BUTTON=False, ENABLE_GIMBAL=False,
+        ENABLE_UART=False, VISION_ASYNC=False, RESULT_MAX_AGE_S=.2,
+        LOG_INTERVAL=1000, DISABLE_MAIXVISION_STREAM=False))
+    link = Link()
+    control = _VisionControl(cfg, link, GimbalAim(cfg), None, None, clock=clock)
+    gray = np.zeros((480, 640), np.uint8)
+
+    def read():
+        current[0] += .05
+        reads[0] += 1
+        return gray if reads[0] == 1 else None
+
+    camera = types.SimpleNamespace(read=read, skip_frames=lambda n: None, close=lambda: None)
+    maix = types.ModuleType("maix")
+    maix.app = types.SimpleNamespace(need_exit=lambda: reads[0] >= 12)
+    maix.camera = types.SimpleNamespace(Camera=lambda *args, **kwargs: camera)
+    maix.image = types.SimpleNamespace(
+        Format=types.SimpleNamespace(FMT_GRAYSCALE=0),
+        image2cv=lambda img, **kwargs: img)
+    valid = {"valid": True, "u": 320.0, "v": 240.0, "raw_u": 320.0,
+             "raw_v": 240.0, "stage": "track", "search_count": 0}
+    with patch.dict(sys.modules, maix=maix), \
+            patch.object(entry, "Config", cfg), patch.object(entry, "time", clock), \
+            patch.object(entry, "VisionControl", return_value=control), \
+            patch.object(control.detector, "process", return_value=valid):
+        entry.main()
+    assert link.moves, "首帧应已发出追踪指令"
+    assert len(link.moves) <= 2, "相机停帧后不得重复发送旧误差"
+    assert link.polls >= reads[0], "同步模式相机停帧仍需收 ACK"
+    assert link.stops == 1, "超过采图有效期必须停机一次，实际 %d" % link.stops
+    assert control.aim.state == "HOLD", control.aim.state
+
+
+def _unavoidable_search_ms(small, kernel):
+    """在同一张图上跑一遍"搜索不可避免"的部分：N 档 threshold + close + findContours，加 Canny 兜底。
+
+    为什么要它：绝对毫秒断言**不可跨机器、也不可跨负载**。"单帧搜索 ≤ SEARCH_BUDGET_MS+60"
+    在标定时那台机器上成立，但在慢得多的机器上连**未改动的基线代码**也失败 —— 2026-10-13
+    实测：B 轨原样代码在同一断言上同样报 163ms。本机单次样本还会从 150ms 抖到 267ms，
+    所以这里同时（a）改判据为"相对同帧测得的参考工作量"，（b）与搜索**交错采样后比中位数**，
+    两者都按项目既有规矩（性能结论必须同进程交错 A/B）。
+    """
+    otsu, _ = cv2.threshold(small, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+    levels = (int(otsu),) + tuple(Config.DARK_THRESHOLDS)
+    t0 = time.perf_counter()
+    for th in levels:
+        _, mask = cv2.threshold(small, th, 255, cv2.THRESH_BINARY_INV)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+        cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    edges = cv2.Canny(small, Config.CANNY_LOW, Config.CANNY_HIGH)
+    cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    return (time.perf_counter() - t0) * 1000.0
 
 
 def test_bounded_search_and_current_evidence():
     det = RectangleCenterDetector(Config)
     noise = np.random.default_rng(6).integers(0, 256, (480, 640), dtype=np.uint8)
-    samples = []
+    small = cv2.resize(noise, (Config.SEARCH_WIDTH, 237), interpolation=cv2.INTER_AREA)
+    kernel = np.ones((3, 3), np.uint8)
+    det.process(noise)                          # 预热（首帧含 OpenCV 惰性初始化）
+    _unavoidable_search_ms(small, kernel)
+    samples, references = [], []
     for _ in range(25):
         t0 = time.perf_counter()
         out = det.process(noise)
-        ms = (time.perf_counter() - t0) * 1000
-        samples.append(ms)
+        samples.append((time.perf_counter() - t0) * 1000)
+        references.append(_unavoidable_search_ms(small, kernel))
         # 新契约（v0.5.1）：搜索为「单帧穷尽 + 时间预算兜底」，不再限制"每帧只扫 1 档阈值"。
         #   · 每帧仍只发起一次搜索（search_count<=1）；
         #   · 单帧内最多把全部阈值 + Canny 兜底走一遍（thresholds 有上限）；
-        #   · 单帧耗时受 SEARCH_BUDGET_MS 软预算约束（超时即停、跨帧续扫）。
+        #   · 每帧不得产出有效结果（纯噪声里没有黑框）。
         assert out["search_count"] <= 1, out
         assert out["thresholds"] <= len(Config.DARK_THRESHOLDS) + 2, out
-        assert out["proposals"] <= Config.SEARCH_MAX_PROPOSALS and not out["valid"]
-        assert ms <= Config.SEARCH_BUDGET_MS + 60, ("单帧搜索超预算", ms, out)
+        assert out["proposals"] <= Config.SEARCH_MAX_PROPOSALS and not out["valid"], out
+    search_ms = float(np.median(samples))
+    reference_ms = float(np.median(references))
+    budget = max(Config.SEARCH_BUDGET_MS + 60, 3.0 * reference_ms)
+    print("bounded_clutter_reference reference_ms=%.1f search_ms=%.1f ratio=%.2f allowance_ms=%.1f"
+          % (reference_ms, search_ms, search_ms / max(reference_ms, 1e-9), budget))
+    assert search_ms <= budget, ("单帧搜索远超预算/参考工作量", search_ms, budget)
     image, truth = scene([[180, 70], [445, 80], [475, 400], [150, 420]])
     det = RectangleCenterDetector(Config)
     with patch.object(det, "_verify", return_value=None): det.process(image)
@@ -224,21 +343,16 @@ def test_slow_show_does_not_block_main_loop():
 
 
 def test_maixvision_stream_policy():
-    """MaixVision 图传策略：默认必须把 MAIXVISION 置 0（从源头不建图传、拆掉 500ms 忙等）。
-
-    契约与 MaixCDK 对齐：maixvision_mode() 只在 MAIXVISION=="1" 时为真；图传通道在建 Display
-    时按它创建。故这里锁死三种情形：默认置 0、显式关闭策略则保持 1、非 MaixVision 模式不动。
-    """
+    """默认保留图传会话；明确选择本地模式才关闭，Preview 单独隔离本地显示。"""
     old = os.environ.get("MAIXVISION")
     try:
         os.environ["MAIXVISION"] = "1"
-        assert _apply_maixvision_stream_policy(Config) is True       # 默认 DISABLE_MAIXVISION_STREAM=True
-        assert os.environ.get("MAIXVISION") == "0", "默认策略必须掐断图传"
+        assert _apply_maixvision_stream_policy(Config) is False
+        assert os.environ.get("MAIXVISION") == "1", "默认策略保留图传会话"
 
-        os.environ["MAIXVISION"] = "1"
-        keep = type("Cfg", (Config,), dict(DISABLE_MAIXVISION_STREAM=False))
-        assert _apply_maixvision_stream_policy(keep) is False        # 显式保留图传
-        assert os.environ.get("MAIXVISION") == "1", "关闭策略时不得改动环境变量"
+        local = type("Cfg", (Config,), dict(DISABLE_MAIXVISION_STREAM=True))
+        assert _apply_maixvision_stream_policy(local) is True
+        assert os.environ.get("MAIXVISION") == "0", "显式本地模式应关闭图传"
 
         os.environ.pop("MAIXVISION", None)
         assert _apply_maixvision_stream_policy(Config) is False      # 非 MaixVision 模式：无副作用
@@ -253,6 +367,7 @@ def test_maixvision_stream_policy():
 def main():
     cv2.setNumThreads(Config.OPENCV_THREADS)
     tests = [test_real_fps, test_latest_frame_ownership, test_stale_and_single_control_update,
+             test_capture_intervals_reach_detector, test_sync_camera_gap_stops_once,
              test_bounded_search_and_current_evidence, test_uart_is_nonblocking_and_bounded,
              test_slow_vision_keeps_live_video, test_slow_show_does_not_block_main_loop,
              test_maixvision_stream_policy]

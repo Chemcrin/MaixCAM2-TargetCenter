@@ -1,11 +1,267 @@
 # MaixCAM2 黑框中心：四边精修、快速跟踪与双轴云台瞄准
 
-构建号 `2026-10-12-motion-predict-v0.5.2`，应用版本 `0.5.2`。在 MaixVision 中打开本文件夹，选择“运行项目”。
-必须一起下发应用包内的 **18 个文件**（`app.yaml` / `main.py` / `config.py` / `target_api.py` /
-`assets/icon.png` / `vision/` 下 13 个 `.py`），不能只运行当前 `main.py`。
+构建号 `2026-10-13-wide-refine-recovery-v0.6.5`，应用版本 `0.6.5`。在 MaixVision 中打开本文件夹，选择“运行项目”。
+必须一起下发应用包内的 **22 个文件**（`app.yaml` / `main.py` / `config.py` / `target_api.py` /
+`assets/icon.png` / `vision/` 下 17 个 `.py`），不能只运行当前 `main.py`。
 
 > 只想临时试参数时，也可以先 `python tools/build_single.py` 生成 `dist/main_single.py`，
 > 再用「运行当前文件」—— 那是自包含的单文件版，语义与分模块完全一致。改了源码记得重新生成。
+
+## 2026-10-13（v0.6.4）：回归 v1–V3 的「搜索永不截断」——治丢帧
+
+用户要求「参考 V1–V3 的写法，虽然卡顿但识别完全稳定、一点不丢」。**V1–V3 已定位**：
+B 轨历史里的 `2026-10-07-laser-readout-v1` 与 `2026-10-08-target-api-v3`。
+
+### 差异核查（逐项对比 v3 `vision/rectangle_center.py` 与当前）
+
+| 项 | 结论 |
+|---|---|
+| 检测参数（`EDGE_SAMPLES` / `DARK_THRESHOLDS` / `CANNY_*` / `MIN_EDGE_*` / `WEAK_EDGE_COVERAGE` / `MIN/MAX_AREA_RATIO` / `APPROX_EPSILON` / `MAX_CANDIDATES` / `MAX_CONTOURS` / `TRACK_RADIUS` / `REFINE_RADIUS` / `CENTER_ALPHA` …） | **逐项一致**（差异只在显示/云台侧） |
+| `_valid_quad` / `_layout` | **逐字一致**（仅注释不同） |
+| `_candidate_quads` | 当前是 v3 的**超集**（epsilon 扫描 + 凸包兜底 + 不要求亮孔） |
+| `_verify` | 当前**更宽**（`STRONG_EDGE_COVERAGE` 允许缺一条边） |
+| `_refine` | 当前**更宽容**（某边无证据时沿用输入边，不整框放弃） |
+| **`_search` 候选预算** | ★ **唯一的回归**：v3 里 `SEARCH_MAX_PROPOSALS` 是**死参数**（配成 1 却从不被读取），搜索跑完全部阈值 + Canny 兜底、验证每个候选；当前版本引入了 128 上限并**真的读取它** |
+| **`process` 的全图搜索守卫** | ★ **同一个回归的另一半**：旧守卫 `(not SPLIT and proposals < MAX)` 会在 ROI 搜索烧完预算后**跳过全图搜索**，该帧直接判 `no_black_frame` |
+
+### 改动
+
+```python
+# config.py
+SEARCH_MAX_PROPOSALS = 128   # 仅在 SEARCH_EXHAUSTIVE=False 时生效
+SEARCH_EXHAUSTIVE = True     # 默认：搜索永不截断（对齐 v1–V3）
+```
+
+- `_search`：`cap = None if SEARCH_EXHAUSTIVE else SEARCH_MAX_PROPOSALS` —— 穷尽口径下不再因候选数返回 None。
+- `process`：跟踪/ROI 都失败后**必然**再跑一次完整全图搜索（不再被预算守卫跳过）。
+- 附带效果：穷尽口径下 `_search_jobs` 的跨帧残留（`pending` / `index`）不再发生，每次搜索都是一次完整、无状态的全扫 —— 与 v3 语义一致。
+- 代价（明确接受）：失锁帧可能明显变慢（"卡顿"），但**稳态仍走 track 快路径**，中位耗时不受影响。
+
+### 诚实的边界
+
+- 用户给的两张实拍截图**在 v0.6.2 及以后已能检出**（余量很大：四边覆盖率全 1.0），
+  且这两帧的候选数只有 1~6，**远未触及 128 上限** ⇒ 本次改动**不能**用这两帧证明效果。
+  它是"把检测通路对齐到 v1–V3"的**唯一**可查差异，并已在合成预算用例上被证明能造成丢帧
+  （把 `SEARCH_MAX_PROPOSALS` 手工压到 4 时确定丢、穷尽口径下同帧找回）。
+- ★ **追加实测（推翻"截断是主因"的初判）**：单帧候选数有**构造上限** ——
+  最多 `(Otsu + DARK_THRESHOLDS + 复用的上次阈值) × MAX_CANDIDATES + Canny × MAX_CANDIDATES × 2 ≈ 96 < 128`，
+  **`SEARCH_MAX_PROPOSALS=128` 永远够不到**。实测：真实帧 1~6、负样本 3~6、纯噪声 0、
+  满屏 15 个人造黑框也才 16。
+  ⇒ **本次改动在默认配置下预计不产生任何可观测差异**，`SEARCH_MAX_PROPOSALS` 应视为**死参数**
+  （与 B 轨那 12 个同类）。保留它的理由是"去掉一条潜在早退路径、与 v1–V3 语义一致"，
+  **不是**已证实的修复。真实丢帧原因仍未定性，需要板端原始帧 / `[perf]` 日志。
+- 仍需要板端原始帧 / 串口日志才能定性"识别依旧不给力"。
+
+### 测试
+
+- 新增 `test_tracking::test_exhaustive_search_never_truncates_candidates`：预算压到 1，穷尽口径下仍须找回目标且 `proposals > 1`。
+- `test_tracking::test_shared_proposal_budget` 显式钉 `SEARCH_EXHAUSTIVE=False`（预算语义只属于有界口径）。
+- `measure()` 的 `proposals <= SEARCH_MAX_PROPOSALS` 断言改为**仅在有界口径**下检查。
+- 全量 `tools/check_pc.py`：**PASS=18 SKIP=1 KNOWN=1 FAIL=0**。
+
+> ⚠ 本轮再次发生「`main.py` 被外部进程整份覆盖」：改构建号后 smoke 打出的是上一版 `v0.6.2`。
+> 已核对 `config.py` / `vision/*` / `preview.py` 的改动全部完好，仅重建 `main.py` 的 BUILD_ID。
+
+## 2026-10-13（v0.6.3）：修 SEARCH「按了等于没按」+ IMU 辅助收段 + 闭环档位开关
+
+用户实报：**"点击 SEARCH 和没点效果差不多，没有和陀螺仪结合查找的过程"**。根因确凿：
+
+`SearchSweep._prepare()` 在 `YAW/PITCH_PULSES_PER_DEG=0` 且 `GIMBAL_GEAR_RATIO=0` 时
+直接进 `UNCALIBRATED` **并 return —— 一条运动指令都不发**。所以现场看到的"搜索"完全是
+闭环追踪自己的慢速逼近，与按钮无关。
+
+### 改动
+
+| 位置 | 改动 |
+|---|---|
+| `config.SEARCH_PULSES = 400` | 未标定脉冲/度时的**固定脉冲数兜底**（与既有 `SELF_TEST_PULSES` 同口径）。置 0 可显式退回旧行为 |
+| `gimbal_search._prepare` | 未标定不再一动不动；扫描序列改写成**相对脉冲增量**（+P → −2P → +P），某段被提前收段也不会把后续端点带偏 |
+| `gimbal_search._activate_imu` / `_imu_angle_reached` | **IMU 辅助收段**：给 `heading` 且相对朝向可用时，按陀螺仪**实测角度**达到目标即停车收段 ⇒ ±45° 与真实角度一致，不依赖脉冲/度标定。不可用则静默退回脉冲口径 |
+| `gimbal_search.calibration_summary` | **点一次 SEARCH 即得标定值**：累计「指令脉冲 vs IMU 实测转角」，结束时打印 `[ui] SEARCH 实测脉冲/度：YAW≈X`，可直接填回 `YAW/PITCH_PULSES_PER_DEG`，省掉专门的开环标定 |
+| `aim_control` | 启动日志打印 `收段=imu_angle_terminated / imu_off` 与 `脉冲/度=已标定 / 未标定→固定脉冲兜底` |
+| `config.AIM_PROFILE` | 闭环"跟手 ↔ 柔和"档位：`"smooth"`（默认，= 原值，零行为变更）/ `"responsive"`（v9 风格大步长高转速）。只覆盖 6 个增益/转速/限幅，档位名非法直接报错 |
+
+> `SEARCH_PULSES = 400` 的取值依据：项目既有假设 `MOTOR_PULSES_PER_REV=3200` + 直驱 1:1
+> ⇒ 8.89 脉冲/度 ⇒ **400 脉冲 = 45.0°**，与 `SEARCH_YAW_DEG` 一致。若实际有减速比 i，
+> 该值应按 `45 × 8.89 × i` 等比放大；完成脉冲/度标定后本值不再参与（由角度换算）。
+
+### 验证
+
+`test_extension_control` 19 → **21 项**：新增「未标定必须真的会扫（固定脉冲）」
+「`SEARCH_PULSES=0` 仍可显式关闭」「IMU 角度先于脉冲时长到点时立即停车收段并续下一段」。
+全量 `tools/check_pc.py`：**PASS=18 SKIP=1 KNOWN=1 FAIL=0**。
+
+> `test_extension_control::test_uncalibrated_search_is_visible_and_cannot_move` 这条旧断言
+> 钉的正是"未标定不许动"，即本次要修的缺陷 —— 已按新契约改写为上面三条。
+
+## 2026-10-13（v0.6.2）：修「实机基本识别不到」+ PC（Windows）可用性
+
+### 根因：实机拍到的黑胶带环**不闭合**
+
+实拍画面里黑框清晰可见，程序却一直显示 `NO BLACK RECTANGLE`。用 `tools/diagnose_detect.py`
+把真实帧喂进检测器逐级打印后定位到（三处叠加，缺一不可）：
+
+1. **胶带环不闭合**：画面右上角胶带缺失（上边缘缺约 12%、右边缘缺约 53%），
+   `findContours(RETR_TREE)` 里**没有"亮孔"子轮廓**，U 形轮廓 `approxPolyDP` 得 8 点；
+2. **候选生成为空**：旧规则要求"恰好 4 点凸四边形 + outer 必须有亮孔" ⇒ 一个候选都产不出来
+   （`_verify` 调用次数为 0，而合成图上的闭环永远是干净 4 点，所以离线 29/30 全绿）；
+3. **校验门过严**：即使产出正确的四边形，旧规则要求四边覆盖率都 ≥ `WEAK_EDGE_COVERAGE`，
+   缺失那条边覆盖率仅 0.21，把唯一正确候选拒掉 —— 这解释现象为什么是"偶尔锁上、很快丢"。
+
+### 改动（`vision/rectangle_center.py`）
+
+| 位置 | 改动 |
+|---|---|
+| `_quad_from_contour`（新） | 候选提议改用 **epsilon 扫描 + 凸包兜底**；凸包只对"环形带"轮廓启用（`HULL_FILL_RATIO`），实心背景块不参与，避免白耗候选预算 |
+| `_candidate_quads` | 去掉"outer 必须有亮孔"守卫 —— 真伪已由 `_verify` 的四边暗带 + 内侧亮区判定，实心黑块在那里必然被拒 |
+| `_verify` | 新增 `STRONG_EDGE_COVERAGE`：**另三条边都 ≥0.85 时允许第四条边缺失**（缺角黑框是实机常态） |
+| `_refine` | 某条边无证据时**沿用输入四边形的这条边**（=预测位置），只在另有 ≥3 条边真拟合过时通过；旧实现任一条边证据不足就整框返回 None ⇒ 实机每帧都掉出跟踪 |
+
+### 结果（同进程交错 A/B）
+
+| 指标 | 旧 | 新 |
+|---|---|---|
+| 合成集检出 | 29/30 | **30/30**（原"强反光"失败项一并修复） |
+| 最大中心误差 | 0.803 px | 0.803 px（不变） |
+| 负样本误检 | 0/5 | **0/5**（不变） |
+| 稳态单帧 | 10.4/9.8/10.4 ms | 11.2/9.1/10.9 ms（噪声内） |
+| 真实场景（角落缺胶带） | 不检出 | **检出**，中心偏差 0.83px，第二帧进 `track` |
+
+> 注：文档里的 0.86/0.929ms 是标定时的机器状态；当前机器上**未改动的 B 轨**实测约 11ms，
+> 绝对耗时不可跨机器比较 —— 因此 `test_runtime_performance` 的"单帧搜索超预算"断言
+> 已改为**相对同帧参考工作量 + 交错取中位数**（比例实测 1.6~1.7，判据取 3.0×）。
+
+### PC / Windows 适配
+
+- **`tools/check_pc.py`**：一条命令跑完本目录所有 PC 可运行检查，Linux 专属用例标 `SKIP`、
+  打包身份问题标 `KNOWN`，退出码只在真实失败时为 1。
+- **`tools/run_pc.py`**：在 Windows 上用**同一套**检测器跑图片/视频/摄像头（含 `--set` 临时改参），
+  支持中文路径（`cv2.imread` 在 Windows 上对非 ASCII 路径会失败）。
+- **`tools/diagnose_detect.py`**：把任意画面喂进检测器并逐边打印**为什么没检出**。
+- **`tools/test_real_scene.py`** + `tools/real_scene_corner_gap.png`：把这次的真实场景固化成回归。
+- `main.py` 无 `maix` 时打印指引而非堆栈；`test_preview_stream.py` 在非 Linux 上自动跳过。
+
+## 2026-10-13（v0.6.1）：屏幕按钮的可确认性与容错
+
+- 按钮仍是"按下沿"语义（防按住不放反复启动），但补齐**反馈与容错**：命中/未命中都打印
+  `[touch]`、按钮按下后高亮 0.25s、按下锁存超时 2s 自动解除（避免释放帧被漏采样后按钮永久失灵）。
+- SEARCH 的启动/取消/被拒分支补 `[ui]` 日志（此前启动与取消**完全静默**）。
+
+## 2026-10-12（v0.6.0）：应用 API、MaixVision 图传、双轴搜索与 IMU 补偿
+
+在 v0.5.3 视觉与平滑追踪基础上完成需求文档后四项。当前尚未实机标定：`YAW/PITCH_PULSES_PER_DEG=0`、`GIMBAL_GEAR_RATIO=0`、`IMU_AXES_CALIBRATED=False`、`ENABLE_IMU_FEEDFORWARD=False` 保留。未标定时 SEARCH 按 `SEARCH_PULSES` 固定脉冲扫描（v0.6.3 起，旧行为是一动不动）。启用标定步骤见 [硬件标定与上板检查](硬件标定与上板检查.md)。
+
+### 应用与复用接口
+
+`main()` 只调用 `TrackingApplication.run()`；相机、触摸、显示和退出释放集中在 `vision/app_runtime.py`。识别线程独占云台 UART，按钮仅提交请求；相机暂时无帧也会处理触摸、ACK、搜索与失锁。退出先停止控制线程，再释放 UART/IMU；旧工作线程仍占有硬件时拒绝再次运行。
+
+`target_api` 导出 `TrackingApplication`、`SearchSweep`、`HeadingFeedforward`，原有 `detect_black_frame`、`CenterTracker`、`AimLoop` 保留。`AimLoop` 与应用共用 `VisionControl`，不重复实现追踪、搜索或故障调度：
+
+```python
+from config import Config
+from target_api import AimLoop
+
+loop = AimLoop(Config, enable_motors=True)  # 上板执行；会打开配置中的云台 UART
+try:
+    loop.request_search()                  # 下次 step/idle 启动；再次请求可取消
+    # 外部相机循环内：loop.step(frame, now=captured_at)
+    # 无新画面时：loop.idle()
+    print(loop.imu_status())
+finally:
+    loop.close()
+```
+
+`now` 使用同一单调时钟的采图时刻，`idle()` 应持续调用。`calibrate_imu_bias()` 只提交请求，其完成状态从 `imu_status()` 读取；标定期间底盘和云台必须静止，控制器阻断其它运动。
+
+### MaixVision 图传
+
+默认 `DISABLE_MAIXVISION_STREAM=False`，保留启动时的 `MAIXVISION` 会话。只在本地 `Display` 打开/重开期间临时关闭原生图传，再恢复环境；本地显示不调用原生 `send_image()`，避免其断连时约 500ms 的等待占住 Python GIL。
+
+`vision/maixvision_stream.py` 在独立进程中连接设备已有的 **127.0.0.1:7899 WebSocket 桥**，按协议 0 完成 `CONN(code)`、ACK、格式、质量和图片帧传输。主进程只交付一帧最新画布，编码、连接和重试不会积压识别帧；未启用 MaixVision 会话时不启动图传进程，显式设 True 仍只显示本地屏。
+
+协议与原生等待行为核对自 [MaixCDK `30f4b8b`](https://github.com/sipeed/MaixCDK/blob/30f4b8b7e3f66ded9cfa64fb081b46e30bc27248/components/vision/src/maix_image_trans.cpp)，IMU/绑定接口核对自 [MaixPy `a36c0f0`](https://github.com/sipeed/MaixPy/tree/a36c0f0)。PC 测试使用真实子进程和本机 WebSocket 服务验证握手、帧内容、断连恢复、拥塞及有界主进程开销；仍需在实际固件与 MaixVision 客户端确认桥服务兼容和图像显示。
+
+### 搜索与追踪交接
+
+`SEARCH` 位于 `SELF-TEST` 下方；点击启动、再次点击取消。已标定脉冲/度时，相对点击时的姿态依次走 yaw `+45→−45→0°`、pitch `+45→−45→0°`，两轴各覆盖 ±45°，不执行二维栅格扫描。角度可用 `SEARCH_YAW_DEG/SEARCH_PITCH_DEG` 缩小。
+
+**未标定也能扫**（v0.6.3）：`YAW/PITCH_PULSES_PER_DEG` 与 `GIMBAL_GEAR_RATIO` 都是 0 时，按
+`SEARCH_PULSES` 的固定脉冲数扫描（旧行为是一动不动）；若 IMU 已标定且
+`ENABLE_IMU_FEEDFORWARD=True`，则每段按**陀螺仪实测角度**收段，±45° 与真实角度一致。
+启动日志会打印本次是靠 IMU 收段还是固定脉冲，便于现场判断是否需要标定。
+
+搜索遇到新的有效黑框立即停机，等待停机后的新采图才进入平滑追踪。取消和命中不强制回中；正常扫完返回开始姿态。保持/预测结果不能冒充命中，自检、开环标定、偏置标定与搜索不会并行发电机动作。写入或停止失败进入持久 FAULT；重新收到 ACK 不会自动清除此故障。自检也按完整加减速时长等待，避免反向命令重叠。
+
+### IMU 相对朝向补偿
+
+官方 `maix.ext_dev.imu.IMU('default', ...)` 由独立线程读取，使用三轴陀螺仪、实测安装轴和零偏积分相对姿态。新视觉观测按采图时间在 IMU 历史中锁定参考；图像暂时丢失时，`VisionControl` 从相对姿态误差发补偿动作，最长保留参考 4 秒。过期、异常速率、采样间断、轴未标定或偏置标定中均不输出前馈；失去 IMU 反馈会停止正在进行的 IMU 动作。视觉结果依然保留真实 `valid=False`，不会把惯性估计画成检测黑框。
+
+相机上的 IMU 已测到车体与云台实际运动，**不能再减去指令步数**。安装在底盘的传感器需要额外提供实际云台角度，本应用没有该反馈时会拒绝前馈。陀螺仪积分不是绝对航向：需从标定的水平初始姿态启动，靠新视觉参考限制漂移，不保证长期无漂移或大俯仰姿态下的航向可靠性。
+
+IMU 动作单独按实测脉冲/度限幅，默认最大 30°、增益 0.75、180RPM、加减速档 80；视觉仍使用 80 脉冲上限。24 个 ±90° 有限动作模型覆盖 10/35/100 脉冲/度、20/30/50Hz 调度及 0/30/60ms 延迟，全部在 **3.30s 内恢复 ±30° 可检测视野**，无指令重叠；100 脉冲/度的视觉精调最迟 **14.74s** 进入 2px 死区。模型使用实际部分电机运动和连续加减速，但假设视野内能产生有效视觉观测；它不验证真实识别率、机械回差或实车 4 秒性能。
+
+### 验证与交付
+
+原有 v0.5.3 回归继续执行，另加：
+
+```bash
+python -B tools/test_gimbal_search.py
+python -B tools/test_imu_heading.py
+python -B tools/test_imu_turn_tracking.py
+python -B tools/test_preview_stream.py
+python -B tools/test_app_runtime.py
+python -B tools/test_extension_control.py
+python -B tools/test_extension_review.py
+```
+
+应用包 22 文件，单文件 19 个源文件。单文件依赖顺序包含 `stepper_link→gimbal_self_test/gimbal_aim`、`maixvision_stream→preview`、`gimbal_search/imu_heading→aim_control→app_runtime→target_api`。板端必须核对构建号、标定和实测帧率；PC 通过不代表实机已达 30fps。
+
+## 2026-10-12（v0.5.3）：按采图时间追踪与平滑云台闭环
+
+本轮重点是视觉定位和像素偏差闭环。相机、识别、显示仍分别按原有线程运行，识别仍使用四边窄带精修，靶心仍由黑框几何反算。
+
+### 视觉追踪
+
+- 将相机采图时刻传入检测器：速度由相邻采图时间计算，识别线程跳帧时按实际间隔预测，而不是固定外推一帧。`CenterTracker.track(frame, now=...)` 的 `now` 是单调时钟的采图时间，单位秒；不提供时保留原有逐帧预测用法。
+- 局部 ROI 找不到时，在同一帧继续全图重捕获，共享 `SEARCH_MAX_PROPOSALS` 上限；显式拆帧模式仍保留软预算。极大预测位移把 ROI 推出画面时跳过空裁剪。
+- 重搜旋转后的四角按物理角循环匹配；内外沿切换时清除速度，避免把角点编号或胶带厚度当作运动。
+- 换分辨率、空帧、时钟倒退/重复/模式切换、间隔超过 `PREDICT_MAX_GAP_S=0.25` 时清理相关历史。画面无靶纸仍返回无效结果。
+
+动态回归包含跳变、快速反向、变采样间隔、透视抖动：**25/25 帧有效，最大中心误差 0.678px**。另覆盖分辨率 640×480→80×60→640×480、越界 ROI、时钟不连续、内外沿切换、候选预算。原视觉基线仍为 **29/30、max 0.803px、0/5 误检**；强反光 fixture #2 保持安全拒绝。稳态 PC 交替比较约 **1.1–1.2ms**，未见明显退化；同帧重捕获会增加丢锁帧的最坏开销。
+
+### 云台闭环
+
+两轴按自己的像素误差连续调整增益和转速。默认细调增益 `0.30`、粗调 `0.65`，转速从 `60` 到 `150RPM`，单次最多 `80` 脉冲，追踪加减速档位 `ACC_TRACK=80`。接近中心时逐渐减小步长和速度；闭环继续使用未平滑的 `raw_u/raw_v`，不会通过加重显示低通引入额外滞后。
+
+`AIM_WAIT_MOTION=True` 根据三角/梯形加减速曲线估算每段动作结束时间，加 `AIM_MOTION_MARGIN_S=0.03` 后等待采图时间晚于该时刻的新画面。进入死区、误差反向或失锁时可提前停机；停机前已排队的图像不能触发新动作。重复、倒序或非有限误差不会追加动作。
+
+`AimLoop` 与主程序都先检查故障，视觉失效停机一次，运动/停机写入失败进入 FAULT；连续发送也不会刷新并掩盖未回复命令的 ACK 超时。同步相机暂时不返回图像时，串口轮询和失锁看门狗仍运行。
+
+有限运动仿真覆盖 ±50px、标定比例 0.75/1/1.25、视觉延迟 0/33/100/167ms 的 **24 个组合**：全部进入 2px 死区，无动作重叠或越过中心，最慢 **2.43s**。目标 10px/s 移动 2s 后停止、延迟 100ms 的模型最大追踪误差 **6.86px**，停止后 **0.67s** 进入死区。仿真使用相对指令 FIFO 和连续加减速模型，不代表所有驱动器的实际排队语义。
+
+**上板仍需验证**：`PULSE_PER_PX_*` 和 `DIR_SIGN_*` 必须沿用实测标定，检查回差与实际动作时间，再调增益、死区、转速和等待余量。30fps、实机超调和机械抖动不能由 PC 仿真保证。图传开关、搜索按钮和 IMU 前馈沿用现有实现，本轮未扩展。
+
+### 本版验证命令
+
+在本目录使用已安装 NumPy/OpenCV 的 Python 执行；云端可用 `/workspace/.venvs/maixcam2/bin/python`：
+
+```bash
+python -B tools/build_single.py --check
+python -B tools/build_single.py --smoke
+python -B tools/check_app.py --manifest
+python -B tools/test_performance.py
+python -B tools/test_tracking.py
+python -B tools/test_target_api.py
+python -B tools/test_gimbal_aim.py
+python -B tools/test_gimbal_tracking.py
+python -B tools/test_aimloop_tracking.py
+python -B tools/test_main_self_test.py
+python -B tools/test_runtime_performance.py
+python -B tools/test_laser.py
+python -B tools/test_images_e2e.py
+```
+
+应用包仍为 18 文件，单文件包含 15 个源文件。构建顺序已将 `stepper_link` 放在依赖它的 `gimbal_aim` 前。
 
 ## 2026-10-12 修复（v0.5.2）：运动预测 + 搜索单帧完成 —— 治「速度快捕获不到 / 重捕获很慢」
 

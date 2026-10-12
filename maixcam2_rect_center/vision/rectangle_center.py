@@ -172,6 +172,8 @@ class RectangleCenterDetector:
         self._smooth = None
         self._track = None
         self._prev_quad = None                                 # 上上帧的候选四角（运动预测用）
+        self._track_timestamp = self._prev_timestamp = None
+        self._frame_shape = None
         self._lost = 0                                         # 连续未检出帧数（>0 时不预测）
         self._locked_th = None
         self._frame = 0
@@ -185,6 +187,23 @@ class RectangleCenterDetector:
         self._proposals = 0
         self._deadline = float("inf")
         self._roi_retry = True
+
+    def reset(self):
+        """清空图像坐标与运动历史；换分辨率、断流后不能复用旧框。"""
+        self.last = self._smooth = self._track = self._prev_quad = None
+        self._track_timestamp = self._prev_timestamp = None
+        self._frame_shape = None
+        self._lost = self._frame = 0
+        self._locked_th = None
+        self._roi_retry = True
+        self._search_jobs.clear()
+        return self
+
+    def _continuous_time(self, timestamp):
+        if timestamp is None or self._track_timestamp is None:
+            return timestamp is None and self._track_timestamp is None
+        gap = timestamp - self._track_timestamp
+        return 0 < gap <= float(getattr(self.cfg, "PREDICT_MAX_GAP_S", 0.25))
 
     def _valid_quad(self, q, shape, margin=1):
         """四边形体检：不越界、凸、边长下限、无明显退化尖角。
@@ -208,6 +227,17 @@ class RectangleCenterDetector:
         sine = np.abs(e[:, 0] * np.roll(e[:, 1], -1) -
                       e[:, 1] * np.roll(e[:, 0], -1)) / (lengths * np.roll(lengths, -1))
         return bool(sine.min() > 0.20)
+
+    @staticmethod
+    def _line_through(a, b):
+        """过 a、b 两点的直线系数 (a_, b_, c_)：a_·x + b_·y + c_ = 0。
+
+        与 `cv2.fitLine` 分支的输出口径一致（都是齐次直线系数），用于某条边没有足够
+        边缘证据时**沿用输入四边形的这条边**——精修只重定位有证据的边。
+        """
+        (x0, y0), (x1, y1) = np.asarray(a, np.float64), np.asarray(b, np.float64)
+        dx, dy = x1 - x0, y1 - y0
+        return np.array([-dy, dx, dy * x0 - dx * y0], np.float64)
 
     def _layout(self, q, kind):
         """由四边形朝向推断物理长宽比，并给出该 kind 对应的物理矩形四角。
@@ -268,10 +298,17 @@ class RectangleCenterDetector:
         coverage = ((delta >= self.cfg.MIN_EDGE_CONTRAST) &
                     (dark <= bright * self.cfg.MAX_DARK_BRIGHT_RATIO)).mean(axis=1)
         edge_contrast = np.median(delta, axis=1)
-        # 至少三边的大部分采样成立，第四边也必须有证据，不接受凭亮中心猜框。
+        # 至少三边的大部分采样成立，且对比度中位达标。
         if (np.count_nonzero(coverage >= self.cfg.MIN_EDGE_COVERAGE) < 3 or
-                coverage.min() < self.cfg.WEAK_EDGE_COVERAGE or
                 np.median(edge_contrast) < self.cfg.MIN_EDGE_CONTRAST):
+            return None
+        # ★ 允许**一条边**大面积缺失：实机上"缺一个角的黑框"是常态 —— 胶带在角落断掉、
+        #    强反光把某一段胶带洗白、或被物体遮挡。旧规则一律要求四边覆盖率 ≥ WEAK_EDGE_COVERAGE，
+        #    实测（tools/diagnose_detect.py）会把唯一正确的候选拒掉，表现即"基本识别不到"。
+        #    放宽的边界很清楚：只有当**另外三条边都达到 STRONG_EDGE_COVERAGE** 时才豁免，
+        #    所以"凭一条亮带猜框"依然被拒。
+        if (coverage.min() < self.cfg.WEAK_EDGE_COVERAGE and
+                np.sort(coverage)[::-1][:3].min() < self.cfg.STRONG_EDGE_COVERAGE):
             return None
         rows = [dict(dark=float(np.median(dark[i])), inside=float(np.median(bright[i])),
                      contrast=float(edge_contrast[i]), coverage=float(coverage[i])) for i in range(4)]
@@ -295,6 +332,10 @@ class RectangleCenterDetector:
         "最近预测位置"的跳变（offset 越小越优先，防止误锁到内侧印刷圆或另一侧胶带边）
         → 用 fitLine 拟合四条直线 → 相邻直线两两求交 = 亚像素四角。
         精修结果偏离原 q 超过 radius*2.8 或四角体检不过 → 判失败（返回 None）。
+
+        ★ 容错（实机必需）：某条边胶带缺失/被反光洗白时，该边**沿用输入四边形的边**，
+          只要另有至少三条边真拟合过就继续。旧实现任一条边证据不足就整框返回 None，
+          实机"缺一个角"时会让窄带跟踪每帧都失败。
         """
         q = np.asarray(q, np.float32)
         nxt = np.roll(q, -1, axis=0)
@@ -320,21 +361,29 @@ class RectangleCenterDetector:
         strength = np.take_along_axis(gradient, indices[..., None], axis=2)[..., 0]
         selected = offsets[indices + 1]
         lines = []
+        refitted = 0
         for i in range(4):
             good = inside[i] & (strength[i] >= self.cfg.MIN_EDGE_CONTRAST * 0.7)   # 有效采样
-            if good.sum() < max(5, len(self._t) * self.cfg.WEAK_EDGE_COVERAGE):
-                return None                                                # 证据太少，整框弃用
             shifts = selected[i, good]
+            # 该边证据不足（胶带缺失/反光洗白）→ **沿用输入四边形的这条边**（=预测位置），
+            # 而不是放弃整框精修：一条边没证据是实机常态，放弃会让帧率与锁定一起塌。
+            if good.sum() < max(5, len(self._t) * self.cfg.WEAK_EDGE_COVERAGE):
+                lines.append(self._line_through(q[i], q[(i + 1) % 4]))
+                continue
             med = float(np.median(shifts))
             # 去掉偏离中位数过大的离群跳变（反光/杂物），再确认仍够点。
             good &= np.abs(selected[i] - med) <= max(2.5, float(np.median(np.abs(shifts - med))) * 3)
             if good.sum() < 5:
-                return None
+                lines.append(self._line_through(q[i], q[(i + 1) % 4]))
+                continue
             samples = base[i, good] + selected[i, good, None] * normal[i]
             # 用鲁棒 Huber 回归拟合该边直线；fitLine 返回 (vx, vy, x0, y0)。
             vx, vy, x, y = cv2.fitLine(samples, cv2.DIST_HUBER, 0, 0.01, 0.01).reshape(4)
             # 直线 ax+by+c=0。
             lines.append(np.array([-vy, vx, vy * x - vx * y], np.float64))
+            refitted += 1
+        if refitted < 3:
+            return None                                                    # 至少三条边真拟合过
         lines = np.asarray(lines)
         # 相邻两条直线（roll 1 使其错位一位）叉积求交点：交点齐次坐标 = 两直线系数叉积。
         crosses = np.cross(np.roll(lines, 1, axis=0), lines)
@@ -352,9 +401,11 @@ class RectangleCenterDetector:
         输入是二值掩膜（暗区为前景）。输出 [(quad, kind), ...]：
           · 借 findContours 的 RETR_TREE 层级：黑胶带环 = 一个"孔"（有子级）；
             深度奇偶决定 kind —— 偶数深度=outer(外框)，奇数=inner(内框)。
-          · 用**包围框/面积**先廉价预筛（剔过小、过扁），只对最大若干个轮廓做 approxPolyDP，
+          · 用**包围框/面积**先廉价预筛（剔过小、过扁），只对最大若干个轮廓做多边形逼近，
             控制昂贵的多边形逼近次数。
-          · 排除"实心黑块"（outer 却没有亮孔），因为靶纸黑环中心必是亮的。
+          · ★ 不再要求"outer 必须有亮孔"：实机胶带环常**不闭合**（角落缺失/强反光把一段
+            胶带洗白），此时根本没有孔，旧的"实心黑块"守卫会把唯一正确的候选删掉。
+            真伪改由 `_verify` 的四边暗带 + 内侧亮区判定（实心黑块在那里必然被拒）。
         返回排序把 inner 排前：亮面孔比与背景粘连的黑环更稳定。
         """
         contours, hierarchy = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[-2:]
@@ -378,26 +429,52 @@ class RectangleCenterDetector:
                 eligible.append((area, i))
         for area, i in sorted(eligible, reverse=True)[:self.cfg.MAX_CANDIDATES]:
             cnt = contours[i]
-            peri = cv2.arcLength(cnt, True)
-            approx = cv2.approxPolyDP(cnt, self.cfg.APPROX_EPSILON * peri, True)   # 多边形逼近
-            # 不使用凸包修补任意背景：凸包可把桌面阴影拼成错误大四边形。
-            if len(approx) != 4 or not cv2.isContourConvex(approx):
-                continue                                   # 只接受凸四边形
-            q = _order_quad(approx)
-            if not self._valid_quad(q, mask.shape):
-                continue
+            q = self._quad_from_contour(cnt)
+            if q is None or not self._valid_quad(q, mask.shape):
+                continue                                   # 取不出合法凸四边形
             parent, depth = int(hierarchy[i][3]), 0        # 沿父链数深度
             while parent >= 0:
                 depth += 1
                 parent = int(hierarchy[parent][3])
             kind = "inner" if depth % 2 else "outer"       # 奇偶定内外框
-            if kind == "outer" and hierarchy[i][2] < 0:
-                continue  # 实心黑块没有亮孔。
             candidates.append((q, kind))
         # 亮面孔比与背景粘连的黑环更稳定。
         return sorted(candidates, key=lambda c: c[1] != "inner")
 
-    def _motion_delta(self):
+    def _quad_from_contour(self, cnt):
+        """从一条轮廓提取凸四边形；**容忍胶带缺口/粘连造成的非四边形状**。
+
+        为什么必须容忍：实机拍到的是**不完全闭合**的胶带环 —— 角落缺一段、强反光把某段
+        胶带"洗白"、或与背景暗块粘连，都会让轮廓变成 U 形或多边形。原实现只做**一次**
+        `approxPolyDP` 且要求结果正好 4 点，此时**一个候选都产不出来**（实机表现即
+        "基本识别不到"：`_verify` 的调用次数为 0，而合成图上的闭环永远是干净 4 点）。
+
+        两级容忍：
+          ① epsilon 由小到大**扫描**原轮廓 —— 修复"带小缺口的多边形降到 4 点"；
+          ② 仍不成四边形、且该轮廓**本身就像环形带**时，对**凸包**同样扫描 —— 缺口被
+             凸包补上，得到近似矩形。这个条件很重要：凸包只对"中空程度高"的轮廓启用
+             （轮廓面积 < HULL_FILL_RATIO × 凸包面积），实心背景/阴影块不参与，否则会
+             凭空多出大片假候选、白耗 `_verify` 的候选预算。
+        凸包在这里**只作候选提议**：真伪仍由 `_verify`（四边暗带 + 越过内沿的亮区）判定，
+        所以"凸包把桌面阴影拼成大四边形"会在后续校验被拒掉，不会变成误检。
+        """
+        hull = cv2.convexHull(cnt)
+        hull_area = abs(cv2.contourArea(hull))
+        band_like = (hull_area > 0 and
+                     abs(cv2.contourArea(cnt)) < self.cfg.HULL_FILL_RATIO * hull_area)
+        for base in ((cnt, hull) if band_like else (cnt,)):
+            peri = cv2.arcLength(base, True)
+            if peri <= 0:
+                continue
+            for factor in (1.0, 1.6, 2.4, 3.5, 5.0):
+                approx = cv2.approxPolyDP(base, self.cfg.APPROX_EPSILON * factor * peri, True)
+                if len(approx) == 4 and cv2.isContourConvex(approx):
+                    return _order_quad(approx)
+                if len(approx) < 4:
+                    break                                  # 已过度简化，加大 epsilon 只会更少
+        return None
+
+    def _motion_delta(self, timestamp=None):
         """上两帧四角的**逐角位移**（图像坐标）；无历史或刚失锁则 None。
 
         逐角位移天然同时包含平移、缩放与旋转，直接加在"上一帧四角"上即为匀速外推。
@@ -409,6 +486,14 @@ class RectangleCenterDetector:
         if self._prev_quad is None or self._track is None or self._lost:
             return None
         delta = np.asarray(self._track["quad"], np.float32) - np.asarray(self._prev_quad, np.float32)
+        if timestamp is not None:
+            if self._prev_timestamp is None or not self._continuous_time(timestamp):
+                return None
+            interval = self._track_timestamp - self._prev_timestamp
+            if interval <= 0:
+                return None
+            # 最新帧线程会丢弃旧帧；按采图间隔外推，不能把每次回调当作等间隔视频帧。
+            delta = delta * ((timestamp - self._track_timestamp) / interval)
         step = float(np.linalg.norm(delta, axis=1).max())
         cap = float(getattr(self.cfg, "PREDICT_MAX_PX", 60.0))
         if cap > 0 and step > cap:
@@ -432,6 +517,14 @@ class RectangleCenterDetector:
         """
         self._search_count += 1
         split = bool(getattr(self.cfg, "SEARCH_SPLIT_FRAMES", False))
+        # ★ v0.6.4「搜索永不截断」—— 对齐 v1–v3（`laser-readout-v1` / `target-api-v3`）口径：
+        #   那两版的 `_search` 里**根本没有候选预算**（`SEARCH_MAX_PROPOSALS` 当时配成 1
+        #   却从未被代码读取，是死参数），它会跑完全部阈值、验证每个候选、再走 Canny 兜底。
+        #   本工程后来引入 128 上限后，一次 ROI 搜索就能把它烧光，使真正的候选永远轮不到，
+        #   表现为"黑框清清楚楚却丢帧、连续几帧就是肉眼可见的丢锁"。
+        #   True = 恢复 v3 口径（稳、但失锁帧可能明显变慢）；False = 有界口径（快、可截断）。
+        cap = None if bool(getattr(self.cfg, "SEARCH_EXHAUSTIVE", True)) \
+            else int(self.cfg.SEARCH_MAX_PROPOSALS)
         x, y, w, h = roi if roi is not None else (0, 0, gray.shape[1], gray.shape[0])
         crop = gray[y:y + h, x:x + w]
         scale = min(1.0, self.cfg.SEARCH_WIDTH / float(w))
@@ -484,16 +577,40 @@ class RectangleCenterDetector:
                             q = _order_quad(ap) * [sx, sy] + [x, y]
                             pending.extend(((q, "inner"), (q, "outer")))
                 continue
-            # 有候选：至少验证一个；之后一旦超出硬上限（或拆分模式下的软预算）就停手。
-            if self._proposals and (self._proposals >= self.cfg.SEARCH_MAX_PROPOSALS or
+            # 有候选：先验证一个；若开了预算上限（有界口径）超限就停手。
+            # SEARCH_EXHAUSTIVE=True 时 cap 为 None ⇒ 永不因候选数截断（v1–v3 口径）。
+            if self._proposals and ((cap is not None and self._proposals >= cap) or
                                     (split and time.perf_counter() >= self._deadline)):
                 return None
             q, kind = pending.pop(0)
             self._proposals += 1
             verified = self._verify(gray, q, kind)         # 四边暗带验证
+            base = q
             if verified is None:
-                continue
-            refined = self._refine(gray, q, kind, self.cfg.REFINE_RADIUS)   # 亚像素精修
+                # ★ 宽半径兜底精修：候选可能整体偏离真边（实机实测差 14px），而 `_verify`
+                #   只从边向里采 0.2~0.6×BLACK_FRAME_MM（≈2~6px）⇒ 会采到纸面当"暗带"而误拒。
+                #   先用宽半径把四边拉回真边，再验一次 —— 让"位置不准但真实存在"的候选不被误杀。
+                wide = float(getattr(self.cfg, "REFINE_RADIUS_WIDE", 0.0))
+                if wide > self.cfg.REFINE_RADIUS:
+                    refit = self._refine(gray, q, kind, wide)
+                    if refit is not None:
+                        recovered = self._verify(gray, refit, kind)
+                        # 宽半径是"救回位置偏了的候选"，必须**确证落在真胶带上**才采纳：
+                        # ① 中位对比度 ≥ RECOVER_MIN_CONTRAST；② **四边暗带灰度的最大值**
+                        #    必须够黑（≤ RECOVER_MAX_DARK）—— 真胶带四边都是黑的，而
+                        #    "纸边/褶皱"这类假边界总有一两条边只是中灰。
+                        # 实测：真靶纸 contrast=123、dark=62/49/75/78（max 78）；
+                        #       负样本 e880 contrast=84.5、dark=140/74/121/64（max 140）。
+                        if recovered is not None:
+                            darkest = max(row["dark"] for row in recovered["edge_profile"])
+                            if (recovered["contrast"] >= float(getattr(
+                                    self.cfg, "RECOVER_MIN_CONTRAST", 80.0)) and
+                                    darkest <= float(getattr(
+                                        self.cfg, "RECOVER_MAX_DARK", 100.0))):
+                                verified, base = recovered, refit
+                if verified is None:
+                    continue
+            refined = self._refine(gray, base, kind, self.cfg.REFINE_RADIUS)   # 亚像素精修
             if refined is not None:
                 precise = self._verify(gray, refined, kind)                 # 精修后再验证
                 if precise is not None:
@@ -627,6 +744,19 @@ class RectangleCenterDetector:
             g = g[:, :, 0]
         if g.ndim != 2 or g.dtype != np.uint8:
             raise ValueError("process expects a uint8 grayscale image")
+        if min(g.shape) < 2:
+            self.reset()
+            self.last = dict(valid=False, stage="empty_frame", search_count=0,
+                             thresholds=0, proposals=0, detector_ms=0.0)
+            return self.last
+        timestamp = None if timestamp is None else float(timestamp)
+        if timestamp is not None and not np.isfinite(timestamp):
+            raise ValueError("timestamp must be finite")
+        if self._frame_shape != g.shape:
+            self.reset()
+            self._frame_shape = g.shape
+        if self._track is not None and not self._continuous_time(timestamp):
+            self._prev_quad = self._prev_timestamp = self._smooth = None
         self._frame += 1
         # 每帧重置的临时统计与时间预算（预算内没找到就留给下一帧继续）。
         self._search_count = self._threshold_count = 0
@@ -638,7 +768,7 @@ class RectangleCenterDetector:
         # 预测失准（突然停止/变向）时自动回落到上一帧位置，两级都试。
         if self._track is not None:
             kind = self._track["kind"]
-            delta = self._motion_delta()
+            delta = self._motion_delta(timestamp)
             guesses = []
             if delta is not None:
                 guesses.append(self._track["quad"] + delta)
@@ -654,17 +784,27 @@ class RectangleCenterDetector:
         # ---- ② roi_search：刚失锁 → 在上一帧外框（含预测位移）外扩的窗口内搜一次 ----
         if candidate is None and self._track is not None and self._roi_retry:
             q = np.asarray(self._track["outer_quad"], np.float32)
-            delta = self._motion_delta()
+            delta = self._motion_delta(timestamp)
             if delta is not None:
                 q = q + delta                                  # 窗口中心跟上预测位移
             lo, hi = q.min(axis=0), q.max(axis=0)
             pad = np.maximum((hi - lo) * self.cfg.ROI_PADDING, 24)         # 外扩量（至少 24px）
-            lo = np.maximum(0, np.floor(lo - pad)).astype(int)
-            hi = np.minimum([g.shape[1], g.shape[0]], np.ceil(hi + pad)).astype(int)
-            candidate = self._search(g, (int(lo[0]), int(lo[1]), int(hi[0] - lo[0]), int(hi[1] - lo[1])))
+            size = np.array([g.shape[1], g.shape[0]])
+            lo = np.clip(np.floor(lo - pad), 0, size).astype(int)
+            hi = np.clip(np.ceil(hi + pad), 0, size).astype(int)
+            if np.all(hi - lo >= 2):
+                candidate = self._search(g, (int(lo[0]), int(lo[1]), int(hi[0] - lo[0]), int(hi[1] - lo[1])))
             stage = "roi_search"
             self._roi_retry = False                                        # 只允许一次 ROI 搜索
-        elif candidate is None:
+        # ★ v0.6.4：跟踪与 ROI 都失败后**必须**再跑一次完整全图搜索。
+        #   旧守卫写作 `(not SEARCH_SPLIT_FRAMES and self._proposals < SEARCH_MAX_PROPOSALS)`：
+        #   只要前面的 ROI 搜索把候选预算烧光，本帧就**跳过**全图搜索、直接判 no_black_frame
+        #   —— 画面里黑框再清楚也照样"丢一帧"。这正是 v1–v3 没有、而后续版本引入的回归。
+        exhaustive = bool(getattr(self.cfg, "SEARCH_EXHAUSTIVE", True))
+        if (candidate is None and
+                (exhaustive or self._search_count == 0 or
+                 (not getattr(self.cfg, "SEARCH_SPLIT_FRAMES", False) and
+                  self._proposals < self.cfg.SEARCH_MAX_PROPOSALS))):
             # ---- ③ full_search：彻底丢失 → 全图多阈值 + Canny 兜底 ----
             candidate = self._search(g)
             stage = "full_search"
@@ -673,15 +813,29 @@ class RectangleCenterDetector:
             self._smooth = None
             self._lost += 1
             self._prev_quad = None
+            self._prev_timestamp = None
             self.last = dict(valid=False, stage="no_black_frame", search_count=self._search_count,
                              thresholds=self._threshold_count, proposals=self._proposals,
                              detector_ms=(time.perf_counter() - started) * 1000)
             return self.last
         # ---- 找到：锁定、清进度、算中心 ----
         # 预测历史只在"连续两帧都成功"时可用：上上帧 = 旧 _track，失锁后清空避免用旧速度外推。
-        self._prev_quad = (self._track["quad"] if (self._track is not None and not self._lost)
-                           else None)
+        self._prev_quad = None
+        self._prev_timestamp = None
+        if (self._track is not None and not self._lost and
+                self._track["kind"] == candidate["kind"] and self._continuous_time(timestamp)):
+            # 重搜会重新选“左上角”，旋转跨过该分界时编号可能循环移位。
+            # 只匹配同一种内/外框的物理角，避免把胶带厚度或编号切换当作速度。
+            previous = np.asarray(self._track["quad"], np.float32)
+            if stage == "track":
+                self._prev_quad = previous                 # 窄带精修保留编号，稳态无需匹配
+            else:
+                matches = np.stack([np.roll(previous, shift, axis=0) for shift in range(4)])
+                errors = np.sum((matches - candidate["quad"]) ** 2, axis=(1, 2))
+                self._prev_quad = matches[int(np.argmin(errors))]
+            self._prev_timestamp = self._track_timestamp
         self._track = candidate
+        self._track_timestamp = timestamp
         self._lost = 0
         self._roi_retry = True
         self._search_jobs.clear()

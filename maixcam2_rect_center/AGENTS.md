@@ -24,8 +24,11 @@
   **v0.4.6 起入口已按功能模块化**：`main.py` 只留 BUILD_ID + 装配 + 主循环；识别线程、显示层、
   闭环调度、相机、帧率计、日志组装各自成 `vision/` 下的独立模块
   （`rate_meter` / `camera_source` / `vision_worker` / `preview` / `aim_control` / `telemetry`）。
-- 应用包 = **18 文件**（`app.yaml` / `main.py` / `config.py` / `target_api.py` / `assets/icon.png` /
-  `vision/` 下 13 个 `.py`）；`tools/` `dist/` `*.md` 不进包。
+- v0.6.0：`main()` 委托 `TrackingApplication.run()`；`AimLoop` 与主应用共用 `VisionControl`。
+  新增 `app_runtime` / `maixvision_stream` / `gimbal_search` / `imu_heading`；标定门槛与上板步骤见
+  [`硬件标定与上板检查.md`](硬件标定与上板检查.md)。搜索未标定不发角度动作，IMU 默认关闭。
+- 应用包 = **22 文件**（`app.yaml` / `main.py` / `config.py` / `target_api.py` / `assets/icon.png` /
+  `vision/` 下 17 个 `.py`）；单文件含 19 源文件；`tools/` `dist/` `*.md` 不进包。
 
 ---
 
@@ -156,7 +159,7 @@
 
 ## 4. 改完**必须**做的三件事（对齐根 AGENTS.md §3′）
 
-1. **提升 `main.py` 顶部 `BUILD_ID`**（当前 `2026-10-12-motion-predict-v0.5.2`，格式 `YYYY-MM-DD-<slug>-vN`）。
+1. **提升 `main.py` 顶部 `BUILD_ID`**（当前 `2026-10-13-wide-refine-recovery-v0.6.5`，格式 `YYYY-MM-DD-<slug>-vN`）。
    板端会打印 `[rect-center] <BUILD_ID> ...`，**与本地逐字一致才算跑的是新代码**；
    不更新就无法判断是否生效。**改了 `main.py`/`config.py`/`vision/*`/`target_api.py` 任一个都要做。**
 2. **重新生成单文件版**（`dist/` 不进应用包，但"运行当前文件"要用它）：
@@ -168,17 +171,48 @@
    ⚠ **新增/改名 `vision/*.py` 或根级模块后，必须同步 `tools/build_single.py` 的 `MODULES` 清单**。
 3. **跑门禁**（一律在 `maixcam2_rect_center/` 下、用 `"D:/Python311/python.exe"`）：
    ```bash
-   "D:/Python311/python.exe" -B tools/check_app.py --manifest   # C1..C10 机检 + 打印包内清单（应 18 文件）
-   "D:/Python311/python.exe" -B tools/test_performance.py       # 视觉回归（基线：29/30、max 0.803px、0 误检）
+   "D:/Python311/python.exe" -B tools/check_app.py --manifest   # C1..C10 机检 + 打印包内清单（应 22 文件）
+   "D:/Python311/python.exe" -B tools/test_performance.py       # 视觉回归（基线：**30/30**、max 0.803px、0 误检）
    "D:/Python311/python.exe" -B tools/test_target_api.py        # 对外 API 回归
    "D:/Python311/python.exe" -B tools/test_gimbal_aim.py        # 云台协议/闭环/看门狗/标定/自检/低通（当前 PASS(29)）
    "D:/Python311/python.exe" -B tools/test_main_self_test.py    # 端到端跑 main()：上电自检优先 / FAULT 阻断
    "D:/Python311/python.exe" -B tools/test_runtime_performance.py  # 显示隔离 + 实测显示帧率 + 搜索/串口有界
+   "D:/Python311/python.exe" -B tools/test_tracking.py             # 快移/转向/丢帧/透视抖动/分辨率与预算
+   "D:/Python311/python.exe" -B tools/test_gimbal_tracking.py       # 非瞬时动作/视觉延迟/标定误差/停机采图屏障
+   "D:/Python311/python.exe" -B tools/test_aimloop_tracking.py      # API 故障/失锁/停机失败/过期采图
+   "D:/Python311/python.exe" -B tools/test_gimbal_search.py        # 标定门槛/限幅/命中停机/取消/故障
+   "D:/Python311/python.exe" -B tools/test_imu_heading.py          # 官方接口/安装轴/偏置/历史对齐/过期
+   "D:/Python311/python.exe" -B tools/test_imu_turn_tracking.py    # 90°转向/实际电机运动/重捕获/旧限幅对照
+   "D:/Python311/python.exe" -B tools/test_preview_stream.py       # 真实进程/WebSocket桥/断连/拥塞/本地屏
+   "D:/Python311/python.exe" -B tools/test_app_runtime.py          # 入口装配/线程所有权/无帧触摸/退出释放
+   "D:/Python311/python.exe" -B tools/test_extension_control.py    # 搜索/IMU/视觉/标定的共同调度
+   "D:/Python311/python.exe" -B tools/test_extension_review.py     # 失效写入/曲线排程/失效IMU停止
    ```
    改光斑（`laser_spot.py` / `config.LASER_*`）还要跑 `tools/test_laser.py`；
    改视觉阈值（`MIN_*`/`MAX_*`/`SCORE_*` 类）**必须**确认 `test_performance` 无回归；
    改主循环控制流（自检/标定/追踪顺序）**必须**跑 `tools/test_main_self_test.py`；
-   改显示/预览（`AsyncPreview`、`config.SHOW_*`）或搜索预算 **必须**跑 `tools/test_runtime_performance.py`。
+   改显示/预览（`AsyncPreview`、`config.SHOW_*`）或搜索预算 **必须**跑 `tools/test_runtime_performance.py`；
+   改**候选生成 / 逐边校验**（`_candidate_quads` / `_quad_from_contour` / `_verify` / `_refine`）
+   **必须**跑 `tools/test_real_scene.py`（真实场景"角落胶带缺失"回归，v0.6.2 起）。
+
+### 4.1 PC（Windows）上怎么跑 —— 一条命令看全貌
+
+板端跑不了的东西（MaixPy SDK / 显示 / 串口 / 图传）在 PC 上永远跑不了；下列工具让
+**其余全部**在 PC 上可复现，是调参与复现问题的最快路径：
+
+```bash
+"D:/Python311/python.exe" -B tools/check_pc.py            # ★ 一键跑完所有 PC 可运行检查（--quick 跳慢用例）
+"D:/Python311/python.exe" -B tools/run_pc.py --images 图/*.png   # 图片/视频/摄像头跑真实检测器（--camera 0 / --video a.mp4）
+"D:/Python311/python.exe" -B tools/diagnose_detect.py <图片>     # 逐边打印"为什么没检出"（覆盖率/对比度/暗亮灰度）
+"D:/Python311/python.exe" -B tools/test_real_scene.py     # 真实场景回归（角落胶带缺失仍须检出）
+```
+
+- `check_pc.py` 会把 `fcntl` 等 Linux 专属用例标成 **SKIP**（不伪装成失败），
+  并把打包身份类问题标成 **KNOWN**；退出码只在**真实失败**时为 1。
+- `main.py` 在无 `maix` 的机器上会直接打印上述指引，而不是抛 `ModuleNotFoundError` 堆栈。
+- ⚠ 本机路径含中文，读写图片**不要**用 `cv2.imread/imwrite`（Windows 上返回 None），
+  用 `tools/run_pc.py` 里的 `imread_unicode/imwrite_unicode`。
+
 
 > 只有 `config.py` 需要现场改。修改前先想清楚是否真该动阈值 —— 优先调曝光/位置，别一上来放宽判据。
 
@@ -275,7 +309,7 @@ dist 与 `main.py` 的 `BUILD_ID` 是否一致），确认没有半新半旧。
 ## 7. 完成定义（DoD）
 
 - **改完源码**：`BUILD_ID` 已更新 → `dist/main_single.py` 已重生成 → 门禁全绿
-  （`check_app --manifest` 应为 **18 文件 / 0 FAIL**）→ **按精确路径提交**（`gpt:` 前缀）。
+  （`check_app --manifest` 应为 **22 文件 / 0 FAIL**）→ **按精确路径提交**（`gpt:` 前缀）。
 - **上板**：日志 `[rect-center] <BUILD_ID>` 与本地一致；上电应看到 **4 步自检**（pitch 上→下、yaw 左→右），
   之后（若 `CALIBRATE_AXIS="auto"`）标定、然后进入追踪；追踪起停应柔和、停下时激光不晃。
 - **留痕**：往 `../.workbuddy/memory/YYYY-MM-DD.md` **追加**一行本轮做了什么、怎么验证的
