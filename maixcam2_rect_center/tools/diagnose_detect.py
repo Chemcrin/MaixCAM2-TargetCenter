@@ -11,6 +11,7 @@
 还原"检测器真正看到的相机灰度帧"（板上检测跑在原始帧上，不含任何叠加）。
 """
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -120,6 +121,8 @@ def main():
     ap.add_argument("--crop", default="", help="x0,y0,x1,y1 先裁剪")
     ap.add_argument("--scale", type=float, default=1.0, help="裁剪后再缩放（还原相机分辨率）")
     ap.add_argument("--top", type=int, default=6, help="打印前 N 个被拒候选")
+    ap.add_argument("--front", default="", help="把检出框透视变换成正视图并保存到该路径（PNG）")
+    ap.add_argument("--front-px", type=int, default=256, help="正视图短边像素（默认 256）")
     args = ap.parse_args()
 
     cfg = Config
@@ -144,8 +147,9 @@ def main():
     print("灰度 min=%d max=%d mean=%.1f  p5=%.0f p50=%.0f p95=%.0f"
           % (gray.min(), gray.max(), gray.mean(),
              *np.percentile(gray, [5, 50, 95])))
-    print("阈值组: DARK_THRESHOLDS=%s CANNY=%s/%s SEARCH_WIDTH=%d"
-          % (cfg.DARK_THRESHOLDS, cfg.CANNY_LOW, cfg.CANNY_HIGH, cfg.SEARCH_WIDTH))
+    print("定位器: CANNY=%s/%s EDGE_CLOSE_PX=%d SEARCH_WIDTH=%d 掩膜级数=%d 最大轮廓=%d"
+          % (cfg.CANNY_LOW, cfg.CANNY_HIGH, cfg.EDGE_CLOSE_PX, cfg.SEARCH_WIDTH,
+             len(rc.LEVELS), cfg.SEARCH_MAX_CONTOURS))
     print("校验门: MIN_EDGE_CONTRAST=%.0f MAX_DARK_BRIGHT_RATIO=%.2f "
           "MIN_EDGE_COVERAGE=%.2f WEAK=%.2f"
           % (cfg.MIN_EDGE_CONTRAST, cfg.MAX_DARK_BRIGHT_RATIO,
@@ -157,7 +161,38 @@ def main():
     if result.get("valid"):
         print("  靶心 (%.1f, %.1f)  外框=%s"
               % (result["u"], result["v"], np.rint(result["quad"]).astype(int).tolist()))
-    print("  候选验证: 通过 %d / 拒绝 %d" % (len(detector.accepts), len(detector.rejects)))
+    print("  候选验证: 通过 %d / 拒绝 %d（掩膜 %d 张、候选 %d 个）"
+          % (len(detector.accepts), len(detector.rejects),
+             result.get("masks", 0), result.get("proposals", 0)))
+
+    if args.front and result.get("valid"):
+        view, _, mm_to_front = detector.front_view(gray, result, args.front_px)
+        if view is None:
+            print("\n正视图生成失败（单应退化）")
+        else:
+            out_path = ROOT / args.front if not os.path.isabs(args.front) else Path(args.front)
+            # 中文路径安全写盘（cv2.imwrite 在本机对非 ASCII 路径返回 False）
+            ok, buf = cv2.imencode(".png", view)
+            if ok:
+                buf.tofile(str(out_path))
+                alt = detector.front_view_center(gray, result, args.front_px)
+                print("\n正视图 -> %s  %dx%d（短边 %dpx；红色十字=图像中心=靶心）"
+                      % (out_path, view.shape[1], view.shape[0], args.front_px))
+                if alt is not None:
+                    err = float(np.hypot(alt[0] - result["u"], alt[1] - result["v"]))
+                    print("  剖面法中心 (%.1f, %.1f) vs 解析中心 (%.1f, %.1f) → 偏差 %.2fpx"
+                          "（两法独立，偏差大说明四角几何或光照有问题）"
+                          % (alt[0], alt[1], result["u"], result["v"], err))
+                else:
+                    print("  剖面法中心不可用（正视图里没找到胶带暗带）")
+                view_bgr = cv2.cvtColor(view, cv2.COLOR_GRAY2BGR)
+                cv2.drawMarker(view_bgr, (view.shape[1] // 2, view.shape[0] // 2),
+                               (0, 0, 255), cv2.MARKER_CROSS, 21, 2)
+                ok2, buf2 = cv2.imencode(".png", view_bgr)
+                if ok2:
+                    buf2.tofile(str(out_path))
+            else:
+                print("\n正视图编码失败")
 
     if detector.accepts:
         print("\n--- 通过的候选（余量越小越「边缘」，光照/角度稍变就会掉）---")

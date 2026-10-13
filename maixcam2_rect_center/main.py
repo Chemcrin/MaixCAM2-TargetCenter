@@ -46,7 +46,7 @@ from vision.aim_control import VisionControl, send_uart
 from target_api import TrackingApplication
 from vision.telemetry import format_perf_line, format_slow_loop, MAIN_LOOP_SLOW_MS
 
-BUILD_ID = "2026-10-13-c-track-release-v0.7.0"
+BUILD_ID = "2026-10-13-canny-kalman-v0.8.0"
 
 # ---- 兼容别名（v0.4.6 模块化后保留旧私有名）--------------------------------
 # tools/test_runtime_performance.py 直接 `from main import (_FrameRate, _LatestVision,

@@ -181,17 +181,14 @@ def test_clock_discontinuity(regression):
 
 
 def test_shared_proposal_budget(regression):
-    # The local low-contrast ring yields four real contour proposals (the candidate
-    # generator now also retries with a larger epsilon and, for band-like contours,
-    # on the convex hull, which turns extra contours into quads), all rejected by
-    # the stricter profile threshold. The displaced bright ring needs one more.
-    # Disable extra fixed thresholds/Canny so the contour evidence is deterministic.
-    # ★ v0.6.4: 候选预算**只在有界口径**（SEARCH_EXHAUSTIVE=False）下生效；默认的穷尽
-    #   口径（对齐 v1–v3）不截断候选，因此这里必须显式关掉，否则本用例的前提不成立。
+    # ★ v0.8：候选提议改成 Canny 轮廓（1 张掩膜）+ Otsu 兜底（第 2 张）后，
+    #   本帧的候选数从"旧阈值档位算出来的 4/5"变成"定位器实际提议出来的 10 / 11"，
+    #   所以预算标定值随之更新（下表的 10 / 11 是实测值，不是拍的）。
+    #   为什么 MIN_EDGE_CONTRAST=100：本固件在原位还贴了一张 paper=100 的**弱靶纸**，
+    #   抬高对比度门槛让它不可验证，才能逼出"跟踪失败 → ROI 搜索 → 全图搜索"这条真路径。
+    #   候选预算**只在有界口径**（SEARCH_EXHAUSTIVE=False）下生效；默认的穷尽口径不截断。
     class BudgetConfig(Config):
-        DARK_THRESHOLDS = ()
         MIN_EDGE_CONTRAST = 100.0
-        CANNY_LOW, CANNY_HIGH = 1000, 2000
         SEARCH_EXHAUSTIVE = False
 
     far, truth = scene(SMALL_Q + [220, 0])
@@ -199,7 +196,9 @@ def test_shared_proposal_budget(regression):
     weak_mask = weak != 175
     far[weak_mask] = weak[weak_mask]
     frames = []
-    for cap in (4, 5):
+    # (cap, 期望 valid, 期望 search_count)：ROI 搜索恰好要 10 个候选才试完，
+    # 全图搜索只要 1 个就命中（低分辨率定位 + "四边齐备即早退"）。
+    for cap, valid, searches in ((10, False, 1), (11, True, 2)):
         cfg = type("Budget", (BudgetConfig,), dict(SEARCH_MAX_PROPOSALS=cap))
         detector = RectangleCenterDetector(cfg)
         initial, initial_truth = scene(SMALL_Q)
@@ -207,13 +206,18 @@ def test_shared_proposal_budget(regression):
         regression.check(acquired["valid"], "budget fixture must acquire an initial lock")
         result, observation = regression.measure(detector, far, truth)
         observation["cap"] = cap
-        regression.check(result["proposals"] == cap, "ROI and full search must share one proposal counter")
-        if cap == 4:
-            regression.check(not result["valid"] and result["search_count"] == 1,
-                             "exhausted local proposal budget must prevent further full-frame work")
-        else:
-            regression.check(result["valid"] and result["stage"] == "full_search" and result["search_count"] == 2,
-                             "remaining proposal budget must permit same-frame full reacquisition")
+        regression.check(result["proposals"] == cap,
+                         "ROI 与全图搜索必须共享同一个候选计数器：cap=%d 实际 proposals=%d"
+                         % (cap, result["proposals"]))
+        regression.check(bool(result["valid"]) is valid and result["search_count"] == searches,
+                         "cap=%d 期望 valid=%s/search_count=%d，实际 valid=%s/search_count=%d"
+                         % (cap, valid, searches, result["valid"], result["search_count"]))
+        if valid:
+            regression.check(result["stage"] == "full_search",
+                             "剩余预算必须允许同帧全图重捕获，stage=%s" % result["stage"])
+            regression.check(float(np.hypot(result["raw_u"] - truth[0],
+                                            result["raw_v"] - truth[1])) < 2.0,
+                             "重捕获中心误差必须 < 2px")
         frames.append(observation)
     regression.report["shared_proposal_budget"] = dict(observations=frames)
 
@@ -226,9 +230,7 @@ def test_exhaustive_search_never_truncates_candidates(regression):
     穷尽口径下仍必须找回目标，且实际验证的候选数明显超过该预算。
     """
     class ExhaustiveConfig(Config):
-        DARK_THRESHOLDS = ()
-        MIN_EDGE_CONTRAST = 100.0
-        CANNY_LOW, CANNY_HIGH = 1000, 2000
+        MIN_EDGE_CONTRAST = 100.0      # 同上：让原位那张弱靶纸不可验证
         SEARCH_EXHAUSTIVE = True
         SEARCH_MAX_PROPOSALS = 1
 
@@ -292,8 +294,13 @@ def test_corner_correspondence(regression):
 
 
 def test_edge_kind_change(regression):
-    # This fixture yields an inner candidate normally and an outer candidate when a
-    # glare patch interrupts its top inner border, without changing the target geometry.
+    """内外框（kind）切换不得伪造角点速度。
+
+    v0.8 起候选由 Canny 轮廓提议：同一个框的 "inner"/"outer" 两种假设都会被尝试，
+    最终是哪种由"哪条轮廓先验过"决定。本固件三帧稳定在外框（见下面的 kinds 断言）。
+    契约不变：**kind 一旦在相邻帧之间变化，运动历史必须作废** —— 否则会把"胶带厚度"
+    或"四角编号循环移位"当成真实位移，把错误速度外推进预测位置。
+    """
     quad = np.float32([[82.53907855, 83.73233729], [444.45757880, 35.14604327],
                        [445.36120184, 398.24090161], [148.89773265, 365.83540159]])
     detector = RectangleCenterDetector(Config)
@@ -304,9 +311,20 @@ def test_edge_kind_change(regression):
         regression.check(result["valid"], "glare and translation must not lose the target")
         kinds.append(result.get("kind"))
         frames.append(observation)
-    regression.check(kinds[1:3] == ["inner", "outer"], "fixture must exercise an inner-to-outer switch")
+    regression.check(len(set(kinds)) == 1, "本固件的 kind 必须稳定（fixture 语义），实际 %s" % kinds)
+    regression.check(detector._track["kind"] == kinds[-1], "锁定框的 kind 必须与结果一致")
+    # 反面对照：kind 不变且时钟连续 → 运动历史必须可用（否则"翻转即丢弃"可能是假阳性）
+    regression.check(detector._motion_delta() is not None,
+                     "同 kind 的连续帧必须保留运动历史（速度预测的前提）")
+    # 正面对照：把上一帧记录的 kind 翻转过来 → 本帧视为"内外框切换"，运动历史必须作废。
+    flipped = dict(detector._track)
+    flipped["kind"] = "inner" if flipped["kind"] == "outer" else "outer"
+    detector._track = flipped
+    image, truth = scene(quad + [60, 0], glare=False, noise=True)
+    result, observation = regression.measure(detector, image, truth, 5.10)
+    regression.check(result["valid"], "kind 翻转后必须重新锁定")
     regression.check(detector._motion_delta() is None,
-                     "inner-to-outer switch must not create fictitious corner velocity")
+                     "kind 切换必须丢弃角点速度")
     regression.report["edge_kind_change"] = dict(kinds=kinds, observations=frames)
 
 

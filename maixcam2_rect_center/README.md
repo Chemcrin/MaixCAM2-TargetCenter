@@ -1,11 +1,152 @@
 # MaixCAM2 黑框中心：四边精修、快速跟踪与双轴云台瞄准
 
-构建号 `2026-10-13-wide-refine-recovery-v0.6.5`，应用版本 `0.6.5`。在 MaixVision 中打开本文件夹，选择“运行项目”。
-必须一起下发应用包内的 **22 个文件**（`app.yaml` / `main.py` / `config.py` / `target_api.py` /
-`assets/icon.png` / `vision/` 下 17 个 `.py`），不能只运行当前 `main.py`。
+构建号 `2026-10-13-canny-kalman-v0.8.0`，应用版本 `0.8.0`。在 MaixVision 中打开本文件夹，选择“运行项目”。
+必须一起下发应用包内的 **25 个文件**（`app.yaml` / `main.py` / `config.py` / `target_api.py` /
+`assets/icon.png` / `vision/` 下 20 个 `.py`），不能只运行当前 `main.py`。
 
 > 只想临时试参数时，也可以先 `python tools/build_single.py` 生成 `dist/main_single.py`，
 > 再用「运行当前文件」—— 那是自包含的单文件版，语义与分模块完全一致。改了源码记得重新生成。
+
+## 2026-10-13（v0.8.0）：Canny 轮廓定位 + 卡尔曼滤波 —— 重构识别链路
+
+用户要求：`Canny → findContours → 四边形筛选 → 透视变换成正视图取中心 → 逆透视反投影 = 靶心`；
+findContours 不能过于精细、**减少掩膜数量**并控制该步运行时长；未看到框时低分辨率搜索、
+框出现后再用原始分辨率算中心；加**卡尔曼滤波**抑抖；按功能拆分 api 与文件、减轻 `main.py`；
+最终要"锁得准、帧率高"。
+
+### 1. 为什么要动（v0.7.0 的板端实测）
+
+`板端识别问题整理_2026-10-13.md` 的实锤：靶纸清晰可见，但 `detect_fps=3.2`（单帧 ~312ms），
+超过 `RESULT_MAX_AGE_S=0.20` ⇒ 结果全被判 stale ⇒ 闭环一直 HOLD。而 3.2fps 的根因是
+**每一帧都在跑全图搜索**（锁不上），旧搜索 = `Otsu + 8 档 DARK_THRESHOLDS` 逐档
+`threshold + morphologyEx + findContours`（9~10 张掩膜），再对**每个候选**做全分辨率四边验证
+＋失败时的宽半径精修＋再验证。掩膜数与"每候选成本"是两条可下手的主线。
+
+### 2. 新的分层（识别链路拆成 4 个文件）
+
+| 文件 | 职责 | 关键点 |
+|---|---|---|
+| `vision/rect_geometry.py` | **纯几何**：四边形规整/体检、4 点单应、批量采样、正视面 warp | 无状态、不读 config，可独立单测 |
+| `vision/contour_locator.py` | **候选定位**：Canny → findContours → 四边形筛选（**只在低分辨率**） | 只提议、不判真伪；**1 张掩膜**（兜底才第 2 张） |
+| `vision/kalman_filter.py` | **中心滤波**：2D 位置+速度的匀速模型卡尔曼 | 抑抖、给下一帧速度先验；时钟不连续即重建 |
+| `vision/rectangle_center.py` | **状态机**：track → roi_search → full_search + 验证/精修/解中心 | 对外 API 逐字不变（`process/reset/_motion_delta`…） |
+
+`main.py` 未增加一行；对外复用入口仍是 `target_api.py`（`detect_black_frame` / `CenterTracker` / `AimLoop`）。
+
+### 3. 掩膜纪律：9~10 张 → **≤2 张**
+
+```
+level 0 (默认，1 张掩膜) : cv2.Canny → 3px 闭运算接断裂 → findContours(RETR_LIST)
+                            → 按面积取前 SEARCH_MAX_CONTOURS=16 条
+                            → 面积/长宽预筛 → quad_from_contour(epsilon 扫描 + 凸包兜底)
+level 1 (兜底，1 张掩膜) : 仅当 level 0 没给出"四边齐备"的候选时才建 Otsu 暗区掩膜，走同一套筛选
+```
+阈值化/形态学/轮廓树/多边形逼近**全部在 `SEARCH_WIDTH=320` 的低分辨率图上**完成；
+只有"验证 / 精修 / 解中心"回到原始分辨率 —— 这正是"未看到框时低分辨率搜索、框出现后再用高分算中心"。
+
+为什么 Canny 的细线轮廓能近似出矩形：Canny 输出的是 1px 细线，胶带带的内沿外沿各是一条**闭合细环**，
+环的轮廓正好包住整个矩形内部，`approxPolyDP` 一把降到 4 点；即使胶带在角落断开（实机常态），
+带的外沿/内沿/两端缺口会围成一个**中空的闭合细带**，`HULL_FILL_RATIO=0.60` 判定其"中空程度高"
+后启用凸包兜底把缺口补上。**真伪始终由 `_verify` 的四边暗带验证裁决**，所以"凸包把阴影拼成矩形"
+不会变成误检（负样本 0 误检，见 §5）。
+
+### 4. 候选筛选与"锁定"：从"第一个通过就锁定"改为**多候选择优**
+
+旧实现第一个通过 `_verify` 的候选即返回。这在实机上出过真误锁：板端真机帧里一个**顶边落在纸面上**
+的假候选靠"缺一条边豁免"通过验证，中心偏 **17.28px**；而真候选（宽半径救援后）与它的 `score`
+只差 3 分，用 `score` 也分不开。新增排序键：
+
+```python
+score = 中位对比度 + 60 × 平均覆盖率          # 历史口径，外部工具在用，保持不变
+rank  = score      + 40 × 最小覆盖率          # 新增：把"缺一条边"的候选压到"四边齐备"之后
+```
+同一级别内验证完所有候选再比 `rank`；**四边齐备的候选立即锁定早退**（普通场景只花 1 次验证+1 次精修）。
+
+**"筛选"与"精修"彻底分离**：`_accept` 只做验证（失败才试宽半径救援），只有**最终选中的候选**
+才进 `_finalize` 做亚像素精修。旧写法给每个候选都跑"精修+再验"，板端帧剖析显示精修占了 41% 时间
+且绝大多数白做（本次实测把该帧的精修次数从 14 降到 3）。
+
+### 5. 门禁与实测（同进程交错 A/B，PC）
+
+| 指标 | v0.7.0 | **v0.8.0** |
+|---|---|---|
+| 合成靶纸检出 | 30/30 | **30/30** |
+| 最大中心误差 | 0.803px | **0.691px** |
+| 负样本误检 | 0 | **0** |
+| 真实场景（缺角胶带）中心偏差 | 0.83px | **0.33px** |
+| 同图第二帧（track）漂移 | 0.79px | **0.00px** |
+| 板端真机帧中心偏差 | 0.04px | **0.04px** |
+| 平移序列 track 帧数 | 22/24 | **23/24** |
+| 稳态 track 单帧 | ~1.0ms | **~1.0ms**（同） |
+| 首次捕获（32 张含板端帧） | 中位 1.72ms | 中位 **2.27ms** |
+| 搜索掩膜数 | 最多 9~10 张 | **≤2 张** |
+| 每帧候选验证上界 | 不截断（实测 80~160 次） | **≤ MAX_CANDIDATES×2×2 = 32 次** |
+
+**诚实的边界**：
+* 首次捕获在 PC 上中位 **+32%**（Canny+闭运算比单档阈值贵，且低对比度帧会扫到第 2 级）；
+  换来的是**掩膜与候选数都有硬上界** —— 旧实现的 312ms 正是"无上界"造成的。
+* 稳态（track）路径完全没动，仍是 ~1ms 的窄带精修，**帧率提升靠的是"锁得上"**：
+  一旦锁定就不会再每帧回退全图搜索。
+* 板端绝对耗时未测（本轮无板）；`[perf]` 新增 `det_valid/det_stage/det_ms` 三字段就是为了
+  上板后能一眼分清"检测成功但太慢"与"检测失败"（v0.7.0 排查时正是被 `stage=stale` 掩盖）。
+
+### 6. 卡尔曼滤波（`vision/kalman_filter.py`）
+
+状态 `[u, v, vu, vv]`，观测 `[u, v]`，F 为匀速外推，Q 取"连续白噪声加速度"离散化。
+标定依据（`tools/test_kalman.py`，30fps、观测噪声 σ=0.9px）：
+
+| q (px/s²) | 静止抖动 σ 输出 | 匀速/匀加速跟随误差 |
+|---|---|---|
+| 40（**采用**） | 1.20 → **0.63** | 0.7~0.8px |
+| 260 | 1.20 → 0.82 | 0.8px |
+| 800 | 1.20 → 0.83 | 0.8px |
+
+⇒ 过程噪声挂在**加速度**上，机动由模型自己吸收（q 从 40 调到 2000 误差几乎不变），
+所以"抑噪"这条曲线的边际收益在 40 附近已经吃满，再调大纯亏。一阶 EMA（`CENTER_ALPHA=0.70`）
+作对照：匀速运动滞后 mean=2.86px，卡尔曼 0.69px。
+
+**三条硬规则**（缺一条现场就会翻车，`tools/test_kalman.py` 逐条锁住）：
+① 时钟不连续（首帧/回退/断流/传 `None`）→ 重建播种，滤波输出 == 原始测量，绝不拿旧速度外推；
+② 观测跳变 > `KALMAN_RESET_PX` → 判为目标跳走，重建而非硬拖；③ NaN/Inf 一律拒绝，不污染状态。
+
+⚠ 滤波**只作用在 `u/v`**：闭环用的 `raw_u/raw_v` 仍是逐帧原始测量（`AIM_USE_RAW=True`），
+所以滤波再重也不会变成瞄准滞后 —— 这也正是根 AGENTS.md「抖动是必须跟踪的真实运动」那条教训的落地方式。
+
+### 7. 正视图（"透视变换成正视图取中心，再逆透视反投影"）
+
+逐帧中心只有一条路径：**`面中心 (w/2,h/2) 经 mm→px 单应逆投影`** —— 它是"正视图取中心再逆投影"的
+**闭式等价写法**（正视图中心恒在 (w/2,h/2)），且没有重采样误差。重采样版本也实现了
+（`RectangleCenterDetector.front_view()` / `front_view_center()`），但实测精度受正视图分辨率限制
+（128px 短边偏 3~4px、256px 约 1.9px），因此**不进逐帧路径**，只用于：
+* 现场可视化：`tools/diagnose_detect.py <图> --front out.png --front-px 256`（画十字标出靶心）；
+* 独立校验：`tools/test_real_scene.py` 第 5 项断言"正视图四周必须比中间暗"（**方向写反会得到一整片
+  背景**，肉眼未必立刻发现）+ "剖面法中心与解析解偏差 < 6px"。
+
+### 8. 配置变化（现场只改 `config.py`）
+
+新增：`EDGE_CLOSE_PX` / `SEARCH_MAX_CONTOURS` / `MIN_EDGE_LENGTH_PX` / `REFINE_ITERATIONS`、
+`KALMAN_ENABLE` / `KALMAN_PROCESS_PX` / `KALMAN_MEASURE_PX` / `KALMAN_RESET_PX` /
+`KALMAN_MAX_PREDICT_S` / `KALMAN_VELOCITY_LIMIT_PX_S`、`FRONT_VIEW_SHORT_PX`。
+
+**删除**（连同实现一起消失，不再是"死参数"）：`DARK_THRESHOLDS`、`SEARCH_SPLIT_FRAMES`、
+`SEARCH_BUDGET_MS`、`SEARCH_GEOMETRY_STEPS`、`MAX_CONTOURS`（→ `SEARCH_MAX_CONTOURS`）、
+`LINE_MAX_PROPOSALS`、`ENABLE_LINE_RECOVERY`、`LINE_SEARCH_INTERVAL`、`ACQUIRE_CONFIRM_FRAMES`、
+`CONFIRM_CORNER_PX`、`RECHECK_INTERVAL`、`MAX_LINE_RESIDUAL_PX`、`MIN_TRANSITION_COVERAGE`、
+`MAX_BOUNDARY_WIDTH_ERROR`。做新旧对拍时由 `tools/test_performance.py::LegacyConfig` 补齐。
+
+`[perf]` 行新增 `det_valid= / det_stage= / det_ms=`（**检测器自己的**口径）：
+`valid/stage` 取自显示口径，结果过期时会被替换成 `stage=stale` 从而掩盖检测器真实 stage，
+这是 v0.7.0 板端排查时最大的诊断盲区。
+
+### 9. 门禁
+
+```bash
+"D:/Python311/python.exe" -B tools/check_pc.py                    # PC 侧全部：PASS=19 SKIP=1 FAIL=0
+"D:/Python311/python.exe" -B tools/check_app.py --manifest        # 应用包：OK=124 WARN=2 FAIL=0（25 文件）
+"D:/Python311/python.exe" -B tools/build_single.py --check        # 单文件版同步（22 源文件）
+"D:/Python311/python.exe" -B tools/test_kalman.py                 # 新增：卡尔曼 6 项
+"D:/Python311/python.exe" -B tools/test_performance.py --legacy <旧 rectangle_center.py>   # A/B 对拍
+```
 
 ## 2026-10-13（v0.6.4）：回归 v1–V3 的「搜索永不截断」——治丢帧
 
@@ -754,13 +895,27 @@ maixcam2_rect_center/
 ├── target_api.py             ★ 对外 API：detect_black_frame / CenterTracker / AimLoop
 ├── assets/icon.png           应用图标
 └── vision/
-    ├── __init__.py           统一导出 9 个符号
-    ├── rectangle_center.py   黑框检测：多阈值扫描 → 四边暗带验证 → 亚像素精修 → 单应解中心
+    ├── __init__.py           统一导出（供 `from vision import ...` 的便捷用法）
+    ├── rect_geometry.py      ★v0.8 纯几何：四边形规整/体检、4 点单应、批量采样、正视图 warp
+    ├── contour_locator.py    ★v0.8 候选定位：Canny → findContours → 四边形筛选（低分辨率、≤2 张掩膜）
+    ├── kalman_filter.py      ★v0.8 中心滤波：2D 位置+速度匀速模型卡尔曼（抑抖 + 速度先验）
+    ├── rectangle_center.py   ★黑框检测状态机：track → roi_search → full_search + 四边暗带验证
+    │                           → 亚像素精修 → 单应解中心（+ 正视面交叉校验）
     ├── laser_spot.py         光斑读数（fixed 写死 / detect 实测）+ deviation(dx,dy) + 面板绘制
     ├── stepper_link.py       ZDT Emm_V5.0 双串口：帧构造 + 非阻塞收发 + ACK/E2 看门狗
     ├── gimbal_aim.py         两轴增量比例控制 + 状态机 + 离群拒收
     ├── gimbal_calibrate.py   开环标定：实测 PULSE_PER_PX / DIR_SIGN / 交叉项 / 回差
-    └── gimbal_self_test.py   上电小幅自检 + IMU 探测
+    ├── gimbal_self_test.py   上电小幅自检 + IMU 探测
+    ├── gimbal_search.py      手动 SEARCH：两轴三段扫描 + IMU 按实测角度收段
+    ├── imu_heading.py        内置 IMU 相对朝向 / 偏置标定 / 丢失帧的姿态外推
+    ├── aim_control.py        识别线程调度中枢（视觉/搜索/自检/IMU 优先级 + 过期降级）
+    ├── app_runtime.py        应用装配、主循环、资源释放、[perf] 日志
+    ├── vision_worker.py      单识别线程 + 最新帧槽位（丢旧不积压）
+    ├── preview.py            本地屏渲染 + 屏幕按钮 + 过期结果降级（display_result）
+    ├── maixvision_stream.py  独立进程图传（绕开 MaixCDK 的 500ms 忙等）
+    ├── camera_source.py      相机初始化 / 灰度转换
+    ├── rate_meter.py         帧率统计（capture / disp / detect 三路独立口径）
+    └── telemetry.py          `[perf]` 日志组装（含 det_* 检测器口径三字段）
 
 dist/
 └── main_single.py            单文件自包含版（由 tools/build_single.py 生成，**不进应用包**）

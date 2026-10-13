@@ -107,7 +107,29 @@ def main():
         "板端帧中心偏离锁定值 %.1fpx：(%.1f, %.1f)" % (board_error, out["u"], out["v"])
     print("PASS: 板端真机帧检出，中心 (%.1f, %.1f)，偏差 %.2fpx" % (out["u"], out["v"], board_error))
 
-    print("real scene regression: PASS (4)")
+    # ---- 正视图：透视变换方向必须自洽（方向反了会得到"一整片背景"，肉眼还未必立刻发现）----
+    # 契约：正视图 = 物理靶纸本身，所以**四周应当是胶带暗带、中间应当是纸面亮区**；
+    # 剖面法（灰度对称性）算出的中心必须与解析解（四角几何）接近 —— 两法是独立估计。
+    detector.reset()
+    out = detector.process(board_gray)
+    assert out.get("valid"), "正视图用例需要先检出板端帧"
+    view, _, _ = detector.front_view(board_gray, out, short_px=256)
+    assert view is not None, "正视图必须能生成（warp 矩阵退化会让现场看不到校验图）"
+    border = float(np.median(np.concatenate([view[0, :], view[-1, :], view[:, 0], view[:, -1]])))
+    middle = float(np.median(view[view.shape[0] // 4:3 * view.shape[0] // 4,
+                                  view.shape[1] // 4:3 * view.shape[1] // 4]))
+    assert border < middle - 40, (
+        "正视图四周必须比中间暗（四周=胶带、中间=纸面）：border=%.0f middle=%.0f。"
+        "若 border≈middle≈背景灰度，说明 warp_front_view 的单应方向写反了。" % (border, middle))
+    alt = detector.front_view_center(board_gray, out, short_px=256)
+    assert alt is not None, "剖面法中心必须可用（正视图里应能看到两侧胶带暗带）"
+    agree = float(np.hypot(alt[0] - out["u"], alt[1] - out["v"]))
+    assert agree < 6.0, ("剖面法与解析解的中心偏差 %.2fpx 过大（两者独立，"
+                         "超限说明四角几何或光照有问题）" % agree)
+    print("PASS: 正视图自洽（周边暗 %.0f < 中间 %.0f），剖面中心与解析解差 %.2fpx"
+          % (border, middle, agree))
+
+    print("real scene regression: PASS (5)")
     return 0
 
 

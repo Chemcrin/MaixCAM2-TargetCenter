@@ -210,7 +210,7 @@ class TrackingApplication:
             now = clock.perf_counter()
             if now - last_log >= cfg.LOG_INTERVAL:
                 self._log_performance(now, capture_rate, vision_fps, result, age,
-                                      read_times, draw_times, loop_times)
+                                      read_times, draw_times, loop_times, snapshot)
                 last_log = now
                 read_times.clear()
                 draw_times.clear()
@@ -235,7 +235,7 @@ class TrackingApplication:
         preview.render(view, now, status=snapshot["status"] if snapshot else "waiting")
 
     def _log_performance(self, now, capture_rate, vision_fps, result, age,
-                         read_times, draw_times, loop_times):
+                         read_times, draw_times, loop_times, snapshot=None):
         preview, worker = self.preview, self.worker
         capture_fps, _ = capture_rate.values(now)
         display_fps, display_low1 = preview.rate.values(now)
@@ -243,10 +243,14 @@ class TrackingApplication:
         read_avg = float(np.mean(read_times)) if read_times else 0.0
         draw_avg = float(np.mean(draw_times)) if draw_times else 0.0
         loop_avg = float(np.mean(loop_times)) if loop_times else 0.0
+        # ★ det_* 取"识别线程自己的结果"（snapshot["result"]），不是显示口径的 result：
+        #   后者过期时已被 display_result 换成 stage="stale"，会掩盖检测器真实 stage。
+        detector = (snapshot or {}).get("result")
         print(format_perf_line(
             self.build_id, capture_fps, display_fps, display_low1, vision_fps,
             result, read_avg, draw_avg, loop_avg, show_avg, show_p95, show_max,
-            show_n, age, preview.shown, preview.dropped, worker.dropped))
+            show_n, age, preview.shown, preview.dropped, worker.dropped,
+            detector=detector))
         if self.aim is not None:
             print(self.aim.status_line())
         if show_p95 > 100:

@@ -253,8 +253,8 @@ def main():
     apply_overrides(cfg, args.set)
     cv2.setNumThreads(max(1, cfg.OPENCV_THREADS))
     detector = RectangleCenterDetector(cfg)
-    print("[pc] OpenCV %s  SEARCH_WIDTH=%d  DARK_THRESHOLDS=%s"
-          % (cv2.__version__, cfg.SEARCH_WIDTH, cfg.DARK_THRESHOLDS))
+    print("[pc] OpenCV %s  SEARCH_WIDTH=%d  CANNY=%d/%d  EDGE_CLOSE_PX=%d"
+          % (cv2.__version__, cfg.SEARCH_WIDTH, cfg.CANNY_LOW, cfg.CANNY_HIGH, cfg.EDGE_CLOSE_PX))
     print("[pc] 校验门 MIN_EDGE_COVERAGE=%.2f WEAK=%.2f STRONG=%.2f"
           % (cfg.MIN_EDGE_COVERAGE, cfg.WEAK_EDGE_COVERAGE, cfg.STRONG_EDGE_COVERAGE))
 

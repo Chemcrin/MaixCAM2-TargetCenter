@@ -120,6 +120,25 @@ def run(legacy_path=None):
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         class LegacyConfig(Config):
+            """**v0.7.0 及更早**的参数集（当时搜索是"Otsu + 8 档阈值"）。
+
+            v0.8.0 把候选提议换成 Canny 轮廓后删掉了这些参数；新旧对拍时由本类补齐 ——
+            既让旧模块跑得起来，也顺带把"两个版本的参数边界在哪"文档化了。
+            """
+            DARK_THRESHOLDS = (25, 40, 55, 70, 85, 100, 120, 145)
+            SEARCH_SPLIT_FRAMES = False
+            SEARCH_BUDGET_MS = 25.0
+            SEARCH_GEOMETRY_STEPS = 8
+            MAX_CONTOURS = 128
+            LINE_MAX_PROPOSALS = 36
+            ENABLE_LINE_RECOVERY = False
+            LINE_SEARCH_INTERVAL = 15
+            ACQUIRE_CONFIRM_FRAMES = 3
+            CONFIRM_CORNER_PX = 12.0
+            RECHECK_INTERVAL = 20
+            MAX_LINE_RESIDUAL_PX = 2.0
+            MIN_TRANSITION_COVERAGE = 0.50
+            MAX_BOUNDARY_WIDTH_ERROR = 0.30
             MIN_ANGLE_DEG = 55.0
             MIN_INNER_RATIO = 0.30
             MAX_INNER_RATIO = 0.94

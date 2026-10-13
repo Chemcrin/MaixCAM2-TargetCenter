@@ -183,7 +183,7 @@
 **以下命令一律在 `maixcam2_rect_center/` 目录下执行**（脚本按自身位置定位工程根），
 本机 Python 用 `"D:/Python311/python.exe"`（见 §4.1）。
 
-1. **提升 `main.py` 顶部 `BUILD_ID`**（当前 `2026-10-13-c-track-release-v0.7.0`，
+1. **提升 `main.py` 顶部 `BUILD_ID`**（当前 `2026-10-13-canny-kalman-v0.8.0`，
    格式 `YYYY-MM-DD-<slug>-vN`）。板端会打印 `[rect-center] <BUILD_ID> ...`，
    **与本地逐字一致才算跑的是新代码**；不更新就无法判断是否生效。
    **改了 `main.py` / `config.py` / `vision/*` / `target_api.py` 任一个都要做。**
@@ -198,7 +198,9 @@
 3. **跑门禁**：
    ```bash
    "D:/Python311/python.exe" -B tools/check_app.py --manifest   # C1..C10 机检 + 打印包内清单（应 22 文件）
-   "D:/Python311/python.exe" -B tools/test_performance.py       # 视觉回归（基线：30/30、max 0.803px、0 误检）
+   "D:/Python311/python.exe" -B tools/test_performance.py       # 视觉回归（基线：30/30、max 0.691px、0 误检）
+   "D:/Python311/python.exe" -B tools/test_kalman.py            # 中心卡尔曼滤波（抑抖/跟手/时钟不连续）
+   "D:/Python311/python.exe" -B tools/test_real_scene.py        # 真实固件（缺角胶带 + 板端真机帧 + 正视图自洽）
    "D:/Python311/python.exe" -B tools/test_target_api.py        # 对外 API 回归
    "D:/Python311/python.exe" -B tools/test_gimbal_aim.py        # 云台协议/闭环/看门狗/标定/自检/低通
    "D:/Python311/python.exe" -B tools/test_main_self_test.py    # 端到端跑 main()：自检优先 / FAULT 阻断

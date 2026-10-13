@@ -50,6 +50,11 @@ OUT_PY = os.path.join(OUT_DIR, "main_single.py")
 #   · vision_worker、preview 依赖 rate_meter ⇒ rate_meter 必须在它们之前；
 #   · ★ vision.aim_control 依赖 rectangle_center / laser_spot / gimbal_self_test
 #     ⇒ 必须排在**这三者之后**（单文件版按序 exec，被依赖者须在前）。
+# v0.8.0：识别链路拆成 rect_geometry（纯几何）+ contour_locator（Canny 轮廓定位）
+#   + kalman_filter（中心滤波）三层，同步新增 3 项。
+#   · rect_geometry 无内部依赖，排最前；
+#   · contour_locator 依赖 rect_geometry ⇒ 必须在它之后；
+#   · rectangle_center 依赖 contour_locator + kalman_filter + rect_geometry ⇒ 排在其后。
 MODULES = (
     ("config", "config.py"),
     ("vision.rate_meter", "vision/rate_meter.py"),
@@ -58,6 +63,9 @@ MODULES = (
     ("vision.telemetry", "vision/telemetry.py"),
     ("vision.maixvision_stream", "vision/maixvision_stream.py"),
     ("vision.preview", "vision/preview.py"),
+    ("vision.rect_geometry", "vision/rect_geometry.py"),
+    ("vision.contour_locator", "vision/contour_locator.py"),
+    ("vision.kalman_filter", "vision/kalman_filter.py"),
     ("vision.rectangle_center", "vision/rectangle_center.py"),
     ("vision.laser_spot", "vision/laser_spot.py"),
     ("vision.stepper_link", "vision/stepper_link.py"),

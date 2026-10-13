@@ -171,50 +171,58 @@ def test_sync_camera_gap_stops_once():
     assert control.aim.state == "HOLD", control.aim.state
 
 
-def _unavoidable_search_ms(small, kernel):
-    """在同一张图上跑一遍"搜索不可避免"的部分：N 档 threshold + close + findContours，加 Canny 兜底。
+def _unavoidable_search_ms(gray, kernel):
+    """在同一张图上跑一遍"搜索中躲不掉的部分"，作为**同机参考工作量**。
 
-    为什么要它：绝对毫秒断言**不可跨机器、也不可跨负载**。"单帧搜索 ≤ SEARCH_BUDGET_MS+60"
+    为什么要它：绝对毫秒断言**不可跨机器、也不可跨负载**。"单帧搜索 ≤ 某个固定毫秒数"
     在标定时那台机器上成立，但在慢得多的机器上连**未改动的基线代码**也失败 —— 2026-10-13
-    实测：B 轨原样代码在同一断言上同样报 163ms。本机单次样本还会从 150ms 抖到 267ms，
-    所以这里同时（a）改判据为"相对同帧测得的参考工作量"，（b）与搜索**交错采样后比中位数**，
+    实测：原样代码在同一断言上同样报 163ms。本机单次样本还会从 150ms 抖到 267ms，
+    所以这里同时（a）把判据改成"相对同帧测得的参考工作量"，（b）与搜索**交错采样后比中位数**，
     两者都按项目既有规矩（性能结论必须同进程交错 A/B）。
+
+    v0.8 起"躲不掉的部分"变了：不再是 N 档阈值掩膜（旧口径 9~10 张），而是
+    「低分辨率 Canny + 形态学 + 轮廓」+「低分辨率 Otsu 掩膜 + 轮廓」+「一组全分辨率四边采样」。
     """
-    otsu, _ = cv2.threshold(small, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
-    levels = (int(otsu),) + tuple(Config.DARK_THRESHOLDS)
+    height, width = gray.shape[:2]
+    scale = min(1.0, float(Config.SEARCH_WIDTH) / float(width))
+    small = cv2.resize(gray, (max(32, int(round(width * scale))), max(24, int(round(height * scale)))),
+                       interpolation=cv2.INTER_AREA) if scale < 1 else gray
     t0 = time.perf_counter()
-    for th in levels:
-        _, mask = cv2.threshold(small, th, 255, cv2.THRESH_BINARY_INV)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-        cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     edges = cv2.Canny(small, Config.CANNY_LOW, Config.CANNY_HIGH)
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
     cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    _, mask = cv2.threshold(small, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+    cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    points = np.random.default_rng(7).random((4 * Config.EDGE_SAMPLES * 5, 2)) * [width - 1, height - 1]
+    cv2.remap(gray, points[:, 0].reshape(1, -1).astype(np.float32),
+              points[:, 1].reshape(1, -1).astype(np.float32), cv2.INTER_LINEAR,
+              borderMode=cv2.BORDER_REPLICATE)
     return (time.perf_counter() - t0) * 1000.0
 
 
 def test_bounded_search_and_current_evidence():
     det = RectangleCenterDetector(Config)
     noise = np.random.default_rng(6).integers(0, 256, (480, 640), dtype=np.uint8)
-    small = cv2.resize(noise, (Config.SEARCH_WIDTH, 237), interpolation=cv2.INTER_AREA)
     kernel = np.ones((3, 3), np.uint8)
     det.process(noise)                          # 预热（首帧含 OpenCV 惰性初始化）
-    _unavoidable_search_ms(small, kernel)
+    _unavoidable_search_ms(noise, kernel)
     samples, references = [], []
     for _ in range(25):
         t0 = time.perf_counter()
         out = det.process(noise)
         samples.append((time.perf_counter() - t0) * 1000)
-        references.append(_unavoidable_search_ms(small, kernel))
-        # 新契约（v0.5.1）：搜索为「单帧穷尽 + 时间预算兜底」，不再限制"每帧只扫 1 档阈值"。
+        references.append(_unavoidable_search_ms(noise, kernel))
+        # 契约（v0.8 掩膜纪律）：搜索为「单帧穷尽 + 时间预算兜底」，不再限制"每帧只扫 1 档阈值"。
         #   · 每帧仍只发起一次搜索（search_count<=1）；
-        #   · 单帧内最多把全部阈值 + Canny 兜底走一遍（thresholds 有上限）；
+        #   · ★ 每帧最多建 **2 张掩膜**（Canny 一级 + Otsu 兜底一级）—— 这是本轮重构
+        #      "减少掩膜数量、控制运行时长"的**可执行契约**（旧口径是 Otsu + 8 档阈值 ≈ 9~10 张）；
         #   · 每帧不得产出有效结果（纯噪声里没有黑框）。
         assert out["search_count"] <= 1, out
-        assert out["thresholds"] <= len(Config.DARK_THRESHOLDS) + 2, out
+        assert out["masks"] <= 2, out
         assert out["proposals"] <= Config.SEARCH_MAX_PROPOSALS and not out["valid"], out
     search_ms = float(np.median(samples))
     reference_ms = float(np.median(references))
-    budget = max(Config.SEARCH_BUDGET_MS + 60, 3.0 * reference_ms)
+    budget = max(30.0, 8.0 * reference_ms)
     print("bounded_clutter_reference reference_ms=%.1f search_ms=%.1f ratio=%.2f allowance_ms=%.1f"
           % (reference_ms, search_ms, search_ms / max(reference_ms, 1e-9), budget))
     assert search_ms <= budget, ("单帧搜索远超预算/参考工作量", search_ms, budget)

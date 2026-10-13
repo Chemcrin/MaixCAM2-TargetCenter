@@ -226,51 +226,40 @@ class Config:
     UART_PORT = "/dev/ttyS0"
     UART_BAUD = 115200
 
-    # Canny and polygon gates. Tune only these values on a new lens.
+    # ---- 候选定位（Canny → findContours → 四边形筛选，全部在低分辨率图上）----
+    # Canny 门限：低/高阈值，决定"边缘提取得多细"。调高 → 碎边更多、候选更多、更慢；
+    # 调低 → 低对比度的胶带边可能漏掉（弱光/远距离场景）。换镜头/换光照先动这里。
     CANNY_LOW = 35
     CANNY_HIGH = 120
-    # 失锁时先试上次有效阈值，再试 Otsu 和备用阈值；成功即停止。
-    DARK_THRESHOLDS = (25, 40, 55, 70, 85, 100, 120, 145)
-    # 稳态只采样四边窄带；失锁时缩小图搜索，每档验证成功就立即停止。
+    # 边缘图闭运算核边长（像素）：Canny 的细线常断一两个像素，闭一下让胶带环的轮廓闭合、
+    # findContours 少出碎段。1 = 关闭该步（最省，但断线多时候选会退化）。
+    EDGE_CLOSE_PX = 3
+    # ★ 搜索分辨率：候选定位（阈值化/形态学/轮廓树/多边形逼近）一律先把图缩到这么宽再做。
+    #   这是"未看到框时低分辨率搜索"的落点；**锁定后的中心精修仍用原始分辨率**
+    #   （`_refine` / `_verify` / 解中心都在原图坐标上算，见 rectangle_center.process）。
     SEARCH_WIDTH = 320
-    # 搜索策略：**单帧穷尽** —— 一帧内按序试完全部阈值（末尾 Canny 兜底）直到找到。
-    # ⚠ 历史：v0.4.3 曾改成"每帧只轮换 1 个阈值、只验 1 个候选"，实测丢锁后要 11+ 帧才重捕获
-    #   （大角度/移动场景肉眼即"丢框"）；v0.5.1 改回单帧穷尽。
-    # SEARCH_SPLIT_FRAMES=False（默认）⇒ 单帧内一定把搜索跑完，重捕获恒为 1 帧（与旧路径一致）。
-    #   板端搜索远慢于 PC，跨帧拆分会让"重捕获"变成十几帧，故默认**不拆**。
-    # SEARCH_SPLIT_FRAMES=True ⇒ 按 SEARCH_BUDGET_MS 软预算跨帧续扫，只在极端慢板卡、
-    #   宁可单帧轻一点也不在乎多花几帧时才开。
-    SEARCH_SPLIT_FRAMES = False
-    SEARCH_BUDGET_MS = 25.0      # 仅在 SEARCH_SPLIT_FRAMES=True 时生效的软预算
-    # ⚠ 实测「实际是死参数」：单帧候选数有**构造上限** ——
-    #   最多 (Otsu + DARK_THRESHOLDS + 复用的上次阈值) 档 × MAX_CANDIDATES 个
-    #   + Canny 支 MAX_CANDIDATES 个 × 2 种 kind ≈ 96 个 < 128，**永远够不到**。
-    #   实测：真实帧 1~6、负样本 3~6、纯噪声 0、满屏 15 个人造黑框也才 16。
-    #   ⇒ 默认配置下本上限从不生效；只有把它手工调小（≤96）才真正裁决。
-    SEARCH_MAX_PROPOSALS = 128   # 单帧验证候选数硬上限（仅 SEARCH_EXHAUSTIVE=False 且调小到 ≤96 时才可能生效）
-    # ★ 搜索口径：True = 「搜索永不截断」（对齐 v1–v3 的 `laser-readout-v1`/`target-api-v3`）。
-    #   那两版的 `_search` 里根本没有候选预算（`SEARCH_MAX_PROPOSALS` 当时是死参数），
-    #   跑完全部阈值 + Canny 兜底、验证每个候选 —— 用户实感"虽然卡顿但一点不丢"。
-    #   本工程后来引入预算后，一次 ROI 搜索就能把它烧光，真正的候选永远轮不到，
-    #   表现为"黑框清清楚楚却丢帧"（连续几帧即肉眼可见丢锁）。
-    #   · True（默认，用户明确要求回到 v1–v3 的稳定性）：失锁帧可能明显变慢（卡顿可接受，
-    #     丢锁不可接受）。稳态仍在 track 快路径上，不受影响。
-    #   · False：有界口径，按 SEARCH_MAX_PROPOSALS 截断（快，但可能丢帧）。
-    SEARCH_EXHAUSTIVE = True
-    SEARCH_GEOMETRY_STEPS = 8
-    MAX_CONTOURS = 128
-    LINE_MAX_PROPOSALS = 36
-    ENABLE_LINE_RECOVERY = False
-    LINE_SEARCH_INTERVAL = 15
-    ACQUIRE_CONFIRM_FRAMES = 3
-    CONFIRM_CORNER_PX = 12.0
-    RECHECK_INTERVAL = 20
-    MAX_LINE_RESIDUAL_PX = 2.0
-    MIN_TRANSITION_COVERAGE = 0.50
-    MAX_BOUNDARY_WIDTH_ERROR = 0.30
+    # 单张掩膜里参与四边形拟合的最大轮廓数（已按面积预筛；一旦凑够 MAX_CANDIDATES 个
+    # 四边形就立刻停扫 —— 多边形拟合是搜索路径的头号单点开销，必须封顶）。
+    SEARCH_MAX_CONTOURS = 16
+    # 候选四边形的最短边（原图像素）：更小的框不可能是靶纸，直接丢，省下全分辨率验证开销。
+    MIN_EDGE_LENGTH_PX = 12.0
+    # 单张掩膜最多产出多少个四边形（每个再试 inner/outer 两种假设）。
+    # ⚠ 它直接决定最坏帧的验证次数（≤ MAX_CANDIDATES × 2 × 掩膜级数），是"控制运行时长"的旋钮。
     MAX_CANDIDATES = 8
+    # ★ 搜索口径：True = **候选数不截断**（默认，对齐 v1–v3 `laser-readout-v1`/`target-api-v3`
+    #   的"虽然卡顿但一点不丢"）。False = 有界口径，按 SEARCH_MAX_PROPOSALS 截断（快，可能丢帧）。
+    SEARCH_EXHAUSTIVE = True
+    # 单帧验证候选数硬上限（仅 SEARCH_EXHAUSTIVE=False 时生效）。
+    # ⚠ 候选数有构造上限：每级 ≤ MAX_CANDIDATES × 2 = 16、共 2 级 ≈ 32 < 128，默认**够不到**，
+    #   只有手工调小（≤32）才真正裁决；预算由 ROI 搜索与全图搜索**共享**一个计数器。
+    SEARCH_MAX_PROPOSALS = 128
     EDGE_SAMPLES = 24
     REFINE_RADIUS = 6
+    # 亚像素精修的迭代轮数（收敛判据见 `_accept`：单轮最大位移 < 0.2px 即停）。
+    # 搜索帧的候选可能离真边几个像素，只精修一轮会停在半路 —— 实机表现为"首帧锁上时
+    # 中心轻微跳一下"（实测首帧 vs 第二帧中心差 1.14px，迭代后降到 0.11px）。
+    # 只影响搜索帧（稳态 track 路径本来就在不动点上），代价是最多多一次窄带精修。
+    REFINE_ITERATIONS = 2
     # ★ 宽半径兜底精修（2026-10-13 实机定位）：候选四边形可能整体偏离真边——
     #   实机实测：掩膜给出的候选顶边比胶带外沿低约 14px，而 `_verify` 只从边向里采
     #   2.2~6.5px（0.2~0.6×BLACK_FRAME_MM）⇒ 直接采到纸面、把纸当成"暗带"而误拒。
@@ -328,7 +317,42 @@ class Config:
     CIRCLE_SAMPLES = 72
     CIRCLE_RADIUS_MM = 2.0
 
-    # Optional temporal smoothing. Zero disables it.
+    # ---- 中心时序滤波（卡尔曼，v0.8 起取代一阶 EMA）--------------------------
+    # 现场症状"车一晃中心就偏、画面抖"里混着两种成分，必须区别对待：
+    #   · **必须跟踪的真实运动**（底盘/云台让靶心快速位移）；
+    #   · **必须抑制的测量噪声**（边缘跳变、反光造成的逐帧抖动）。
+    # 一阶 EMA 对两者一视同仁：想抑噪就得减小 alpha，代价是快速运动时输出滞后
+    # （≈28ms，底盘一动就变成瞄准误差）。卡尔曼用"匀速运动模型"把二者分开：
+    # 噪声进不了速度状态，而匀速运动能被模型零滞后跟上。机理见 vision/kalman_filter.py。
+    KALMAN_ENABLE = True
+    # 过程噪声（px/s²，等效加速度）：**越大越跟手、抑噪越弱**。取 40 的依据是实测标定
+    # （tools/test_kalman.py，30fps、观测噪声 σ=0.9px）——
+    #   q=40  → 静止抖动 σ 1.20→0.65（0.54 倍）；匀速/匀加速跟随误差 ≤0.8px（与 q=800 几乎无差）。
+    #   q=260 → 静止抖动只降到 0.68 倍，抑噪明显变差，而机动误差一点没改善。
+    # ⇒ 在"抑噪换机动手感"这条曲线上，40 附近的边际收益已经吃满，再调大纯亏抑噪。
+    # ⚠ 它**只作用在 u/v（显示与常规口径）**：闭环用的 raw_u/raw_v 仍是逐帧原始测量
+    #   （config.AIM_USE_RAW=True），所以滤波再重也不会变成瞄准滞后。
+    KALMAN_PROCESS_PX = 40.0
+    # 观测噪声（px）：**越大越平滑、滞后越大**。当前精修后的逐帧中心误差约 0.7px。
+    KALMAN_MEASURE_PX = 0.9
+    # 观测跳变上限（px）：超过即判"目标跳走了"，重建滤波器而不是硬拖（与 FILTER_RESET_PX 同口径）。
+    KALMAN_RESET_PX = 25.0
+    # 单次外推的时间上限（s）：超过视为断流，不外推、直接重建（与 PREDICT_MAX_GAP_S 同口径）。
+    KALMAN_MAX_PREDICT_S = 0.25
+    # 速度限幅（px/s）：防误检把速度状态甩飞（画面 640px 宽、30fps 下 6000px/s 已远超物理可能）。
+    KALMAN_VELOCITY_LIMIT_PX_S = 6000.0
+    # ---- 正视图（"透视变换成正视图再逆透视反投影"）------------------------------
+    # ★ 逐帧输出的中心只有一条路径：`面中心 (w/2,h/2) 经 mm→px 单应逆投影` ——
+    #   它就是"正视图取中心再逆投影"的闭式等价写法（正视图中心恒在 (w/2,h/2)），
+    #   而且**没有重采样误差**（实测重采样版在 128px 短边下偏 3~4px、256px 下约 1px）。
+    #   所以热路径不走重采样，本项默认 0 = 关闭。
+    # 本项 >0 时启用 `RectangleCenterDetector.front_view()/front_view_center()`：
+    #   把框透视变换成正视图（短边这么多像素），供**可视化**（tools/diagnose_detect.py --front）
+    #   与**独立校验**（剖面法中心 vs 解析中心，见 tools/test_real_scene.py）。
+    #   建议诊断时用 256 或更大；它不进逐帧路径，不影响帧率。
+    FRONT_VIEW_SHORT_PX = 0
+
+    # 旧口径保留：仅当 KALMAN_ENABLE=False 时作为一阶低通使用（现场对照用）。0 会禁用平滑。
     CENTER_ALPHA = 0.70
 
     # ---- 激光光斑读数（相机与激光固连 -> 光斑位置近似固定）------------------
