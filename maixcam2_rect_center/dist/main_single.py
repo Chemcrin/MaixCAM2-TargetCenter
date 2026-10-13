@@ -10,9 +10,9 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-10-13 02:08:01
+生成时间：2026-10-13 19:25:21
     config.py                    sha1=636e17f06efa
-    main.py                      sha1=4859ca043cd1
+    main.py                      sha1=ee97e89fba21
     target_api.py                sha1=46285b4d3f2a
     vision/aim_control.py        sha1=9825a5376da4
     vision/app_runtime.py        sha1=ffa6b9622894
@@ -35,7 +35,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '636e17f06efa43536f43865e0b22d5420842200f', 'vision/rate_meter.py': '6f2a054c97a00470409a59de9dea42b0bff9c6ba', 'vision/camera_source.py': 'b398fedefe6eaf931d372abe00ba267f7d9697b5', 'vision/vision_worker.py': '79e9784fa9f1ab052404abbc3ec86b72312faf7d', 'vision/telemetry.py': '853ebdd16df1620eb09694d13b139a7b74d7e9f4', 'vision/maixvision_stream.py': 'd29c3a3d6482fe8296b85502d7354a71ca3877d8', 'vision/preview.py': '163cc055da9ba97bbdd06ed51991679855f364ef', 'vision/rectangle_center.py': '366aaf5009f1785a35462e3564023f5896b41d9d', 'vision/laser_spot.py': 'c131498c5ff980e594b1c8d5d2feda6195caee23', 'vision/stepper_link.py': '7567719e71f6b5a2b3b850c07180fe9b37d791fe', 'vision/gimbal_self_test.py': '6044e6cd6806a610b65175c14792b6cade202e2a', 'vision/gimbal_aim.py': 'bedb9d9175cc9867d410f475d6eca2a4d3fbeee6', 'vision/gimbal_search.py': '73d7a93c243137f03afb4dd320a0a71ed60e3b43', 'vision/imu_heading.py': '0823f6d211bdc60a6adc36d2f7aeed874d329a6a', 'vision/aim_control.py': '9825a5376da44c0501bc955a9a57e487e4609176', 'vision/gimbal_calibrate.py': '9c4bb08a1b99d6feaef77bc8cf3fc56655e87676', 'vision/app_runtime.py': 'ffa6b9622894a103510349243e574400ecfd103b', 'target_api.py': '46285b4d3f2a31f9cdbfbc75cdf7edd1182333b0', 'main.py': '4859ca043cd15db187eabe425c6817b363d78cf3'}
+_SRC_SHA1 = {'config.py': '636e17f06efa43536f43865e0b22d5420842200f', 'vision/rate_meter.py': '6f2a054c97a00470409a59de9dea42b0bff9c6ba', 'vision/camera_source.py': 'b398fedefe6eaf931d372abe00ba267f7d9697b5', 'vision/vision_worker.py': '79e9784fa9f1ab052404abbc3ec86b72312faf7d', 'vision/telemetry.py': '853ebdd16df1620eb09694d13b139a7b74d7e9f4', 'vision/maixvision_stream.py': 'd29c3a3d6482fe8296b85502d7354a71ca3877d8', 'vision/preview.py': '163cc055da9ba97bbdd06ed51991679855f364ef', 'vision/rectangle_center.py': '366aaf5009f1785a35462e3564023f5896b41d9d', 'vision/laser_spot.py': 'c131498c5ff980e594b1c8d5d2feda6195caee23', 'vision/stepper_link.py': '7567719e71f6b5a2b3b850c07180fe9b37d791fe', 'vision/gimbal_self_test.py': '6044e6cd6806a610b65175c14792b6cade202e2a', 'vision/gimbal_aim.py': 'bedb9d9175cc9867d410f475d6eca2a4d3fbeee6', 'vision/gimbal_search.py': '73d7a93c243137f03afb4dd320a0a71ed60e3b43', 'vision/imu_heading.py': '0823f6d211bdc60a6adc36d2f7aeed874d329a6a', 'vision/aim_control.py': '9825a5376da44c0501bc955a9a57e487e4609176', 'vision/gimbal_calibrate.py': '9c4bb08a1b99d6feaef77bc8cf3fc56655e87676', 'vision/app_runtime.py': 'ffa6b9622894a103510349243e574400ecfd103b', 'target_api.py': '46285b4d3f2a31f9cdbfbc75cdf7edd1182333b0', 'main.py': 'ee97e89fba2116610e49ca77c13fcaee4405b735'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -5250,7 +5250,7 @@ from vision.aim_control import VisionControl, send_uart
 from target_api import TrackingApplication
 from vision.telemetry import format_perf_line, format_slow_loop, MAIN_LOOP_SLOW_MS
 
-BUILD_ID = "2026-10-13-wide-refine-recovery-v0.6.5"
+BUILD_ID = "2026-10-13-c-track-release-v0.7.0"
 
 # ---- 兼容别名（v0.4.6 模块化后保留旧私有名）--------------------------------
 # tools/test_runtime_performance.py 直接 `from main import (_FrameRate, _LatestVision,
