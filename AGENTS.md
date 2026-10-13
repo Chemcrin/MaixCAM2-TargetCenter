@@ -1,234 +1,376 @@
-# AGENTS.md · 25Efork 多智能体协作与工程规范
+# AGENTS.md · 25Efork 协作与工程契约
 
-> 面向在本仓库工作的 **AI 编码代理**（DeepSeek / GPT / 其它）。人类可读的工程说明在
-> [`README.md`](README.md)（算法、上板、内存、版本核对等），本文件是**协作契约**：
-> 谁负责哪些目录、改完必须做什么、怎么提交、怎么打包。
-> 两者冲突时，**本文件对"协作与流程"生效，README 对"算法与上板"生效**，改一处请顺手同步另一处。
+> **本仓库唯一的协作契约**。面向在本仓库工作的 **AI 编码代理**与人类协作者。
+>
+> 2026-10-13：原先"双轨并行、两套契约"（根 `AGENTS.md` + `maixcam2_rect_center/AGENTS.md`）
+> 已**合并为本文件并上提到仓库根**——代码目录内不再放 `AGENTS.md`。
+>
+> 分工口径：
+> - **本文件** —— 协作、工作边界、门禁、git 规范、DoD（**动手前先读这一份**）；
+> - **[`maixcam2_rect_center/README.md`](maixcam2_rect_center/README.md)** —— 人类可读的算法与上板说明；
+> - **[`maixcam2_rect_center/硬件标定与上板检查.md`](maixcam2_rect_center/硬件标定与上板检查.md)** —— 标定门槛与上板步骤；
+> - **[`maixcam2_rect_center/板端识别问题整理_2026-10-13.md`](maixcam2_rect_center/板端识别问题整理_2026-10-13.md)** —— 板端 3.2fps 问题的现场实锤与修改顺序。
+>
+> 冲突时：**本文件对"协作与流程"生效，README 对"算法与上板"生效**。改一处请顺手同步另一处。
+>
+> ⚠ **章节编号已冻结**：源码注释里大量出现"见 `AGENTS.md` §2 / §3.2 / §5 / §6"，
+> 指向的就是本文件的同名小节，**不要重排小节编号**（`config.py` / `vision/aim_control.py` /
+> `tools/git_round.py` / `tools/test_gimbal_aim.py` 等都有引用）。
 
 ---
 
 ## 0. 项目一句话
 
-2025 全国大学生电子设计竞赛本科组 **E 题《简易自行瞄准装置》** 的视觉模块：
-由 **A4 靶纸四周 1.8cm 黑胶带矩形的两条对角线交点** 反算 **靶心像素坐标 `(u, v)`** 与
-**局部尺度 `px_per_cm`**，通过串口交给云台主控解算激光指向。工程按 MaixPy 应用规范组织
-（`main.py` + `app.yaml` + `config.py` + `vision/`）。
+2025 全国大学生电子设计竞赛本科组 **E 题《简易自行瞄准装置》** 的视觉模块。
+
+由 **A4 靶纸四周 1.8cm 黑胶带矩形的两条对角线交点** 反算 **靶心像素坐标 `(u, v)`**，
+通过串口交给云台主控解算激光指向。运行平台 **MaixCAM2**（MaixPy v4 / MaixCDK，Ubuntu，屏 640×480）。
 
 > 靶心是红色记号笔点（≤0.1cm），165cm 处只有约 0.67px，物理不可见 → **只能由黑框矩形几何反算**。
 
----
-
-## 1. ★ 双轨并行：谁负责什么（最重要的约定）
-
-同一道题、同一个视觉子任务，本仓库里放了**两份并行实现**，分别由两个 AI 代理负责，**目前都在调试中**：
-
-| 轨道 | 目录 | 负责方 | 应用入口 | `app.yaml` 的 id |
-|---|---|---|---|---|
-| **A（主轨 / 根）** | `25Efork/`（除下方子目录外的全部） | **DeepSeek** | `main.py` | `target_center_25e` |
-| **B（并行第二实现）** | `25Efork/maixcam2_rect_center/` | **GPT** | `maixcam2_rect_center/main.py` | `maixcam2_rect_center` |
-
-两条轨道的**功能需求完全相同**，差别只在技术路线：
-
-- **轨道 A（DeepSeek）**：灰度二值化 + **环 / 亮面双族**候选轮廓 + 结构打分选优 + 角点亚像素精修；
-  靶心 = 极值法取四角、**对角线交点**（射影不变量，不解单应）；缩小图粗定位失败则回退全分辨率；
-  输出 `(u,v)` + `px_per_cm`，带 One Euro 滤波。
-- **轨道 B（GPT）**：**Canny + `approxPolyDP` 凸四边形**配对内外框 + 四边灰度剖面校验；
-  **显式 8×8 单应**解算；在实际正视面以中心为圆心取 **72 点圆**逆映射回原图求中心；Canny 中断时用
-  Otsu/多档暗阈值掩膜兜底。
-
-### 硬规则（违反会真出事故）
-
-1. **只改自己轨道的目录**，不要"顺手"改对方文件。确需跨轨改动（公共文档、根 `config.py` 等），
-   先说明意图，改完在提交信息里点明。
-2. **两条轨道不能同时装到板子上、也不能同时跑**（`app_id` 与入口都不同）；同一时刻只调试一条，
-   避免日志/串口互相干扰、误判"改了没用"。
-3. **一个实现绝不能打进另一个的应用包**：根 `app.yaml` 的 `exclude` 必须含 `maixcam2_rect_center`
-   （已配），并注意 B 侧打包时排除上层工程。
-4. **双方共用一个工作树、并发写盘** → **严禁 `git add -A` / `git add .`**，
-   一律**按路径精确 add**（见 §5）。历史上就发生过"把别人写到一半的文件一起提交"。
+**工程形态**：应用按 MaixPy 规范组织（`app.yaml` + `main.py` + `config.py` + `vision/`），
+另生成单文件版 `dist/main_single.py` 供 MaixVision「运行当前文件」使用。
 
 ---
 
-## 2. 目录地图（含归属）
+## 0′. 仓库现状（单应用）
 
 ```
 25Efork/
-├── AGENTS.md                  ★ 本文件（协作契约，跨轨公共）
-├── README.md                   人类可读工程说明（跨轨公共）
-├── app.yaml                    轨道 A 应用描述（id=target_center_25e）
-├── main.py                     轨道 A 入口（顶部有 BUILD_ID）
-├── config.py                   轨道 A 现场唯一需要改的文件
-├── vision/{geometry,tracker,detector,overlay}.py   轨道 A 算法（tracker=抗抖跟踪）
-├── assets/icon.png             轨道 A 图标
-├── dist/main_single.py         轨道 A 单文件版（自动生成，"运行当前文件"用）
-├── tools/                      轨道 A 离线验证 / 调参 / 打包（含 maix_stub/ 桩模块）
-├── reference/                  upstream 参考资料（他人开源代码，非本工程）
-├── 视觉项目代码分析报告.md       轨道 A 深度分析报告
-│
-└── maixcam2_rect_center/       ★ 轨道 B（GPT）—— 独立应用，自带 app.yaml
-    ├── AGENTS.md             ★ 轨道 B 工作契约（工作边界 / 实测电机轴映射 / 调参 / **每轮交 git**）
-    ├── app.yaml                轨道 B 应用描述（id=maixcam2_rect_center，v1.4.0）
-    ├── main.py                 轨道 B 入口（顶部 BUILD_ID）
-    ├── config.py               轨道 B 现场调参（CANNY_* / MIN_EDGE_CONTRAST / TARGET_*_MM / 云台组）
-    ├── target_api.py           ★ 轨道 B 对外 API（跨小问复用）：detect_black_frame / CenterTracker / AimLoop
-    ├── vision/rectangle_center.py   轨道 B 算法（Canny + 单应 + 72 点圆）
-    ├── vision/laser_spot.py         光斑读数（fixed/detect）+ deviation(dx,dy)
-    ├── vision/{stepper_link,gimbal_aim,gimbal_calibrate,gimbal_self_test}.py   双轴云台链路/控制/标定/自检
-    ├── tools/test_*.py / example_api_usage.py / check_app.py   轨道 B 测试与门禁
-    └── assets/icon.png         轨道 B 图标
+├── AGENTS.md                   ★ 本文件（唯一契约，仓库根）
+├── .workbuddy/memory/            工作日志与长期记忆（★ 日志放这里，不放应用目录）
+│   ├── YYYY-MM-DD.md             逐日流水（append-only）
+│   └── MEMORY.md                 跨会话必须知道的结论
+├── maixcam2_rect_center/       ★ 唯一的应用目录（自带 app.yaml 的独立应用）
+│   ├── app.yaml                  id = maixcam2_rect_center，version = 0.7.0
+│   ├── main.py                   入口（顶部 BUILD_ID）
+│   ├── config.py                 ★ 现场唯一需要改的文件
+│   ├── target_api.py             对外 API：detect_black_frame / CenterTracker / AimLoop
+│   ├── vision/*.py               识别、云台、IMU、显示、装配等模块
+│   ├── dist/main_single.py       单文件版（自动生成）
+│   ├── tools/                    离线验证 / 调参 / 门禁 / 打包（不进应用包）
+│   ├── assets/icon.png           应用图标
+│   ├── README.md                 算法与上板说明（不进应用包）
+│   ├── 硬件标定与上板检查.md        标定门槛与上板步骤（不进应用包）
+│   └── 板端识别问题整理_2026-10-13.md  板端现场问题清单（不进应用包）
+└── 存档/                         已停用资料（A 轨文档、upstream 参考、分析报告，只读）
 ```
 
-`maixcam2_rect_center/` **不是本工程的模块**，是**另一个自带 `app.yaml` 的独立应用**——
-不要当成普通文件 import，也不要让它进 A 的应用包。
+- **只有一个应用**，`app.yaml` 的 `id` 与目录名一致。
+  历史上曾并行维护过两套实现，**现已收敛**：仓库里只剩 `maixcam2_rect_center/` 一套可烧录代码，
+  其余实现与资料一律进 `存档/` 或 git 历史（需要时 `git log` / `git show` 取回）。
+- **提交信息不再使用轨道前缀**（`deepseek:` / `gpt:` 是历史遗留）。现在按改动性质：
+  `code:`（应用源码）/ `docs:`（文档）/ `tools:`（工具）/ `repo:`（仓库级整理）。
+- ★ **日志与契约都在仓库根**：`.workbuddy/memory/` 与根 `AGENTS.md`。
+  **不要**在 `maixcam2_rect_center/` 内新建 `AGENTS.md` / 日志文件。
 
 ---
 
-## 3. 轨道 A（DeepSeek）改完**必须**做的三件事
+## 1. ★ 工作边界（先看这条，最容易出事）
 
-1. **更新 `main.py` 顶部 `BUILD_ID`**（当前 `2026-10-05-r7`，格式 `YYYY-MM-DD-rN`）——
-   用来确认板子跑的是新代码，**不更新就等于无法判断是否生效**。
-2. **重新生成单文件版**：`python tools/build_single.py`（生成 `dist/main_single.py`）。
-   `smoke_main.py` 的"预检 0"会核对源码与单文件版 `BUILD_ID` 一致。
-3. **跑门禁**（§4）。改了 `main.py` / `config.py` / `vision/*` 任一都要做。
-
-> `config.py` 是**唯一**需要现场改的文件。改算法参数前先想清楚是否真该动 `SCORE_*` 类阈值
-> （它们承担抗误检职责）；优先调阈值/曝光/形态学，别一上来就放宽打分。
+1. **可烧录的应用只有 `maixcam2_rect_center/` 一个**。改代码就在这个目录内改，
+   不要往仓库根放 `main.py` / `config.py` / `vision/`（那里现在只有文档与 `存档/`）。
+2. **文档归位**：契约 → 根 `AGENTS.md`；日志 → `.workbuddy/memory/`；
+   算法/上板/标定类说明 → 应用目录里的 `*.md`（`app.yaml` 已把 `*.md` 排除出应用包）。
+3. **`dist/main_single.py` 是生成物，不要手改**——改完源码用 `tools/build_single.py` 重生成。
+4. **`main.py` 是唯一反复被整份覆写的文件**（见 §5.1）：改完**立刻** `build_single.py` + 门禁 + 提交。
+5. **`存档/` 只读**：里面的 A 轨代码与 upstream 参考不是本工程的一部分，
+   不要 import、不要打进任何包、也不要"顺手修一下"。
 
 ---
 
-## 3′. 轨道 B（GPT）改完**必须**做的三件事
+## 2. ★ 电机顺序与轴映射（2026-10-09 实机测定的**定案**，别凭直觉改）
 
-与轨道 A 同构。B 轨构建号格式 `YYYY-MM-DD-<slug>-vN`（当前 `2026-10-08-target-api-v3`），
-版本核对依据是 `main.py` 的 `BUILD_ID` 启动日志串。**以下命令一律在 `maixcam2_rect_center/`
-目录下执行**（脚本按自身位置定位工程根），本机 Python 用 `"D:/Python311/python.exe"`。
+> 起因：最初以为 "U0=yaw、U2=pitch"，实机发现**正好相反**。判定依据：自检 4 步发出的命令是
+> `pitch, pitch, yaw, yaw`，而实际动作是 `右 → 左 → 下 → 上`（右/左 = yaw，下/上 = pitch）
+> —— 前两步同轴反向、动的是 yaw，后两步动的是 pitch。**代码里叫 "yaw" 的必须真的驱动 yaw 轴**，
+> 否则闭环的 `PULSE_PER_PX_*` / `DIR_SIGN_*` 会张冠李戴 → 必发散。
 
-1. **更新 `main.py` 顶部 `BUILD_ID`** —— 板端会打印 `[rect-center] <BUILD_ID> ...`，
-   **与本地逐字一致才算跑的是新代码**；不更新则无法判断是否生效。
-2. **重新生成单文件版**：
+| 代码里的轴 | 串口 | 丝印 | 引脚 | 设备路径 | 驱动器 ID | pinmap |
+|---|---|---|---|---|---|---|
+| **pitch** | UART0 | `U0T`/`U0R` | A28 / A29 | `/dev/ttyS0` | **1** | ★ **必须显式 pinmap**（走空表会静默不通；⚠ 也是系统日志口） |
+| **yaw** | UART2 | `U2T`/`U2R` | B0 / B1 | `/dev/ttyS2` | **2** | 需 pinmap 切到 `UART2` 功能 |
+
+对应的 `config.py` 落点（改硬件前先看这里）：
+
+| 配置项 | 值 | 说明 |
+|---|---|---|
+| `PITCH_DEV` / `PITCH_PINS` | `/dev/ttyS0` / `{"A28":"UART0_TX","A29":"UART0_RX"}` | `config.py:51–52` |
+| `YAW_DEV` / `YAW_PINS` | `/dev/ttyS2` / `{"B0":"UART2_TX","B1":"UART2_RX"}` | `config.py:45–46` |
+| `ADDR_PITCH` / `ADDR_YAW` | `1` / `2` | `config.py:56`（**地址跟着电机走，不是跟着端口**） |
+| `PINMAP_STRICT` | `False` | `config.py:49`：pinmap 失败只警告、仍打开 UART，避免把真故障藏成"打不开" |
+| `FLUSH_RX_ON_START` | `True` | `config.py:54`：开机清空 RX（U0 有内核启动日志/终端回显） |
+
+**方向（`config.py:103–108`）**：两轴的**正方向都是 CCW** —— `yaw CCW = 左 / CW = 右`，
+`pitch CCW = 上(仰) / CW = 下`。故 `YAW_POSITIVE_CCW = PITCH_POSITIVE_CCW = True`，
+自检序列 = **pitch 上→下**、**yaw 左→右**（各回到起始位姿）。
+
+**闭环方向符号（`config.py:63–64`）**：`DIR_SIGN_YAW = DIR_SIGN_PITCH = -1`，是**按几何推断**的
+（相机与激光同装在云台上 ⇒ 云台转过去时靶心在画面里**反向**移动）。
+⚠ **未经标定**：上电追踪时若**越追越偏**（误差持续变大、云台一路跑向一侧），
+把对应那项改成 `+1`；`DIVERGE_GUARD` 会自动兜底停机，不会一路撞到底。
+
+### 等效的另一种修法（只选一种，二者不要都做）
+
+把**两根串口线对调**，并把驱动器菜单 `ID_Addr` 设回 `yaw=1 / pitch=2`。
+那时把上面 `PITCH_DEV`/`YAW_DEV`/`ADDR_*` 改回"yaw=U0/ttyS0/1、pitch=U2/ttyS2/2"即可。
+**代码侧与接线侧只需一处对上** —— 本目录现在走"代码侧互换"这条路（好处：U0 口腾给了 pitch，
+但代价是 U0 是系统日志口，pitch 上会混内核日志噪声；介意就改接线）。
+
+### 驱动器菜单必设（否则串口完全无效）
+
+`P_Serial = UART_FUN`（出厂是 `RxTx_OFF`！）、`UartBaud = 115200`、`ID_Addr`（见上表）、
+`Checksum = 0x6B`、`Response = Receive`、`MotType = 1.8°`、`MStep = 16`、`P_Pul = PUL_OFF`。
+未做过 `Cal` 的板子只有 6 项菜单 —— 先空载 `Cal` 一次解锁完整菜单。
+
+---
+
+## 3. 调参方式（现场只改 `config.py` 一个文件）
+
+### 3.1 追踪手感（现场最常动，`config.py:65–93`「★ 追踪手感」段）
+
+换算链：**脉冲 = |误差px| × `DEG_PER_PX_x` × `PULSES_PER_DEG_x` × `GAIN_x`**（再受 `MAX_STEP_PULSES` 限幅）。
+
+| 参数 | 当前 | 作用 / 怎么调 |
+|---|---|---|
+| `DEG_PER_PX_YAW` / `_PITCH` | 0.30 | ★ **主参数**：图像 1px 偏差 → 云台转几度。**越大越快也越易超调**；想更柔和先动这个。**置 0 = 回退到 `PULSE_PER_PX_*`** |
+| `PULSES_PER_DEG_YAW` / `_PITCH` | 8.89 | 每度多少脉冲 = `3200 × 减速比 ÷ 360`；装了 i:1 减速就填 `8.89 × i` |
+| `GAIN_YAW` / `_PITCH` | 0.3 | 单帧只修正误差的这个比例（必须 ≤1，0.2~0.4 稳妥） |
+| `GAIN_COARSE` / `COARSE_PX` | 0.5 / 24.0 | `\|e\| > COARSE_PX` 时用大步增益（同样 ≤1） |
+| `RPM_FINE` / `RPM_COARSE` | 60 / 150 | 精调 / 粗调段转速 |
+| `ACC_TRACK` | 80 | **闭环专用**曲线加减速档位；`acc=0` 会瞬时启停。越小越柔 |
+| `DEADBAND_PX` | 3.0 | 死区，应 **≥1.5× 实测回差**（否则在齿隙里来回抖） |
+| `MAX_STEP_PULSES` | 60 | 单帧限幅，防误检猛甩；输出另经过低通/增长限速 |
+| `COMMAND_INTERVAL_S` | 0.10 | 发帧间隔；太小会指令堆叠成"冲过头" |
+| `AIM_OUTPUT_LPF_TAU_S` | 0.25 | 运动量增长的时间低通；缩小/死区/换向立即生效 |
+| `AIM_OUTPUT_SLEW_PPS` | 120 | 单次运动量每秒最多增加的脉冲数 |
+| `AIM_WAIT_MOTION` / `AIM_MOTION_MARGIN_S` | True / 0.03 | 按曲线运动时间估算等待，防尚未完成的指令重叠 |
+
+> **改手感一次只动一个数**（推荐先只改 `DEG_PER_PX_*`），跑一轮看效果再动别的 ——
+> 一次改多个会分不清是谁起的作用。
+
+### 3.2 上电时序（`main.py` 主循环）
+
+> ★ **2026-10-11 变更（v0.4.1）**：取消"上电自检优先级最高、开机自动跑"。自检改为
+> **屏幕右上角可点击按钮 `SELF-TEST`**，点一下才触发（`Config.ENABLE_TOUCH_BUTTON`）。
+> 上电流程 = 使能 → 建显示/触摸 → 进入主循环（识别 + 闭环）；**上电不发自检脉冲**。
+> 画面由 `main._Preview` 在主进程内按"屏幕尺寸画布"letterbox 后 `display.show()` 流转到
+> MaixVision（`[preview] mode=in-process WxH`）。下述"上电自检 4 步自动跑"的旧描述**已作废**，
+> 仅保留 SELF_TEST_PULSES/固定脉冲的口径供按钮复用。
+
+- **自检与视觉/标定彻底解耦**（调度在 `vision/aim_control.py` 的 `VisionControl._control`，
+  主循环在 `main.py`）：无论画面里有没有靶心，自检都只按固定脉冲走 4 步。
+- **标定不再阻塞**：`CALIBRATE_VISUAL_TIMEOUT_S = 3.0`（`config.py:209`）—— 连续 3s 收不到有效
+  `dx/dy` 就立即失败并**交还主流程**，不会干等 20s（现场"抬头后黑框出视野 → 卡住"就是这么来的）。
+- **当前默认不做自动标定**：`CALIBRATE_AXIS = ""`（`config.py:194`）+ `GIMBAL_CALIBRATED = True`
+  （`config.py:142`），直接用手感宏换算，**自检一完就进追踪**。
+  若要重新标定：临时改回 `"auto"`（或 `"yaw"`/`"pitch"` 单轴），标完再置回 `""`。
+- **自检幅度/手感**（`config.py:113–125`）：`SELF_TEST_PULSES = 400`（固定脉冲，**不依赖标定**）、
+  `SELF_TEST_RPM/ACC = 60/60`（慢 + 曲线）、`SELF_TEST_SETTLE_S = 0.3`、
+  `SELF_TEST_TIMEOUT_S = 10.0`（**防死锁兜底，不是性能目标**）。
+  置 `SELF_TEST_PULSES = 0` 才回退到"按 `*_PULSES_PER_DEG` 换算角度"的老路径。
+
+### 3.3 光斑读数（`config.py:269–295`）
+
+`LASER_MODE = "fixed"`（**默认写死**）：全程不检测，每帧只算"黑框中心 − 常量"两次减法，
+常量 = `LASER_U_NOMINAL/LASER_V_NOMINAL = (294, 202)`。重装激光笔/换镜头后要重标：
+临时改 `"detect"`，把屏幕左上角读到的 `LASER (u,v)` 填回这两行。
+
+---
+
+## 4. 改完**必须**做的三件事
+
+**以下命令一律在 `maixcam2_rect_center/` 目录下执行**（脚本按自身位置定位工程根），
+本机 Python 用 `"D:/Python311/python.exe"`（见 §4.1）。
+
+1. **提升 `main.py` 顶部 `BUILD_ID`**（当前 `2026-10-13-c-track-release-v0.7.0`，
+   格式 `YYYY-MM-DD-<slug>-vN`）。板端会打印 `[rect-center] <BUILD_ID> ...`，
+   **与本地逐字一致才算跑的是新代码**；不更新就无法判断是否生效。
+   **改了 `main.py` / `config.py` / `vision/*` / `target_api.py` 任一个都要做。**
+2. **重新生成单文件版**（`dist/` 不进应用包，但「运行当前文件」要用它）：
    ```bash
    "D:/Python311/python.exe" -B tools/build_single.py           # 生成 dist/main_single.py
    "D:/Python311/python.exe" -B tools/build_single.py --check   # 单文件是否已过期
    "D:/Python311/python.exe" -B tools/build_single.py --smoke   # PC 自检：嵌入模块是否全部就位
    ```
-   `smoke_main.py` 的"预检 0"（A 轨）在这里由 `--smoke` 承担：它核对单文件与源码的
-   `BUILD_ID` 是否一致、8 个嵌入模块能否就位。**新增/改名 `vision/*.py` 或根级模块后，
-   必须同步 `tools/build_single.py` 里的 `MODULES` 清单**，否则「运行当前文件」会漏模块。
-3. **跑门禁**（改了 `main.py` / `config.py` / `vision/*` / `target_api.py` 任一都要做）：
+   ⚠ **新增/改名 `vision/*.py` 或根级模块后，必须同步 `tools/build_single.py` 的 `MODULES` 清单**，
+   否则「运行当前文件」会漏模块。
+3. **跑门禁**：
    ```bash
-   "D:/Python311/python.exe" -B tools/check_app.py --manifest   # C1..C10 机检 + 打印包内清单
-   "D:/Python311/python.exe" -B tools/test_performance.py       # 视觉回归（29/30、0.803px、0 误检）
+   "D:/Python311/python.exe" -B tools/check_app.py --manifest   # C1..C10 机检 + 打印包内清单（应 22 文件）
+   "D:/Python311/python.exe" -B tools/test_performance.py       # 视觉回归（基线：30/30、max 0.803px、0 误检）
    "D:/Python311/python.exe" -B tools/test_target_api.py        # 对外 API 回归
-   "D:/Python311/python.exe" -B tools/test_gimbal_aim.py        # 云台协议/闭环/看门狗/标定
-   "D:/Python311/python.exe" -B tools/test_main_self_test.py    # 端到端跑 main()：上电自检优先/故障阻断
+   "D:/Python311/python.exe" -B tools/test_gimbal_aim.py        # 云台协议/闭环/看门狗/标定/自检/低通
+   "D:/Python311/python.exe" -B tools/test_main_self_test.py    # 端到端跑 main()：自检优先 / FAULT 阻断
+   "D:/Python311/python.exe" -B tools/test_runtime_performance.py  # 显示隔离 + 实测显示帧率 + 搜索/串口有界
+   "D:/Python311/python.exe" -B tools/test_tracking.py             # 快移/转向/丢帧/透视抖动/分辨率与预算
+   "D:/Python311/python.exe" -B tools/test_gimbal_tracking.py       # 非瞬时动作/视觉延迟/标定误差/停机采图屏障
+   "D:/Python311/python.exe" -B tools/test_aimloop_tracking.py      # API 故障/失锁/停机失败/过期采图
+   "D:/Python311/python.exe" -B tools/test_gimbal_search.py        # 标定门槛/限幅/命中停机/取消/故障
+   "D:/Python311/python.exe" -B tools/test_imu_heading.py          # 官方接口/安装轴/偏置/历史对齐/过期
+   "D:/Python311/python.exe" -B tools/test_imu_turn_tracking.py    # 90°转向/实际电机运动/重捕获/旧限幅对照
+   "D:/Python311/python.exe" -B tools/test_preview_stream.py       # 真实进程/WebSocket桥/断连/拥塞/本地屏
+   "D:/Python311/python.exe" -B tools/test_app_runtime.py          # 入口装配/线程所有权/无帧触摸/退出释放
+   "D:/Python311/python.exe" -B tools/test_extension_control.py    # 搜索/IMU/视觉/标定的共同调度
+   "D:/Python311/python.exe" -B tools/test_extension_review.py     # 失效写入/曲线排程/失效IMU停止
    ```
-   改了光斑相关（`laser_spot.py` / `config.LASER_*`）还要跑 `tools/test_laser.py`；
-   改了视觉算法阈值（`MIN_*` / `MAX_*` / `SCORE_*` 类）必须对着 `test_performance` 确认无回归。
-   改了主循环控制流（上电自检 / 标定 / 追踪的顺序）必须跑 `tools/test_main_self_test.py`。
+   - 改光斑（`laser_spot.py` / `config.LASER_*`）→ 加跑 `tools/test_laser.py`；
+   - 改视觉阈值（`MIN_*` / `MAX_*` / `SCORE_*` 类）→ **必须**确认 `test_performance` 无回归；
+   - 改主循环控制流（自检 / 标定 / 追踪顺序）→ **必须**跑 `tools/test_main_self_test.py`；
+   - 改显示/预览（`AsyncPreview`、`config.SHOW_*`）或搜索预算 → **必须**跑 `tools/test_runtime_performance.py`；
+   - 改**候选生成 / 逐边校验**（`_candidate_quads` / `_quad_from_contour` / `_verify` / `_refine`）
+     → **必须**跑 `tools/test_real_scene.py`（真实场景"角落胶带缺失"回归，v0.6.2 起）
 
-> B 轨同样只有 `config.py` 需要现场改。`dist/` 在 `app.yaml` 的 `exclude` 里，**不进应用包**；
-> 应用包 = **12 文件**（`app.yaml` / `main.py` / `config.py` / `target_api.py` / `assets/icon.png` /
-> `vision/` 下 7 个 `.py`）—— 新增文件后**必须核 `--manifest` 打印的包内清单**。
+### 4.1 PC（Windows）上怎么跑 —— 一条命令看全貌
 
-
----
-
-## 4. 门禁（提交前 / 上板前同一套，**顺序不能反**）
+板端跑不了的东西（MaixPy SDK / 显示 / 串口 / 图传）在 PC 上永远跑不了；下列工具让
+**其余全部**在 PC 上可复现，是调参与复现问题的最快路径：
 
 ```bash
-python tools/build_single.py --check     # 单文件版是否与源码同步（改源码后没重生成会报错）
-python tools/smoke_main.py               # 主循环 + 形状矩阵预检（必要时加 --single 测单文件版）
-python tools/test_pc.py                  # 精度回归
-python tools/test_hardscene.py --ab      # 硬场景鲁棒性 + 误检反向验证（新旧策略对照）
-python tools/profile_hotspots.py         # 性能回归（改了 config 的性能组 / detector 帧循环时加跑）
-python tools/test_jitter.py              # 抖动稳定性回归（改了 tracker / 滤波 / 角点提取时加跑）
+"D:/Python311/python.exe" -B tools/check_pc.py            # ★ 一键跑完所有 PC 可运行检查（--quick 跳慢用例）
+"D:/Python311/python.exe" -B tools/run_pc.py --images 图/*.png   # 图片/视频/摄像头跑真实检测器
+"D:/Python311/python.exe" -B tools/diagnose_detect.py <图片>     # 逐边打印"为什么没检出"
+"D:/Python311/python.exe" -B tools/test_real_scene.py     # 真实场景回归（角落胶带缺失仍须检出）
 ```
 
-- **性能组参数别乱动**：`MAX_MASKS_FULL` / `FRAG_BOUNDARY_EST` / `MAX_SCAN_CONTOURS` /
-  `MAX_SCAN_COMPONENTS` / `ROI_TRACK*` 决定"最坏一帧有多慢"，`MIN_AREA_RATIO` /
-  `SCORE_*` / `MORPH_*` 决定"多准、多不容易误检"。**后者动了一定要跑
-  `test_hardscene.py --ab`**（18 个硬场景必须全检出、5 个"画面里没靶纸"必须全拒检）。
-- **抗抖组参数（`TRACK_*` / `KIND_BONUS`）改完必须跑 `test_jitter.py`**（含 `--unit`），
-  看四项指标：**跟手（误差不能比原始测量大）、抑噪、静止平滑、拒离群**。
-  这几项互相拉扯，只看一项很容易把另一项调坏。
-- 帧率问题先看板端 `[fps]` 行里的 **`掩膜=N`**：稳态应为个位数（锁定后 = 1）；
-  长期 12/24 说明每帧都在全扫 —— 机理与排查见 [`README.md` §三′](README.md)。
-- "车一晃中心就偏"先看 **`保持=Y/N`**：长期 `Y` 说明该查**检测**（阈值/曝光/干扰物），
-  不是滤波器 —— 机理与设计见 [`README.md` §三″](README.md)。
-  ⚠ 抖动引起的图像位移是**必须跟踪的真实运动**，不要试图用更重的低通去"滤掉"它
-  （这正是 0.1fps 之后暴露出来、且已实测证伪的旧做法）。
+- `check_pc.py` 会把 `fcntl` 等 Linux 专属用例标成 **SKIP**（不伪装成失败），
+  并把打包身份类问题标成 **KNOWN**；退出码只在**真实失败**时为 1。
+- `main.py` 在无 `maix` 的机器上会直接打印上述指引，而不是抛 `ModuleNotFoundError` 堆栈。
+- ⚠ 本机路径含中文，读写图片**不要**用 `cv2.imread/imwrite`（Windows 上返回 None），
+  用 `tools/run_pc.py` 里的 `imread_unicode/imwrite_unicode`。
+- ⚠ 一律用 `"D:/Python311/python.exe"`（系统 Python 已带 numpy 2.3.5 + cv2 5.0.0）；
+  WorkBuddy 托管 venv 装不上 numpy/cv2，别在那里浪费时间。
 
-- **本机跑法**：`"D:/Python311/python.exe" tools/xxx.py`
-  （WorkBuddy 托管 venv 装不上 numpy/cv2，别在那里浪费时间；系统 Python 已带 numpy 2.3.5 + cv2 5.0.0）。
-- 板端日志出现 `[app] 靶心识别 <BUILD_ID>`，**与本地 `main.py` 的 `BUILD_ID` 一致才算新代码**。
+> 只有 `config.py` 需要现场改。修改前先想清楚是否真该动阈值 —— 优先调曝光/位置，别一上来放宽判据。
 
 ---
 
-## 5. git 协作规范
+## 5. ★ 每轮交 git（本项目最痛的坑：**入口会被并发覆盖**）
 
-- **仓库根 = `25Efork/`**（不是上层 `电赛/`，那里有 800MB 无关内容）。单 `main` 分支，两轨同库不同目录。
-- **提交信息带轨道前缀**，一眼看清是谁的改动：
-  - `deepseek: <摘要>` —— 根目录 / 跨轨公共文件（AGENTS.md、README.md、app.yaml、tools/ …）
-  - `gpt: <摘要>` —— `maixcam2_rect_center/` 下的一切
-  - `repo:` / `docs:` / `tools:` —— 纯公共或纯工具改动
-- **按路径精确提交**（并发写盘，**绝不 `-A`**）：
-  ```bash
-  # DeepSeek 侧
-  git add main.py config.py vision/ tools/ app.yaml AGENTS.md README.md .workbuddy/memory/
-  git commit -m "deepseek: ..."
-  # GPT 侧
-  git add maixcam2_rect_center/
-  git commit -m "gpt: ..."
-  ```
-  提交前用 `git status --short` 确认暂存区只含**你自己**的路径。
-- **两条已配好的约定，别改**：
-  - `.gitattributes` 强制 `eol=lf` —— 源码要拷到 MaixCAM2（Ubuntu）上跑，仓库里绝不能有 CRLF；
-  - 仓库本地 `core.quotepath=false`（中文文件名正常显示）、`core.autocrlf=false`。
-- **进库 / 不进库**：见 [`README.md` §9](README.md)。要点——
-  ✅ 应用本体 / `tools/` / `dist/main_single.py` / `.workbuddy/memory/*.md` / `reference/`；
-  ❌ `__pycache__/` `*.pyc` / `tools/*.jpg` / **调试截图（`screenshot_*.png` 等）** / `*.zip` /
-  `.workbuddy/` 除 `memory/` 外的一切。
-- **提交身份**：`CloudyRain <cloudyrain@example.com>`（**占位邮箱**，推远程前先改）。
-- **尚无远程仓库**；要推时 `git remote add origin <url> && git push -u origin main`。
-- ★ **轨道 B 额外要求「每轮交 git」**：`maixcam2_rect_center/main.py` 被外部进程
-  （MaixVision 烧录 / 并行会话）**整份覆写**过多次，`git` 是唯一可靠的回滚点。
-  B 轨每完成一轮（改码 → 提升 `BUILD_ID` → `build_single` → 门禁 → **立即提交**）即提交一次；
-  细则与一条命令的助手脚本（`tools/git_round.py`）见 [`maixcam2_rect_center/AGENTS.md §5`](maixcam2_rect_center/AGENTS.md)。
+### 5.1 为什么必须每轮交
+
+`maixcam2_rect_center/main.py` 在本项目被**整份覆写了多次**（另一个会话 / IDE 未保存标签页 /
+MaixVision 烧录 / 并行代理），写入者用的都是"上一轮"的快照。典型症状：
+
+| 时间 | 现象 |
+|---|---|
+| 22:46 | `main.py` 退回 v4（自动标定接线整段消失） |
+| 23:01:51 | 退回 v5（**距生成 dist 仅 6 秒**） |
+| 23:16 | 退回 v6（接线在，仅构建号旧） |
+| 次日 | 退回更早版本，`target_api.py` 的闭环发送点丢 `ACC_TRACK` |
+
+`vision/*` / `config.py` 从不受影响 —— **只有入口文件会丢**，迷惑性极强
+（"代码明明写了，上电却不生效"）。**`git` 是目前唯一可靠的回滚点**，所以**每完成一轮就提交一次**。
+
+⚠ 同理：**有并行会话在工作时不要重命名或删除应用目录**——对方的相对路径写入会在旧路径
+重新长出半个目录，或让它的 import 直接失效。**确认无并发写入后再动目录结构。**
+
+### 5.2 一条命令提交（推荐）
+
+```bash
+# 在 maixcam2_rect_center/ 下
+"D:/Python311/python.exe" -B tools/git_round.py --check              # 只检查：BUILD_ID / build_single / patch / 待提交清单
+"D:/Python311/python.exe" -B tools/git_round.py -m "code: <摘要>"     # 检查通过后精确 add 应用目录并 commit
+"D:/Python311/python.exe" -B tools/git_round.py --rollback main.py   # 打印"回滚 main.py"的命令（不自作主张执行）
+```
+
+脚本**默认只 add `maixcam2_rect_center/`**，绝不用 `git add -A`。需要连记忆一起提交时加 `--with-memory`。
+
+> 注：`git_round.py --check` 第 3 步（`apply_gimbal_track_patch.py` 的 v20 血统检查）
+> **长期为红**，对现行代码结构性误报，**不要去"修"它** —— 直接走手工精确提交。
+
+### 5.3 手工提交
+
+```bash
+# 仓库根 = 25Efork/（不是上层 电赛/）；提交前先看暂存区只含自己的路径
+git status --short
+git add maixcam2_rect_center/          # 或按具体文件精确 add
+git commit -m "code: <摘要>"
+```
+
+- **提交前缀**：`code:`（应用源码）/ `docs:`（文档）/ `tools:`（工具）/ `repo:`（仓库级整理）。
+  `deepseek:` / `gpt:` 是**历史遗留**前缀，不再使用。
+- **绝不 `git add -A` / `git add .`**（并发写盘，会提交别人写到一半的文件）；
+- **提交时机：门禁全绿后立即提交** —— 拖太久可能被并发覆盖，把坏版本入库；
+- 仓库已配 `core.quotepath=false` / `core.autocrlf=false`，`.gitattributes` 强制 `eol=lf`（**别改**）。
+
+### 5.4 回滚
+
+```bash
+git log --oneline -15 -- maixcam2_rect_center/main.py           # 看该文件的提交历史
+git checkout <sha> -- maixcam2_rect_center/main.py              # 把某文件恢复到某次提交
+git revert <sha>                                                # 撤销某次提交（保留历史，更安全）
+```
+
+恢复后**必须重跑** `tools/build_single.py --check` + `tools/check_app.py --manifest`（C8 会核对
+dist 与 `main.py` 的 `BUILD_ID` 是否一致），确认没有半新半旧。
+
+### 5.5 进库 / 不进库
+
+- ✅ 进库：应用本体（`app.yaml` / `main.py` / `config.py` / `target_api.py` / `vision/*.py` /
+  `assets/`）、`tools/*.py`、`tools/negative_e*.png`（**测试输入固件**）、
+  `tools/real_board_frame.png` / `tools/real_scene_corner_gap.png`（真实场景回归固件）、
+  `dist/main_single.py`、应用目录内 `*.md`、`.workbuddy/memory/*.md`；
+- ❌ 不进库：`__pycache__/`、可重新生成的调试图（`tools/e2e_report/*.png`、`screenshot*.png`、
+  `frame*.png`、`mask*.png`、`debug_*.png`）—— 由根 `.gitignore` 与应用目录 `.gitignore` 共同兜底。
+- **提交身份**：`CloudyRain <cloudyrain@example.com>`（占位邮箱，推远程前先改）。
+- **远程**：`origin https://github.com/Chemcrin/MaixCAM2-TargetCenter.git`。
 
 ---
 
-## 6. 打包口径
+## 6. 常见坑（都真实踩过）
 
-- 根侧（轨道 A）：`python tools/pack_zip.py --app`（应用包）/ `--src`（完整源码包）/ `-o <目录>`。
-  `--app` 打完后脚本会**自检**：只有一个根 `app.yaml`、无隐藏文件、有 `main.py`。
-- **打完必须核一遍包内清单**：应用包 = **8 个文件**
-  （`app.yaml` / `main.py` / `config.py` / `vision/`×4 / `assets/icon.png`）。
-  本项目就是靠核清单才发现 `reference/`、`maixcam2_rect_center/`、文档曾混进应用包。
-- 轨道 B 自带 `app.yaml`（`exclude` 黑名单里已含 `tools` / `dist` / `__pycache__` / `*.md` /
-  调试截图），打包口径同理；**应用包 = 12 文件**（`app.yaml` / `main.py` / `config.py` /
-  `target_api.py` / `assets/icon.png` / `vision/`×7）。核对方式：在 `maixcam2_rect_center/` 下跑
-  `"D:/Python311/python.exe" -B tools/check_app.py --manifest`，它直接打印包内清单。
-
----
-
-## 7. 常见坑（都真实踩过，别再踩）
-
-1. **灰度形状**：MaixCAM2 的 `image2cv()` 对灰度图返回 **`(H,W,1)` 三维哑轴**，不是 `(H,W)`；
-   绝不能按 `ndim == 2` 判灰度，否则单通道喂给 `COLOR_BGR2GRAY` → `cv2.error ... 'scn' is 1`。
-   按**实际 shape** 判断。
-2. **「运行当前文件」只下发一个文件** → `ModuleNotFoundError: No module named 'config'`。
+1. **「运行当前文件」只下发一个文件** → `ModuleNotFoundError: No module named 'config'`。
    改用「运行项目」，或先 `build_single.py` 再跑 `dist/main_single.py`。
-3. **`main.py` 被 MaixVision 里的旧内容覆盖** → 看起来"改了没用"，其实板子在跑旧代码。
-   上板前跑 `smoke_main.py`（预检 0 会当场报出来）；改完在 MaixVision 里关掉再重开该文件。
-4. **`app.yaml` 的 `exclude` 漏目录** → 嵌套应用 / 文档 / 参考资料混进应用包。
-5. **远距离锁不住**（轨道 A 的历史根因）：`MIN_AREA_RATIO` / `MASK_FG_*` 按"靶纸占满画面"定死，
-   超过约 2m 产生不出候选；形态学核把细环腐蚀掉；失败时锁阈值把兜底路径一起锁死。
-   现在这些阈值已按远距离重定，改动务必跑 `test_hardscene.py --ab` 反向验证。
+2. **MaixVision 烧录会把 `main.py` 改回旧内容** → 看起来"改了没用"，其实板子在跑旧代码。
+   上板前跑 `build_single.py --check`（会当场报过期）；改完在 MaixVision 里关掉再重开该文件。
+   保留防覆盖脚本 `tools/apply_gimbal_track_patch.py`（`--check` 核对 / 无参一键补齐）。
+3. **灰度形状**：MaixCAM2 的 `image2cv()` 对灰度图返回 `(H,W,1)` 三维哑轴，绝不能按 `ndim==2` 判灰度，
+   否则单通道喂给 `COLOR_BGR2GRAY` → `cv2.error ... 'scn' is 1`。按**实际 shape** 判断。
+4. **U0 引脚必须显式 pinmap**：`A28/A29` **并非默认复用**成 UART0，走空表会静默不通
+   （这是"yaw 一直不动"的历史根因之一）；打开后用 `pinmap.get_pin_function()` 回读实测值打进启动日志。
+5. **位置模式 `acc=0` = 不用曲线、瞬时启停** → 卡顿/冲击。自检与闭环都要给非 0 的 acc
+   （`SELF_TEST_ACC` / `ACC_TRACK`），且 **acc 越小越柔**。
+6. **标定依赖视觉会阻塞**：抬头后黑框出视野 → 卡在等 `dv`。已加 `CALIBRATE_VISUAL_TIMEOUT_S` 快速失败。
+7. **`app.yaml` 的 `exclude` 漏目录** → 文档/嵌套目录混进应用包；改完核 `check_app.py --manifest`。
+8. **调试抓屏会迅速堆爆工作区**（`tools/e2e_report/*.png` 实测数小时内 4.7M→9.6M）→
+   定期跑 `"D:/Python311/python.exe" -B tools/clean_artifacts.py`（扫描）/ `--apply`（删除），
+   目标保持应用目录 **≤5MB**。该脚本只删可再生/已忽略产物，**保留 `negative_e*.png` 测试固件**。
+9. **显示线程必须在主进程内、且与"子进程"严格区分**：v0.4.3 起默认 `SHOW_ASYNC=True`，把 `show()`
+   移到**主进程内的 daemon 线程**（`vision/preview.py` 的 `Preview._show_loop`），主循环只投递不等待。
+   ⚠ 但**不要把 `Display()` 放进子进程**：子进程起不来就 `can_submit()` 恒 False，一帧都不画且无报错。
+   若 MaixVision 看不到画面：先看 `[preview] mode=`，必要时临时 `SHOW_ASYNC=False` 回退排查。
+10. **板端单帧 > `RESULT_MAX_AGE_S`(0.20s) 时，结果会被整体判 `stale`**，且 `[perf]` 的 `stage`
+    被 `display_result` 替换成 `"stale"`，**掩盖检测器真实 stage**（诊断盲区）。
+    帧率塌到个位数时先查这条链，详见 `板端识别问题整理_2026-10-13.md`。
 
 ---
 
-## 8. 完成定义（DoD）
+## 7. 完成定义（DoD）
 
-- **改完源码**：`BUILD_ID` 已更新 → `dist/main_single.py` 已重生成 → 门禁全绿 → **按路径**提交。
-- **上板**：日志 `BUILD_ID` 与本地一致，`[fps]` 正常，锁定效果符合预期。
+- **改完源码**：`BUILD_ID` 已更新 → `dist/main_single.py` 已重生成 → 门禁全绿
+  （`check_app --manifest` 应为 **22 文件 / 0 FAIL**）→ **按精确路径提交**（`code:` 前缀）。
+- **上板**：日志 `[rect-center] <BUILD_ID>` 与本地一致；按下 `SELF-TEST` 应看到 4 步动作
+  （pitch 上→下、yaw 左→右），之后（若 `CALIBRATE_AXIS="auto"`）标定、然后进入追踪；
+  追踪起停应柔和、停下时激光不晃。
 - **留痕**：往 `.workbuddy/memory/YYYY-MM-DD.md` **追加**一行本轮做了什么、怎么验证的
-  （只记有长期价值的结论与坑，不记流水）。跨会话必须知道的约定 → `.workbuddy/memory/MEMORY.md`。
+  （只记有长期价值的结论与坑，不记流水）；跨会话必须知道的约定 → `.workbuddy/memory/MEMORY.md`。
+  ⚠ **日志与记忆都在仓库根**，不要写进应用目录。
+
+---
+
+## 8. 待执行迁移（临时小节，完成后删除）
+
+按用户 2026-10-13 的整理决定，以下两项**已定案但尚未执行**——因为执行时
+`maixcam2_rect_center/` 正被另一个会话实时改写（21:58–22:01 新增
+`vision/contour_locator.py` / `rect_geometry.py` / `kalman_filter.py` 与 `tools/_probe_*.py`），
+此刻改名/删除会让对方的相对路径写入在旧路径重新长出半个目录。
+
+1. **目录改名**：`maixcam2_rect_center/` → `maixcam2_target_aim/`。
+   需同步：`app.yaml` 的 `id`、`tools/build_single.py` 的路径假设、`tools/check_app.py` 的 C1 检查、
+   本文件与 `README.md` 里的全部路径引用。
+2. **删除重复副本**：`maixcam2_opus_rework_Acp/`（未跟踪；源码与应用目录逐字节相同，
+   已把其独有的 `硬件标定与上板检查.md` 与 `板端识别问题整理_2026-10-13.md` 迁回应用目录）。
+
+**执行前置条件**：确认无并发写入（`find maixcam2_rect_center -mmin -5` 无输出），
+然后 `git mv`（保留历史）→ 改引用 → 门禁 → 提交（前缀 `repo:`）。
