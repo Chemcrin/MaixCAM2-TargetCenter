@@ -80,7 +80,7 @@ def apply_overrides(cfg, pairs):
         text = raw.strip()
         if text.lower() in ("true", "false"):
             value = text.lower() == "true"
-        elif text.startswith("(") and text.endswith(")"):        # 元组，如 DARK_THRESHOLDS=(60,90)
+        elif text.startswith("(") and text.endswith(")"):        # 元组值（保留通用支持）
             value = tuple(int(x) for x in text[1:-1].split(",") if x.strip())
         else:
             try:
