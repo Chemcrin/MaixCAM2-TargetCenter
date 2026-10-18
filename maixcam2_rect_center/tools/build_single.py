@@ -50,34 +50,31 @@ OUT_PY = os.path.join(OUT_DIR, "main_single.py")
 #   · vision_worker、preview 依赖 rate_meter ⇒ rate_meter 必须在它们之前；
 #   · ★ vision.aim_control 依赖 rectangle_center / laser_spot / gimbal_self_test
 #     ⇒ 必须排在**这三者之后**（单文件版按序 exec，被依赖者须在前）。
-# v0.8.0：识别链路拆成 rect_geometry（纯几何）+ contour_locator（Canny 轮廓定位）
-#   + kalman_filter（中心滤波）三层，同步新增 3 项。
-#   · rect_geometry 无内部依赖，排最前；
-#   · contour_locator 依赖 rect_geometry ⇒ 必须在它之后；
-#   · rectangle_center 依赖 contour_locator + kalman_filter + rect_geometry ⇒ 排在其后。
 MODULES = (
-    ("config", "config.py"),
-    ("vision.rate_meter", "vision/rate_meter.py"),
-    ("vision.camera_source", "vision/camera_source.py"),
-    ("vision.vision_worker", "vision/vision_worker.py"),
-    ("vision.telemetry", "vision/telemetry.py"),
-    ("vision.maixvision_stream", "vision/maixvision_stream.py"),
-    ("vision.preview", "vision/preview.py"),
-    ("vision.rect_geometry", "vision/rect_geometry.py"),
-    ("vision.contour_locator", "vision/contour_locator.py"),
-    ("vision.kalman_filter", "vision/kalman_filter.py"),
-    ("vision.rectangle_center", "vision/rectangle_center.py"),
-    ("vision.laser_spot", "vision/laser_spot.py"),
-    ("vision.stepper_link", "vision/stepper_link.py"),
-    ("vision.gimbal_self_test", "vision/gimbal_self_test.py"),
-    ("vision.gimbal_aim", "vision/gimbal_aim.py"),  # 依赖 stepper_link 的运动时长估算
-    ("vision.gimbal_search", "vision/gimbal_search.py"),
-    ("vision.imu_heading", "vision/imu_heading.py"),
-    ("vision.aim_control", "vision/aim_control.py"),
-    ("vision.gimbal_calibrate", "vision/gimbal_calibrate.py"),
-    ("vision.app_runtime", "vision/app_runtime.py"),
-    ("target_api", "target_api.py"),
+    ('config', 'config.py'),
+    ('vision.rate_meter', 'vision/rate_meter.py'),
+    ('vision.camera_source', 'vision/camera_source.py'),
+    ('vision.vision_worker', 'vision/vision_worker.py'),
+    ('vision.telemetry', 'vision/telemetry.py'),
+    ('vision.maixvision_stream', 'vision/maixvision_stream.py'),
+    ('vision.preview', 'vision/preview.py'),
+    ('vision.rect_geometry', 'vision/rect_geometry.py'),
+    ('vision.contour_locator', 'vision/contour_locator.py'),
+    ('vision.kalman_filter', 'vision/kalman_filter.py'),
+    ('vision.rectangle_center', 'vision/rectangle_center.py'),
+    ('vision.laser_spot', 'vision/laser_spot.py'),
+    ('vision.stepper_link', 'vision/stepper_link.py'),
+    ('vision.imu_heading', 'vision/imu_heading.py'),
+    ('vision.gimbal_self_test', 'vision/gimbal_self_test.py'),
+    ('vision.gimbal_aim', 'vision/gimbal_aim.py'),
+    ('vision.gimbal_search', 'vision/gimbal_search.py'),
+    ('vision.aim_control', 'vision/aim_control.py'),
+    ('vision.gimbal_calibrate', 'vision/gimbal_calibrate.py'),
+    ('vision.app_runtime', 'vision/app_runtime.py'),
+    ('vision', 'vision/__init__.py'),
+    ('target_api', 'target_api.py'),
 )
+
 MAIN_REL = "main.py"
 
 _MANIFEST_RE = re.compile(r"^_SRC_SHA1 = (\{.*\})\s*$", re.M)
@@ -113,8 +110,9 @@ def as_raw_literal(text, rel):
         if q in text:
             continue
         return "r%s\n%s%s" % (q, text, q)
-    # 子进程入口可能合法地同时使用两种三引号；repr 仍能无损保存全部转义。
-    return repr(text)
+    raise SystemExit(
+        "[build] %s 里同时出现了两种三引号，无法安全嵌入，请改用文件分发方式。" % rel
+    )
 
 
 def build():
@@ -160,6 +158,8 @@ def build():
     w('_pkg.__path__ = []\n')
     w('_sys.modules["vision"] = _pkg\n')
     w('for _full in _MOD_ORDER:\n')
+    w('    if _full == "vision":\n')
+    w('        continue\n')
     w('    if "." in _full:                       # vision.rectangle_center 这类子模块\n')
     w('        _parent, _leaf = _full.split(".", 1)\n')
     w('        _m = _types.ModuleType(_full)\n')
@@ -171,6 +171,8 @@ def build():
     w('    _m = _sys.modules[_full]\n')
     w('    _m.__dict__["__name__"] = _full\n')
     w('    _m.__dict__["__file__"] = _REL_OF[_full]   # 源码里若用 __file__（如 target_api）\n')
+    w('    _m.__dict__["__source__"] = _MOD_SRC[_full]\n')
+    w('    _m.__dict__["__package__"] = "vision" if _full == "vision" else _full.rpartition(".")[0]\n')
     w('    exec(compile(_MOD_SRC[_full], _full.replace(".", "/") + ".py", "exec"),\n')
     w('         _m.__dict__)\n')
     w('del _m, _full, _MOD_SRC\n')

@@ -16,6 +16,10 @@ from vision.gimbal_calibrate import GimbalCalibrator
 
 
 class Cfg:
+    # Isolate the legacy two-level law; new dynamic scheduling is tested separately.
+    AIM_PROGRESSIVE = False
+    AIM_WAIT_MOTION = False
+    AIM_HISTORY_MAX_GAP_S = 10.0
     DEADBAND_PX = 2.0
     COMMAND_INTERVAL_S = 0.0
     PULSE_PER_PX_YAW = 3.67
@@ -182,20 +186,25 @@ def test_ack_watchdog():
 
 
 def test_ack_timeout_gated():
-    # 从未收到确认帧（Response=None）-> 超时判据自动不生效
+    """ACK 看门狗必须**按轴**武装：静默轴不得连带判障，回帧轴断链必须判障。"""
+    # ① 两轴都从未回过帧（Response=None / 未接线）-> 一条都不能判障。
     link = StepperLink(Cfg())
-    link._ports = {"yaw": object()}
-    link._stats["ok"] = 0
-    link._last_cmd["yaw"] = 0.5
-    link._last_ack["yaw"] = 0.0
-    for i in range(10):
+    link._ports = {"yaw": object(), "pitch": object()}
+    link._last_cmd["yaw"] = link._last_cmd["pitch"] = 0.5
+    link._last_ack["yaw"] = link._last_ack["pitch"] = 0.0
+    for i in range(40):
         assert link._ingest([], 10.0 + i)["fault"] is False
-    # 收到过确认帧之后，链路断 -> 超时判据生效
-    link._stats["ok"] = 1
+    # ② 只有 yaw 回过帧：yaw 断链判障，pitch 静默不得连带（板端实锤的失败模式）。
+    link = StepperLink(Cfg())
+    link._ports = {"yaw": object(), "pitch": object()}
+    link._ingest([("yaw", bytes.fromhex("01 F3 02 6B"))], 30.0)
+    link._last_cmd["yaw"] = link._last_cmd["pitch"] = 30.01
     fault = None
-    for i in range(10):
-        fault = link._ingest([], 20.0 + i)
-    assert fault["fault"] and "ack_timeout" in fault["reason"]
+    for i in range(Cfg.RX_TIMEOUT_LIMIT + 3):
+        fault = link._ingest([], 31.0 + i)
+        if fault["fault"]:
+            break
+    assert fault["fault"] and fault["reason"] == "ack_timeout:yaw", fault
 
 
 def test_self_test():
@@ -283,11 +292,60 @@ def test_axis_mapping_config():
     assert Config.LENS_CORR is False
 
 
+def test_silent_axis_still_moves():
+    """板端实锤回归（v0.9.1）：yaw 回帧、pitch 静默时，两轴都必须照常发令。
+
+    旧实现用**全局** ok 计数武装 ACK 看门狗：yaw 会回帧 → pitch 被一并要求回帧；
+    pitch 的驱动器 Response=None 时永远不回 → `FAULT: ack_timeout:pitch` →
+    整机锁死，一条运动指令都发不出去（2026-10-18 板端日志原样如此）。
+    """
+    from config import Config
+    from vision.aim_control import VisionControl
+
+    class Clock:
+        now = 100.0
+        def perf_counter(self): return self.now
+
+    class Port:
+        """reply=None 表示该轴永不回帧（Response=None 的真实形态）。"""
+        def __init__(self, reply=None):
+            self.reply, self.rx, self.tx = reply, bytearray(), 0
+        def write(self, payload):
+            self.tx += 1
+            if self.reply:
+                self.rx.extend(self.reply)
+            return len(payload)
+        def available(self, timeout=0):
+            return len(self.rx)
+        def read(self, count, timeout=0):
+            out = bytes(self.rx[:count])
+            del self.rx[:count]
+            return out
+
+    cfg = type("BoardCfg", (Config,), dict(RX_TIMEOUT_LIMIT=2, AIM_WAIT_MOTION=False,
+                                           ENABLE_SEARCH_BUTTON=False,
+                                           ENABLE_IMU_FEEDFORWARD=False))
+    clock, link = Clock(), StepperLink(cfg, clock=Clock())
+    link._clock = clock
+    link._ports = {"yaw": Port(bytes.fromhex("02 F3 02 6B")), "pitch": Port(None)}
+    aim = GimbalAim(cfg)
+    control = VisionControl(cfg, link, aim, None, None, clock=clock)
+    for _ in range(60):
+        clock.now += 0.2
+        control.accept_result(dict(valid=True, aim_valid=True, dx=40.0, dy=-30.0,
+                                   u=310., v=230., raw_u=310., raw_v=230.,
+                                   captured_at=clock.now), clock.now, now=clock.now)
+    assert aim.state != "FAULT", aim.state
+    assert link._ports["yaw"].tx > 0, "yaw 没收到指令"
+    assert link._ports["pitch"].tx > 0, "pitch 被静默轴的 ACK 看门狗拖死了"
+
+
 def main():
     tests = [test_protocol, test_aim_basic, test_clamp_and_jump_reject,
              test_coarse_fine_state, test_closed_loop_convergence,
              test_reversed_sign_diverges, test_ack_watchdog,
-             test_ack_timeout_gated, test_self_test, test_calibrator,
+             test_ack_timeout_gated, test_silent_axis_still_moves,
+             test_self_test, test_calibrator,
              test_axis_mapping_config]
     for fn in tests:
         fn()

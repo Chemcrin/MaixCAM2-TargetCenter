@@ -16,7 +16,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from target_api import detect_black_frame, CenterTracker, track_center, reset, load_config
+from target_api import detect_black_frame, CenterTracker, track_center, reset, load_config, fixed_laser_error
 
 
 def demo_frame(offset=(0, 0)):
@@ -35,6 +35,7 @@ def example_detect():
     res = detect_black_frame(gray)
     if res:                                     # bool(res) 即"识别到了吗"
         print("  靶心 = (%.1f, %.1f)  耗时 %.1fms" % (res.u, res.v, res.ms))
+        print("  原始靶心 =",res.raw_center," 固定激光偏差 =",fixed_laser_error(res))
         print("  外框四角 =", np.rint(res.quad).astype(int).tolist())
     else:
         print("  这一帧没有黑框：", res.stage)

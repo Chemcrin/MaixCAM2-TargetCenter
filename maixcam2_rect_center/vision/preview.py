@@ -4,13 +4,14 @@
     · Preview      —— 显示线程 + 画布池；主循环 render() 投递即返回，show() 慢也只慢预览。
     · TouchButtons —— 触摸按下沿 → 按钮命中。触摸坐标是屏幕坐标，与画布 1:1。
     · display_result()            —— 把识别线程的最新快照翻译成"这一帧该画什么"（过期降级）。
-    · apply_maixvision_stream_policy() —— 默认保留 MaixVision 会话；显式本地模式兼容。
+    · apply_maixvision_stream_policy() —— 建 Display 前掐断 MaixVision 图传（拆 500ms 忙等）。
 
 ★ clock 注入：构造可传 `clock`（默认标准库 time）。入口 main() 把自身 time 传进来，
   使 tools/test_main_self_test.py 的假时钟可穿透（同步显示路径在模拟时间轴下可复现）。
 ★ 隔离原则：显示层任何失败一律只打日志并置 Preview.enabled=False，绝不影响识别/串口/闭环。
 """
 import os
+import math
 import threading
 import time
 
@@ -29,40 +30,34 @@ def display_result(snapshot, now, max_age):
     """
     if snapshot is None:
         return {"valid": False, "stage": "waiting"}, None, 0.0
-    age = max(0.0, now - snapshot["captured_at"])
-    if age > max_age:
+    age = now - snapshot["captured_at"]
+    if not math.isfinite(age) or not 0 <= age <= max_age:
         return {"valid": False, "stage": "stale"}, snapshot["laser"], age
     return snapshot["result"], snapshot["laser"], age
 
 
+def aligned_frame(snapshot, live_gray, result):
+    """有效标注使用对应采集帧；失效/过期时继续显示实时原图。"""
+    if snapshot is not None and result.get('valid'):
+        return snapshot.get('frame',live_gray)
+    return live_gray
+
+
 def apply_maixvision_stream_policy(cfg):
-    """默认保留启动环境；明确选择本地模式才关闭会话（兼容旧入口别名）。
-
-    Preview 自己把本地 Display 与图传适配器分开，创建 Display 时临时设置
-    MAIXVISION=0 后立即恢复。图传进程使用本机 bridge 协议，不调用 native
-    ImageTrans 的 500ms 忙等，也不 import maix 触发额外串口监听。
-    """
-    if not bool(getattr(cfg, "DISABLE_MAIXVISION_STREAM", False)):
-        return False
-    if os.environ.get("MAIXVISION") != "1":
-        return False
-    os.environ["MAIXVISION"] = "0"      # os.environ 赋值会同步 putenv，C 侧 getenv 随即生效
-    print("[preview] 本地模式：已禁用 MaixVision 图传（MAIXVISION 1->0；终端日志照常）")
-    return True
+    """Compatibility hook: stream policy is now local to Display construction."""
+    return False
 
 
-def _local_display_call(callback, *args):
-    """Scope native Display creation/auto-reopen to local mode, then restore launch env."""
-    session = os.environ.get("MAIXVISION")
+def _local_display_call(callback):
+    previous = os.environ.get("MAIXVISION")
     try:
-        if session == "1":
-            os.environ["MAIXVISION"] = "0"
-        return callback(*args)
+        os.environ["MAIXVISION"] = "0"
+        return callback()
     finally:
-        if session is None:
+        if previous is None:
             os.environ.pop("MAIXVISION", None)
         else:
-            os.environ["MAIXVISION"] = session
+            os.environ["MAIXVISION"] = previous
 
 
 class Preview:
@@ -91,13 +86,14 @@ class Preview:
     def __init__(self, cfg, clock=None):
         self.cfg = cfg
         self._clock = clock if clock is not None else time
+        self.stream = None
+        self._flash = {}
         self.display = None
         self.width = self.height = 0            # 物理屏幕尺寸（触摸坐标系）
         self.render_width = self.render_height = 0
         self.enabled = False                    # 显示是否可用；任何一步失败都置 False 并停用
         self.buttons = {}                       # name -> (x0,y0,x1,y1)，屏幕坐标
         self._button_draw = []                  # 预算好的按钮绘制参数（画布坐标），渲染时不再换算
-        self._button_hot = {}                   # name -> 高亮截止时刻（秒；"刚被按下"的视觉反馈）
         self.shown = 0                          # 已成功 show() 的帧数（disp 口径）
         self.dropped = 0                        # 因显示线程忙而未画的帧数（丢帧，不排队）
         self.fps = 0.0
@@ -118,18 +114,11 @@ class Preview:
         self._pool = 0                          # 已分配画布数（上限 2，由 due() 保证）
         self._stop = False
         self.thread = None
-        self.stream = None
-        self.stream_width = 0
-        self._stream_state = None
         if not bool(getattr(cfg, "SHOW", False)):
             print("[preview] SHOW=False -> 不建显示（纯串口/头部模式，画面不流转）")
             return
         try:
             from maix import display
-            session = os.environ.get("MAIXVISION")
-            streaming = session == "1" and not bool(getattr(cfg, "DISABLE_MAIXVISION_STREAM", False))
-            # Native show() also sends to img_trans. Do not create that global transport
-            # in this process: its C++ 500ms busy wait may hold Python's GIL.
             self.display = _local_display_call(display.Display)
             self.width = int(self.display.width())
             self.height = int(self.display.height())
@@ -137,14 +126,6 @@ class Preview:
             cap = int(getattr(cfg, "SHOW_WIDTH", 0) or 0)
             self.render_width = self.width if cap <= 0 else min(self.width, cap)
             self.render_height = max(1, int(round(self.height * self.render_width / self.width)))
-            if streaming:
-                try:
-                    from .maixvision_stream import MaixVisionStream
-                    self.stream_width = min(self.render_width, max(1, int(getattr(cfg, "SHOW_STREAM_WIDTH", 480))))
-                    stream_height = max(1, int(round(self.render_height * self.stream_width / self.render_width)))
-                    self.stream = MaixVisionStream(cfg, self.stream_width, stream_height)
-                except Exception as exc:
-                    print("[preview] 图传适配器不可用，保留本地显示: %s" % exc)
             if hasattr(display, "set_trans_image_quality"):
                 display.set_trans_image_quality(int(getattr(cfg, "SHOW_JPEG_QUALITY", 70)))
             self.enabled = True
@@ -153,11 +134,19 @@ class Preview:
                      self.width, self.height, self.render_width, self.render_height,
                      int(getattr(cfg, "SHOW_FPS", 30)), int(getattr(cfg, "SHOW_JPEG_QUALITY", 70)),
                      "on" if os.environ.get("MAIXVISION") == "1" else "off"))
-            # 首帧在显示线程计量，不在构造/主循环执行同步 show 探针。
+            # ★ 开机探针：立刻量一次 show() 真实耗时。本地屏典型 1~5ms；若命中 MaixCDK 的
+            #   "MaixVision 图传未就绪"分支，send_image() 会在 C++ 里**忙等 500ms 并空转 CPU**
+            #   （见 MaixCDK components/vision/src/maix_image_trans.cpp），表现为 show 恒定 ~505ms、
+            #   并连带把相机/识别/闭环一起拖慢。这条必须当场说清，不能只报一个 p95 数字。
+            self.probe_ms = self._probe_show()
+            if not bool(getattr(cfg, "DISABLE_MAIXVISION_STREAM", False)) and os.environ.get("MAIXVISION") == "1":
+                from .maixvision_stream import MaixVisionStream
+                self.stream = MaixVisionStream(cfg, self.render_width, self.render_height, clock=self._clock)
             if self.async_show:
                 self.thread = threading.Thread(target=self._show_loop, name="display", daemon=True)
                 self.thread.start()
         except Exception as exc:
+            self.enabled = False
             # 建不了显示不算错误：板子仍照常识别 + 跑闭环，只是没有画面。
             print("[preview] 显示初始化失败（不影响识别/闭环，仅无预览）: %s" % exc)
 
@@ -176,20 +165,15 @@ class Preview:
         pos = (bx0 + max(4, (bx1 - bx0 - tw) // 2), by0 + (by1 - by0) // 2 + 7)   # 水平居中
         self._button_draw.append((name, bx0, by0, bx1, by1, label, pos))
 
+    def flash_button(self, name, now=None, hold=.25):
+        self._flash[name] = (self._clock.perf_counter() if now is None else now)+hold
+
     def hit(self, x, y):
         """触摸点 (x, y)（屏幕坐标）命中的按钮名；未命中返回 None。"""
         for name, (x0, y0, x1, y1) in self.buttons.items():
             if x0 <= x <= x1 and y0 <= y <= y1:
                 return name
         return None
-
-    def flash_button(self, name, now, hold=0.25):
-        """把按钮标记为"刚被按下"，在 hold 秒内以高亮色重绘 —— 现场唯一能肉眼确认点击生效的反馈。
-
-        为什么需要：触摸是"按下沿"语义，命中只在**一帧**发生，按钮外观若恒定不变，
-        现场就无法区分"没按到 / 按到但没命中按钮 / 命中了但被拒绝 / 已成功触发"。
-        """
-        self._button_hot[name] = float(now) + float(hold)
 
     # ------------------------------------------------------------------ 渲染
     def due(self, now):
@@ -253,7 +237,15 @@ class Preview:
             canvas[:] = 0                                   # 只有真存在黑边时才需要刷黑背景
         canvas[oy:oy + nh, ox:ox + nw] = (
             view if (nw, nh) == (vw, vh) else cv2.resize(view, (nw, nh)))
-        self._draw_buttons(canvas, status, now)              # 按钮与状态条画在画布之上
+        self._draw_buttons(canvas, status)
+        if self.stream is not None:
+            try:
+                self.stream.submit(canvas)
+            except Exception as exc:
+                print("[stream] submit failed: %s" % exc)
+                self.stream.close()
+                self.stream = None
+        #                   # 按钮与状态条画在画布之上
         if self.async_show:
             self._publish(canvas)                            # 投递即返回：show 交给显示线程
         else:
@@ -275,6 +267,7 @@ class Preview:
         try:
             from maix import image as maix_image
         except Exception as exc:
+            self.enabled = False
             print("[preview] 显示线程无法导入 maix.image，退化为无预览: %s" % exc)
             return
         while True:
@@ -305,21 +298,17 @@ class Preview:
             from maix import image as maix_image
             frame = np.zeros((self.render_height, self.render_width, 3), np.uint8)
             t0 = self._clock.perf_counter()
-            _local_display_call(self.display.show, maix_image.cv2image(frame, bgr=True, copy=True))
+            self.display.show(maix_image.cv2image(frame, bgr=True, copy=True))
             ms = (self._clock.perf_counter() - t0) * 1000.0
         except Exception as exc:
             print("[preview] show 探针失败（显示可能不可用）: %s" % exc)
+            self.enabled = False
             return -1.0
-        if ms >= float(getattr(self.cfg, "SHOW_STREAM_SLOW_MS", 300)):
-            print("[preview] ⚠ show 探针 %.0fms —— 命中 MaixCDK「MaixVision 图传未就绪」忙等分支："
-                  "每次 show() 空转 500ms（maix_image_trans.cpp），约每秒烧掉半个 CPU 核，"
-                  "是相机 read / 识别 / 闭环一起变慢的根因。" % ms)
-            print("[preview] ⚠ 对策①：临时选择 Config.DISABLE_MAIXVISION_STREAM=True——"
-                  "main() 会在建 Display 之前把 MAIXVISION 置 0，从源头不建图传，show() 回到 1~5ms。")
-            print("[preview] ⚠ 对策②：或改从**设备本地**启动本应用（应用菜单 / 开机自启），"
-                  "不要用 MaixVision 的“运行”按钮 —— 本地启动时 maixvision 模式本就关闭。")
-            print("[preview] ⚠ 对策③：或让 MaixVision 的画面预览真正连上"
-                  "（连上后图传走「压 JPEG 入队」的异步路径，不再忙等）。")
+        if ms >= float(getattr(self.cfg, "SHOW_STREAM_SLOW_MS", 300.)):
+            print("[preview] show 探针 %.0fms：本地显示偏慢；检查 SDK 是否复用旧图传对象。" % ms)
+            print("[preview] 对策①：确认 Display 构造时 MAIXVISION=0；本应用已临时隔离并恢复会话。")
+            print("[preview] 对策②：从设备本地启动，对照本地屏 show 耗时。")
+            print("[preview] 对策③：检查 VO/屏幕驱动；独立图传连接与编码不在 show 线程。")
         else:
             print("[preview] show 探针 %.1fms —— 显示链路健康（本地屏典型 1~5ms）" % ms)
         return ms
@@ -329,58 +318,22 @@ class Preview:
         if self._slow_warned:
             return
         self._slow_warned = True
-        print("[preview] show slow: p95=%.0fms —— 瓶颈在显示侧（非识别）。"
-              "若该值恒定 ≈505ms，即为 MaixCDK 的 MaixVision 图传忙等："
-              "当前图传已隔离到独立进程；检查屏幕驱动或此前创建的 native Display。"
-              "可临时选择 Config.DISABLE_MAIXVISION_STREAM=True 排查。" % p95)
+        print("[preview] show slow: p95=%.0fms；检查本地屏驱动和 SDK 的图传对象缓存。"
+              "图传进程独立，预览丢帧不会积压识别结果。" % p95)
 
     def _do_show(self, canvas, maix_image=None):
         """真正调用 display.show()，记耗时/帧率；失败即停用显示（不影响识别/闭环）。返回是否成功。"""
-        if maix_image is None:
-            from maix import image as maix_image
         t0 = self._clock.perf_counter()
         try:
+            if maix_image is None:
+                from maix import image as maix_image
             # bgr=True：cv2 是 BGR 序；copy=True：交给显示的必须是独立缓冲。
-            # Only open()/auto-open creates native img_trans. Keep MAIXVISION
-            # unchanged during normal shows and scope just the reopen operation.
-            opened = getattr(self.display, "is_opened", None)
-            if opened is not None:
-                if not opened():
-                    _local_display_call(self.display.open)
-                    if not opened():
-                        # Native open() returns an Err instead of raising. Do
-                        # not let show() auto-open under the restored session.
-                        raise RuntimeError("local display reopen failed")
-                self.display.show(maix_image.cv2image(canvas, bgr=True, copy=True))
-            else:
-                # Older adapters without an open-state API retain local scope.
-                _local_display_call(self.display.show,
-                                    maix_image.cv2image(canvas, bgr=True, copy=True))
+            self.display.show(maix_image.cv2image(canvas, bgr=True, copy=True))
         except Exception as exc:
             self.enabled = False
             print("[preview] show 失败，停用显示: %s" % exc)
             return False
         ms = (self._clock.perf_counter() - t0) * 1000.0
-        if self.probe_ms < 0:
-            self.probe_ms = ms
-            print("[preview] 本地 show 首帧 %.1fms；图传独立 latest-frame 进程" % ms)
-        if self.stream is not None:
-            try:
-                height = max(1, int(round(self.render_height * self.stream_width / self.render_width)))
-                frame = canvas if self.stream_width == self.render_width else cv2.resize(canvas, (self.stream_width, height))
-                self.stream.submit(frame)
-                state = self.stream.status()["state"]
-                if state != self._stream_state:
-                    self._stream_state = state
-                    print("[preview] MaixVision stream=%s（本地显示/识别继续）" % state)
-            except Exception as exc:
-                print("[preview] 图传失败，保留本地显示: %s" % exc)
-                try:
-                    self.stream.close()
-                except Exception as close_exc:
-                    print("[preview] 图传清理失败: %s" % close_exc)
-                finally:
-                    self.stream = None
         self.shown += 1
         completed = self._clock.perf_counter()
         self.rate.record(completed)
@@ -401,14 +354,10 @@ class Preview:
         arr = np.asarray(times, dtype=np.float64)
         return float(arr.mean()), float(np.percentile(arr, 95)), worst, len(times)
 
-    def _draw_buttons(self, canvas, status="", now=None):
+    def _draw_buttons(self, canvas, status=""):
         # 按钮几何/文本宽度已在 add_button() 预算好，这里只画（不再每帧 getTextSize/换算）。
-        # 刚被按下的按钮（flash_button 标记且未过期）改高亮色，作为点击生效的唯一视觉反馈。
-        now = self._clock.perf_counter() if now is None else float(now)
         for (name, x0, y0, x1, y1, label, pos) in self._button_draw:
-            hot = now < self._button_hot.get(name, -1e9)
-            cv2.rectangle(canvas, (x0, y0), (x1, y1),
-                          (0, 110, 235) if hot else (46, 150, 60), -1)   # 填充（BGR）
+            cv2.rectangle(canvas, (x0, y0), (x1, y1), (0, 110, 235) if self._clock.perf_counter() < self._flash.get(name, -1e9) else (46, 150, 60), -1)   # 填充
             cv2.rectangle(canvas, (x0, y0), (x1, y1), (235, 235, 235), 1)  # 描边
             cv2.putText(canvas, label, pos,
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2, cv2.LINE_AA)
@@ -426,12 +375,10 @@ class Preview:
                 self._cond.notify()
             if self.thread is not None:
                 self.thread.join(timeout=2.0)
+                if self.thread.is_alive():
+                    raise RuntimeError("display thread did not stop")
         if self.stream is not None:
             self.stream.close()
-        if self.thread is not None and self.thread.is_alive():
-            # Display is still owned by its show thread. Closing it here races
-            # native show(); only transport cleanup is independent.
-            raise RuntimeError("display thread did not stop; display remains owned by worker")
         if self.display is not None:
             try:
                 self.display.close()
@@ -445,23 +392,15 @@ class TouchButtons:
     `maix.touchscreen.TouchScreen().read()` 立即返回 `(x, y, pressed)`（MaixPy v4）。
     无触摸屏 / 未启用 / 无显示时自动禁用，只打日志。
     坐标口径：read() 返回的是**屏幕坐标**，与按钮注册坐标一致（画布=屏幕尺寸的前提）。
-
-    ★ 为什么"只有按下的一瞬间有反应"是**预期行为**：按下沿语义下，只有 `pressed` 由
-      False→True 的那一帧返回按钮名，其余帧（含按住不放、松开）一律返回 None。这是为了
-      防止"按住不放反复启动自检/搜索"。它**不是**断链，所以本节必须给出可观测反馈，
-      否则现场无法区分"没按到 / 按到但没命中 / 命中了但被拒绝 / 已成功触发"。
-    ★ 为此本类补齐三件事：① 命中/未命中都打印一行 `[touch]`；② `read()` 异常时复位按下
-      锁存；③ 锁存超过 `MAX_HOLD_S` 视为"松开帧被漏采样"，自愈复位 —— 否则一旦某次释放
-      未被采到，`_down` 会永久停在 True，此后**所有新点击都被当成按住不放而永久失效**。
     """
 
-    MAX_HOLD_S = 2.0        # 按下锁存上限：超过即认为松开帧被漏采样，解除锁存（本次按住不再触发）
+    MAX_HOLD_S = 2.0
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, clock=None):
+        self._clock = clock if clock is not None else time
+        self._pressed_at = -1e9
         self.ts = None
         self._down = False                 # 上一帧按下状态，用于识别"按下沿"
-        self._down_at = -1e9               # 本次按下沿的时刻（判定锁存是否超时）
-        self._suppress = False             # 锁存超时解锁后，等待真正松手才接受新的按下沿
         if not bool(getattr(cfg, "ENABLE_TOUCH_BUTTON", True)):
             print("[touch] 触摸按钮已关闭（ENABLE_TOUCH_BUTTON=False）")
             return
@@ -479,30 +418,21 @@ class TouchButtons:
         try:
             x, y, pressed = self.ts.read()
         except Exception as exc:
-            if self._down:
-                # read 失败期间无法判定松手：复位锁存，避免按钮从此永久失灵。
-                print("[touch] read 异常，复位按下锁存: %s" % exc)
-            self._down = self._suppress = False
+            self._down = False
+            print("[touch] read failed: %s" % exc)
             return None
-        now = time.perf_counter()
+        now = self._clock.perf_counter()
+        if self._down and now-self._pressed_at > self.MAX_HOLD_S:
+            self._down = False
         if pressed:
-            if self._suppress:             # 本次按住已判为超时锁存，等松手
-                return None
-            if self._down:
-                if now - self._down_at > self.MAX_HOLD_S:
-                    # 松开帧疑似被漏采样（主循环节拍 > 点按时长）：解除锁存，但要等真正松手
-                    # 才接受新的按下沿，否则会"每 MAX_HOLD_S 重复触发一次"。
-                    print("[touch] 按下锁存超时 %.1fs，已解除（等松手后重新生效）"
-                          % (now - self._down_at))
-                    self._down, self._suppress = False, True
-                return None                # 按住不放：不重复返回，避免反复触发
-            self._down, self._down_at = True, now
-            name = preview.hit(int(x), int(y))
-            if name is None:
-                # 未命中：明确打日志，否则现场只看到"按了没反应"而无法判断是点偏了。
-                print("[touch] 点击未命中按钮 @(%d,%d)" % (int(x), int(y)))
-            else:
-                print("[touch] hit=%s @(%d,%d)" % (name, int(x), int(y)))
-            return name
-        self._down = self._suppress = False   # 松开，允许下一次按下沿
+            if not self._down:             # 只有"上一帧未按、这一帧按下"才算一次点击
+                self._down = True
+                self._pressed_at = now
+                name = preview.hit(int(x), int(y))
+                print("[touch] x=%d y=%d hit=%s" % (x, y, name or "none"))
+                if name:
+                    preview.flash_button(name, now)
+                return name
+            return None                    # 按住不放：不重复返回，避免反复触发
+        self._down = False                 # 松开，允许下一次按下沿
         return None

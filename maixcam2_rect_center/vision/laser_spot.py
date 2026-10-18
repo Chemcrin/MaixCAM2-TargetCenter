@@ -27,6 +27,7 @@
     reason   str     原因码：ok / fixed / no_peak / too_big / too_small / jumped / roi
     ms       float   本次计算耗时（毫秒），未更新时为 0
 """
+import math
 import time
 
 import cv2
@@ -159,7 +160,7 @@ def deviation(laser, result, use_raw=False):
     """靶心相对光斑的偏差：dx>0 靶心在光斑右侧，dy>0 靶心在光斑下方。
 
     约定取自需求文档 §7.2（dx = u靶心 − u光斑），与后续串口直控云台同一套符号：
-    两轴都是"误差为正发 CCW"，因此屏幕上这个符号可以直接进控制律。
+    电机方向由各轴 DIR_SIGN 映射；像素误差为正不代表固定的电机方向。
 
     use_raw：闭环必须用这一档（True）—— 取 result["raw_u"]/["raw_v"]（未平滑）。
     result["u"]/["v"] 是经 CENTER_ALPHA 一阶低通的值，只适合显示；拿它闭环会附加
@@ -174,7 +175,13 @@ def deviation(laser, result, use_raw=False):
         tx, ty = float(result["raw_u"]), float(result["raw_v"])   # 闭环档：未平滑中心
     else:
         tx, ty = float(result["u"]), float(result["v"])           # 显示档：CENTER_ALPHA 平滑中心
-    return (tx - float(laser["u"]), ty - float(laser["v"]))       # dx=靶心−光斑, dy 同理
+    lu, lv = float(laser['u']), float(laser['v'])
+    if not all(map(math.isfinite,(tx,ty,lu,lv))):
+        return None
+    size = result.get('image_size')
+    if size is not None and not (0 <= lu < size[0] and 0 <= lv < size[1]):
+        return None
+    return (tx - lu, ty - lv)       # dx=靶心−光斑, dy 同理
 
 
 def draw_laser_overlay(canvas, laser, result=None, scale=1.0, use_raw=False):

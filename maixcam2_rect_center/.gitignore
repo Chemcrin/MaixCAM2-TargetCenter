@@ -14,6 +14,9 @@ __pycache__/
 # e2e 报告目录：每次跑 tools/test_images_e2e.py 都会重画总览图 + 重写结果 json
 # -> 整个目录不回库，避免无意义二进制/数值 diff。
 tools/e2e_report/
+# 精度 / 亚像素复核报告：verify_precision.py、verify_subpixel.py 每次重新渲染 HTML + 重写 json。
+tools/precision_report/
+tools/subpixel_report/
 # 板端 / 桌面调试截图（与根 .gitignore 同口径）。
 screenshot*.png
 frame*.png

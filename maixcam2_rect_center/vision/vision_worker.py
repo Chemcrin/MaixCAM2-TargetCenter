@@ -9,6 +9,7 @@
 """
 import threading
 import time
+from collections import deque
 
 import numpy as np
 
@@ -34,8 +35,11 @@ class LatestFrameWorker:
         self._pending = self._latest = None
         self._stop = False
         self.error = None
+        self._snapshot_cache = (None, 0., 0.)
         self.dropped = 0                          # 因来不及处理而被覆盖的帧数（丢帧计数）
         self.rate = FrameRate()                   # 识别帧率（detect_fps 口径）
+        self.valid_rate = FrameRate()
+        self._durations = deque(maxlen=120)
         self.thread = None
         if asynchronous:
             # daemon=True：进程退出时线程自动结束，不必显式 join 也能安全收摊。
@@ -58,10 +62,18 @@ class LatestFrameWorker:
             self._condition.notify()     # 唤醒识别线程
 
     def _process(self, item):
+        started = self._clock.perf_counter()
         snapshot = self.callback(*item)  # callback = VisionControl.process（识别+偏差+闭环）
+        # Keep the owned source buffer with its result: old geometry must never
+        # be overlaid on a newer moving target image.
+        snapshot = dict(snapshot, frame=item[0])
+        completed = self._clock.perf_counter()
         with self._condition:
             self._latest = snapshot
-            self.rate.record(self._clock.perf_counter())
+            self.rate.record(completed)
+            if snapshot.get('detector_result',snapshot.get('result',{})).get('valid'):
+                self.valid_rate.record(completed)
+            self._durations.append((completed-started)*1000)
 
     def _run(self):
         """识别线程主体：循环取最新帧处理；无帧时走 idle() 维持串口保活。"""
@@ -88,9 +100,14 @@ class LatestFrameWorker:
 
     def snapshot(self, now):
         """取回最近一次识别结果 + 识别帧率（主线程调用，非阻塞）。"""
-        with self._condition:
+        if not self._condition.acquire(False):
+            return self._snapshot_cache
+        try:
             fps, low1 = self.rate.values(now)
-            return self._latest, fps, low1
+            self._snapshot_cache = self._latest, fps, low1
+            return self._snapshot_cache
+        finally:
+            self._condition.release()
 
     def close(self):
         """停线程；必须等它真正退出——UART 归识别线程独占，未退干净就动硬件会打架。"""
@@ -103,3 +120,11 @@ class LatestFrameWorker:
             if self.thread.is_alive():
                 # 线程没停就动 UART/相机是竞态；宁可抛错让上层看见，也不静默降级。
                 raise RuntimeError("vision worker did not stop; UART remains owned by worker")
+
+    def metrics(self, now):
+        """按需取有效识别吞吐和识别+控制P95；不在逐帧热路径计算分位数。"""
+        with self._condition:
+            fps, low1 = self.valid_rate.values(now)
+            durations = list(self._durations)
+        return dict(valid_fps=fps,valid_low1=low1,
+                    worker_p95_ms=float(np.percentile(durations,95)) if durations else 0.)

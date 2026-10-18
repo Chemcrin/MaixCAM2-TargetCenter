@@ -82,7 +82,7 @@ def run(legacy_path=None):
     data = fixtures()
     errors, failed = [], []
     for i, (image, truth) in enumerate(data):
-        result, _ = acquire(RectangleCenterDetector(Config), image)
+        result = RectangleCenterDetector(Config).process(image)
         if not result.get('valid'):
             failed.append(i)
         else:
@@ -94,7 +94,7 @@ def run(legacy_path=None):
     dark_box = np.full((480,640), 175, np.uint8)
     cv2.rectangle(dark_box, (150,70), (460,400), 20, -1)
     negatives.append(dark_box)
-    false_positives = sum(acquire(RectangleCenterDetector(Config), im)[0]['valid'] for im in negatives)
+    false_positives = sum(RectangleCenterDetector(Config).process(im)['valid'] for im in negatives)
 
     base_q = np.array([[180,70],[445,80],[475,400],[150,420]], np.float32)
     det = RectangleCenterDetector(Config)
@@ -103,12 +103,11 @@ def run(legacy_path=None):
     for dx in (0,3,6,9,12,15,18,21,24,27,90,94,98):
         im, truth = scene(base_q + [dx,0])
         r = det.process(im)
-        if not r['valid']:
-            r, _ = acquire(det, im)
+        assert r['valid'], 'motion frame missed; no retry allowed'
         stages.append(r['stage'])
         movement_errors.append(float(np.linalg.norm(np.array([r.get('raw_u',-999),r.get('raw_v',-999)]) - truth)))
     lost = det.process(negatives[-1])
-    reacquired, _ = acquire(det, data[0][0])
+    reacquired = det.process(data[0][0])
     report = dict(fixtures=len(data), detected=len(errors), failed=failed,
                   max_center_error_px=round(max(errors, default=999),3),
                   negative_cases=len(negatives), false_positives=false_positives,
@@ -120,25 +119,6 @@ def run(legacy_path=None):
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
         class LegacyConfig(Config):
-            """**v0.7.0 及更早**的参数集（当时搜索是"Otsu + 8 档阈值"）。
-
-            v0.8.0 把候选提议换成 Canny 轮廓后删掉了这些参数；新旧对拍时由本类补齐 ——
-            既让旧模块跑得起来，也顺带把"两个版本的参数边界在哪"文档化了。
-            """
-            DARK_THRESHOLDS = (25, 40, 55, 70, 85, 100, 120, 145)
-            SEARCH_SPLIT_FRAMES = False
-            SEARCH_BUDGET_MS = 25.0
-            SEARCH_GEOMETRY_STEPS = 8
-            MAX_CONTOURS = 128
-            LINE_MAX_PROPOSALS = 36
-            ENABLE_LINE_RECOVERY = False
-            LINE_SEARCH_INTERVAL = 15
-            ACQUIRE_CONFIRM_FRAMES = 3
-            CONFIRM_CORNER_PX = 12.0
-            RECHECK_INTERVAL = 20
-            MAX_LINE_RESIDUAL_PX = 2.0
-            MIN_TRANSITION_COVERAGE = 0.50
-            MAX_BOUNDARY_WIDTH_ERROR = 0.30
             MIN_ANGLE_DEG = 55.0
             MIN_INNER_RATIO = 0.30
             MAX_INNER_RATIO = 0.94
@@ -146,8 +126,8 @@ def run(legacy_path=None):
         report['legacy'] = benchmark(lambda cfg: mod.RectangleCenterDetector(LegacyConfig), data[0][0])
         report['speedup'] = round(report['legacy']['median_ms'] / report['optimized']['median_ms'],2)
     print(json.dumps(report, ensure_ascii=False, indent=2))
-    assert len(failed) <= 1, 'detection fell below the documented 29/30 baseline'
-    assert max(errors) < 3, 'corner/center regression'
+    assert not failed, 'all 30 fixtures must be found'
+    assert max(errors) <= .7, 'center precision must be <=0.7px'
     assert not false_positives, 'solid rectangles falsely accepted'
     assert max(movement_errors) < 3, 'motion tracking drift'
     assert not lost['valid'] and reacquired['valid'], 'loss/reacquisition failed'

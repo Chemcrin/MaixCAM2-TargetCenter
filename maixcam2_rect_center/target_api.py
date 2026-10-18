@@ -48,7 +48,7 @@
 统一返回 ``Result``（dict 子类，支持 ``res["u"]`` 与 ``res.u`` 两种写法）：
 
     valid      bool    是否识别/追踪到黑框
-    u, v       float   靶心像素坐标（已按 CENTER_ALPHA 平滑，供显示/常规使用）
+    u, v       float   靶心像素坐标（已按卡尔曼/可选 EMA 平滑，供显示/常规使用）
     raw_u/v    float   未平滑中心（闭环用，见 config.AIM_USE_RAW）
     center     tuple   (u, v)；无效时为 None
     quad       (4,2)   外框四角，顺序已规整（左上起逆时针）
@@ -88,14 +88,9 @@ if _HERE not in sys.path:
 
 from vision.rectangle_center import RectangleCenterDetector
 from vision.laser_spot import LaserSpotDetector, deviation
-from vision.aim_control import VisionControl
-from vision.gimbal_search import SearchSweep
-from vision.imu_heading import HeadingFeedforward
-from vision.app_runtime import TrackingApplication
 
 __all__ = ["Result", "load_config", "to_gray", "detect_black_frame",
-           "CenterTracker", "track_center", "reset", "AimLoop",
-           "TrackingApplication", "SearchSweep", "HeadingFeedforward"]
+           "CenterTracker", "track_center", "reset", "AimLoop", "fixed_laser_error"]
 
 _default_tracker = None
 
@@ -133,7 +128,23 @@ def load_config(**overrides):
     from config import Config
     if not overrides:
         return Config
-    return type("ApiConfig", (Config,), dict(overrides))
+    cfg = type("ApiConfig", (Config,), dict(overrides))
+    if "AIM_PROFILE" in overrides:
+        from config import apply_aim_profile
+        apply_aim_profile(cfg)
+        for key, value in overrides.items():
+            setattr(cfg, key, value)
+    return cfg
+
+
+def fixed_laser_error(result, cfg=None, laser_uv=None):
+    """仅计算未平滑靶心减固定激光点，返回(dx,dy)像素；无效/非有限/越界返回None。
+
+    默认固定点取config；laser_uv=(u,v)可覆盖。无图像处理、无硬件副作用。
+    """
+    cfg = cfg if cfg is not None else load_config()
+    u, v = laser_uv if laser_uv is not None else (cfg.LASER_U_NOMINAL,cfg.LASER_V_NOMINAL)
+    return deviation(dict(found=True,u=u,v=v),result,use_raw=True)
 
 
 def to_gray(frame, image_module=None):
@@ -153,15 +164,13 @@ def to_gray(frame, image_module=None):
                 from maix import image as image_module
             a = image_module.image2cv(frame, ensure_bgr=False, copy=False)
     a = np.asarray(a)
-    if a.size == 0:
-        return None
     if a.ndim == 3 and a.shape[2] == 1:
         a = a[:, :, 0]
     elif a.ndim == 3 and a.shape[2] == 3:
         a = cv2.cvtColor(a, cv2.COLOR_RGB2GRAY)
     elif a.ndim == 3 and a.shape[2] == 4:
         a = cv2.cvtColor(a, cv2.COLOR_RGBA2GRAY)
-    if a.ndim != 2:
+    if a.ndim != 2 or a.size == 0:
         return None
     if a.dtype != np.uint8:
         a = np.clip(a, 0, 255).astype(np.uint8)
@@ -172,8 +181,10 @@ def _wrap(raw, gray):
     """把检测器的 dict 包成 Result，并补 center / image_size 等便捷字段。"""
     res = Result(raw)
     res["center"] = (res["u"], res["v"]) if res.get("valid") else None
+    res["raw_center"] = (res["raw_u"], res["raw_v"]) if res.get("valid") else None
     if gray is not None:
         res["image_size"] = (int(gray.shape[1]), int(gray.shape[0]))
+    res.setdefault("ms", res.get("detector_ms", 0.))
     res.setdefault("dx", None)
     res.setdefault("dy", None)
     res.setdefault("aim_valid", False)
@@ -184,9 +195,9 @@ def _wrap(raw, gray):
 def detect_black_frame(frame, cfg=None, detector=None):
     """**无状态**识别黑框，返回 ``Result``（没识别到则 ``valid=False``，``bool(res)`` 为假）。
 
-    每帧都是一次完整的"缩小图多阈值扫描 → 四边暗带验证 → 亚像素精修"，不依赖上一帧，
-    适合"只在某几问里取一次黑框"的用法。想复用实例提速可传 ``detector``（但那样就带状态了，
-    连续调用会走窄带跟踪路径）。
+    每帧都是一次完整的"缩小图Canny/Otsu 候选 → 四边暗带验证 → 亚像素精修"，不依赖上一帧，
+    适合"只在某几问里取一次黑框"的用法。传 ``detector`` 可复用分配，但每次都清空跟踪状态；
+    连续视频使用 ``CenterTracker``。
 
     :param frame:    numpy uint8 灰度图或 MaixPy image
     :param cfg:      配置类（默认 config.Config；可用 load_config(...) 覆盖）
@@ -199,6 +210,7 @@ def detect_black_frame(frame, cfg=None, detector=None):
         return Result(valid=False, stage="empty_frame", center=None,
                       dx=None, dy=None, aim_valid=False, ms=0.0)
     started = time.perf_counter()
+    det.reset()  # This API is stateless even when callers reuse a detector allocation.
     raw = det.process(gray)
     out = _wrap(raw, gray)
     out["ms"] = out.get("detector_ms", (time.perf_counter() - started) * 1000.0)
@@ -229,9 +241,9 @@ class CenterTracker:
         return self
 
     def track(self, frame, now=None):
-        """追踪一帧；now 为单调递增的采图时刻（秒），供丢帧后的运动预测使用。"""
+        """追踪一帧：返回 ``Result``；``valid`` 表示本帧是否拿到靶心。"""
         gray = to_gray(frame)
-        if gray is None or gray.size == 0:
+        if gray is None:
             self.detector.reset()
             return Result(valid=False, stage="empty_frame", center=None,
                           dx=None, dy=None, aim_valid=False, ms=0.0)
@@ -279,93 +291,62 @@ class AimLoop:
 
     def __init__(self, cfg=None, enable_motors=True, with_laser=True, clock=None, heading=None):
         self.cfg = cfg if cfg is not None else load_config()
-        self._clock = clock if clock is not None else time
-        self._stopped = True
-        self._controller = None
-        self.heading = heading
+        self.clock = clock if clock is not None else time
         self.tracker = CenterTracker(self.cfg, with_laser=with_laser)
-        self.link = None
-        self.aim = None
+        self.link = self.aim = None
+        self.closed = False
         if enable_motors:
             from vision.stepper_link import StepperLink
             from vision.gimbal_aim import GimbalAim
-            self.link = StepperLink(self.cfg)
-            self.link.enable()
+            self.link = StepperLink(self.cfg, clock=self.clock)
             self.aim = GimbalAim(self.cfg)
+            if self.link.enable() is False:
+                self.aim.fault("enable_failed")
+        from vision.aim_control import VisionControl
+        calibrator = None
+        if enable_motors:
+            from vision.gimbal_calibrate import GimbalCalibrator
+            cal_cfg = type("YawCalibration", (self.cfg,), {"CALIBRATE_AXIS": "yaw"}) if self.cfg.CALIBRATE_AXIS == "auto" else self.cfg
+            calibrator = GimbalCalibrator(cal_cfg, self.link, self.clock.perf_counter())
+            if calibrator.done:
+                calibrator = None
+            if heading is None and (getattr(self.cfg, "ENABLE_IMU_FEEDFORWARD", False) or (getattr(self.cfg, "ENABLE_SEARCH_BUTTON", True) and getattr(self.cfg, "SEARCH_USE_IMU", True))):
+                from vision.imu_heading import HeadingFeedforward
+                heading = HeadingFeedforward(self.cfg, clock=self.clock)
+        self.control = VisionControl(self.cfg, self.link, self.aim, calibrator, clock=self.clock, heading=heading)
+        if self.cfg.CALIBRATE_AXIS == "auto":
+            self.control._auto_axis = "yaw"
 
     def step(self, frame, now=None):
-        """处理一帧；now 为采图时刻，与 clock.perf_counter 使用同一单调时钟。"""
-        captured = self._clock.perf_counter() if now is None else float(now)
-        res = self.tracker.track(frame, captured)
-        now = self._clock.perf_counter()
-        res["captured_at"] = captured
-        res["age_s"] = max(0.0, now - captured)
-        if not 0 <= now - captured <= float(getattr(self.cfg, "RESULT_MAX_AGE_S", 0.20)):
-            res["aim_valid"] = False
-        res["aim_state"] = None
-        res["cmds"] = {"yaw": None, "pitch": None}
-        if self.aim is None or self.link is None:
-            return res
-        controller = self._control()
-        controller.accept_result(res, captured, res.get("laser"))
-        res["aim_state"] = self.aim.state
-        res["cmds"] = dict(controller.last_commands)
-        res["control_source"] = controller.control_source
-        res["search_state"] = controller.search.state if controller.search is not None else None
-        self._stopped = controller.stale_stopped
-        return res
-
-    def _control(self):
-        if (self._controller is None or self._controller.link is not self.link or
-                self._controller.aim is not self.aim):
-            self._controller = VisionControl(self.cfg, self.link, self.aim, None, None,
-                                             clock=self._clock, heading=self.heading)
-            self.heading = self._controller.heading
-        return self._controller
-
-    def request_search(self):
-        """启动/取消 SEARCH；由 step()/idle() 消费请求，不在按钮线程写串口。"""
-        if self.link is None or self.aim is None:
-            return False
-        self._control().request_search.set()
-        return True
-
-    def calibrate_imu_bias(self):
-        """请求静止偏置标定；先停机，运行时仍需保持底盘和云台静止。"""
-        controller = self._control()
-        if controller.heading is None or self.link is None or self.aim is None:
-            return False
-        controller.request_imu_bias.set()
-        return True
-
-    def imu_status(self):
-        return self._control().imu_status()
+        if self.closed:
+            raise RuntimeError("AimLoop is closed")
+        captured = self.clock.perf_counter() if now is None else float(now)
+        gray = to_gray(frame)
+        res = self.tracker.track(gray, captured)
+        out = self.control.accept_result(res, captured)
+        return _wrap(out, gray)
 
     def idle(self):
-        """无新图像时维持 ACK、搜索、IMU 补偿和视觉过期停机。"""
-        self._control().idle()
+        if not self.closed:
+            self.control.idle()
 
-    def stop(self, now=None):
-        now = self._clock.perf_counter() if now is None else float(now)
-        if self._controller is not None:
-            accepted = self._controller.stop(now)
-            self._stopped = True if accepted else self._stopped
-            return accepted
+    def request_search(self):
+        if not self.closed:
+            self.control.request_search.set()
+
+    def stop(self):
         if self.link is not None:
-            if self.link.stop(now=now) is False:
-                if self.aim is not None:
-                    self.aim.fault("stop:all")
-                return False
-        if self.aim is not None:
-            self.aim.motion_stopped(now=now)
-        self._stopped = True
-        return True
+            self.control._stop_motion(self.clock.perf_counter())
 
     def close(self):
-        self.stop()
-        if self._controller is not None:
-            self._controller.close()
-        if self.link is not None:
-            close = getattr(self.link, "close", None)
-            if close is not None:
-                close()
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            self.stop()
+        finally:
+            try:
+                self.control.close()
+            finally:
+                if self.link is not None:
+                    self.link.close()

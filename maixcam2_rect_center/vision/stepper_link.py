@@ -10,39 +10,12 @@
 `0x00 0xEE`=错误命令（见 §6.1）。
 """
 
-import math
 import time
+import math
 
 CR = 0x6B
 STATUS_OK = 0x02
 STATUS_E2 = 0xE2
-
-
-def estimate_move_seconds(pulses, rpm, acc=0, pulses_per_rev=3200):
-    """估算从静止到静止的位置运动时长（秒），含驱动器的加减速曲线。
-
-    非零 acc 每 ``(256-acc)*50us`` 改变 1 RPM；短行程使用三角曲线，
-    长行程使用梯形曲线。这里只做排程估算，不代表收到实际到位反馈。
-    """
-    pulses, rpm, pulses_per_rev = float(pulses), float(rpm), float(pulses_per_rev)
-    if not all(math.isfinite(v) for v in (pulses, rpm, pulses_per_rev)):
-        raise ValueError("motion parameters must be finite")
-    if pulses <= 0:
-        return 0.0
-    if rpm <= 0 or pulses_per_rev <= 0:
-        raise ValueError("rpm and pulses_per_rev must be positive")
-    rpm = min(5000.0, rpm)
-    speed = rpm * pulses_per_rev / 60.0
-    acc = max(0, min(255, int(acc)))
-    if acc == 0:
-        return pulses / speed
-    ramp = (256 - acc) * 50e-6
-    acceleration = pulses_per_rev / (60.0 * ramp)
-    ramp_seconds = rpm * ramp
-    ramp_distance = speed * ramp_seconds
-    if pulses <= ramp_distance:
-        return 2.0 * math.sqrt(pulses / acceleration)
-    return 2.0 * ramp_seconds + (pulses - ramp_distance) / speed
 
 
 def _frame(addr, func, data=()):
@@ -97,7 +70,8 @@ def _readback_pin(pinmap, pin):
 class StepperLink:
     """两条独立 UART 链路；任一轴打开失败不会阻塞另一轴。"""
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, clock=None):
+        self._clock = clock if clock is not None else time
         self.cfg = cfg
         self._ports = {}
         self._rxbuf = {"yaw": bytearray(), "pitch": bytearray()}
@@ -106,8 +80,14 @@ class StepperLink:
         self._last_status = {"yaw": None, "pitch": None}
         self._last_cmd = {"yaw": 0.0, "pitch": 0.0}
         self._last_ack = {"yaw": 0.0, "pitch": 0.0}
-        # 保留最早一条尚未确认的命令时间；持续发新命令不能推迟断链检测。
         self._pending_ack_since = {"yaw": None, "pitch": None}
+        # ★ ACK 看门狗必须**按轴独立武装**（2026-10-18 板端实锤）：
+        #   原先用全局 `_stats["ok"] > 0` 武装，只要 yaw 会回帧，pitch 就被一并
+        #   要求回帧；而 pitch 的驱动器 Response=None（或未接线/ID 不符）时永远
+        #   不回帧 → 累计 20 次超时 → `FAULT: link:ack_timeout:pitch`，整机锁死，
+        #   连一条运动指令都发不出去。从未回过帧的轴不应据此判障。
+        self._ack_seen = {"yaw": False, "pitch": False}
+        self._no_ack_warned = {"yaw": False, "pitch": False}
         self._timeout_count = {"yaw": 0, "pitch": 0}
         self._e2_times = []
         self.fault_reason = None
@@ -180,9 +160,12 @@ class StepperLink:
             if n is not None and int(n) != len(payload):
                 raise IOError("write returned %s" % n)
             self._stats["tx"] += 1
-            self._last_cmd[axis] = time.perf_counter() if now is None else float(now)
-            if self._pending_ack_since[axis] is None:
-                self._pending_ack_since[axis] = self._last_cmd[axis]
+            self._last_cmd[axis] = self._clock.perf_counter() if now is None else float(now)
+            pending = getattr(self, "_pending_ack_since", None)
+            if pending is None:
+                pending = self._pending_ack_since = {"yaw": None, "pitch": None}
+            if pending[axis] is None:
+                pending[axis] = self._last_cmd[axis]
             return True
         except Exception as exc:
             self._stats["err"] += 1
@@ -256,6 +239,12 @@ class StepperLink:
         返回 dict(ok, e2, reenabled, fault, reason)。本方法不碰 MaixPy，可直接单测。
         """
         now = float(now)
+        if not hasattr(self, "_pending_ack_since"):
+            self._pending_ack_since = {"yaw": None, "pitch": None}
+        if not hasattr(self, "_ack_seen"):
+            # 兼容用 __new__ 构造的轻量实例（测试/离线解析），与上面的 _pending 同口径。
+            self._ack_seen = {"yaw": False, "pitch": False}
+            self._no_ack_warned = {"yaw": False, "pitch": False}
         out = {"frames": list(frames), "ok": 0, "e2": 0,
                "reenabled": [], "fault": False, "reason": None}
         e2_axes = []
@@ -266,7 +255,9 @@ class StepperLink:
                 continue
             # 凡是能解析出状态的帧都证明链路活着 -> 刷新该轴 ACK 时刻。
             self._last_ack[axis] = now
+            self._ack_seen[axis] = True
             self._pending_ack_since[axis] = None
+            self._timeout_count[axis] = 0
             if status == STATUS_OK:
                 out["ok"] += 1
                 self._stats["ok"] += 1
@@ -289,19 +280,30 @@ class StepperLink:
             out["reason"] = "e2_flood(%d in %.1fs)" % (len(self._e2_times), window)
             self.fault_reason = out["reason"]
             return out
-        # ACK 硬超时：只在收到过确认帧（Response=Receive/Reached/Both）之后才生效，
-        # Response=None 时永远收不到确认帧，该判据自动不启用，不会误判 FAULT。
+        # ACK 硬超时：**按轴独立**启用 —— 只有该轴自己回过确认帧
+        # （Response=Receive/Reached/Both）才要求它继续回帧；从未回过帧的轴
+        # （Response=None / 未接线 / ID 不符）只告警一次、不再据此判障，
+        # 否则另一轴正常也会把整机拖进 FAULT。
         timeout_ms = float(getattr(self.cfg, "RX_TIMEOUT_MS", 0) or 0)
-        if timeout_ms > 0 and self._stats["ok"] > 0:
+        if timeout_ms > 0:
             for axis in self._ports:
-                pending = self._pending_ack_since[axis]
-                if pending is None:
-                    # 兼容只注入时间戳的离线链路，也排除已经得到 ACK 的命令。
-                    if self._last_ack[axis] >= self._last_cmd[axis]:
-                        self._timeout_count[axis] = 0
-                        continue
+                if not self._ack_seen[axis]:
+                    if (self._last_cmd[axis] > self._last_ack[axis]
+                            and not self._no_ack_warned[axis]):
+                        self._no_ack_warned[axis] = True
+                        out["no_ack"] = axis
+                        print("[gimbal] WARN %s 从未返回确认帧：驱动器 Response 可能不是 "
+                              "Receive/Reached/Both；该轴 ACK 看门狗已停用（不影响发令，"
+                              "但无法确认到位）" % axis)
+                    self._timeout_count[axis] = 0
+                    continue
+                pending = self._pending_ack_since.get(axis)
+                if pending is None and self._last_cmd[axis] > self._last_ack[axis]:
                     pending = self._last_cmd[axis]
-                if now - pending <= timeout_ms / 1000.0:
+                if pending is None or now - pending <= timeout_ms / 1000.0:
+                    self._timeout_count[axis] = 0
+                    continue
+                if self._last_ack[axis] >= self._last_cmd[axis]:
                     self._timeout_count[axis] = 0
                     continue
                 self._timeout_count[axis] += 1
@@ -315,23 +317,36 @@ class StepperLink:
 
     def poll(self, now=None):
         """非阻塞读两条串口并处理反馈；返回 `_ingest` 的 dict（含 frames）。"""
-        now = time.perf_counter() if now is None else float(now)
+        now = self._clock.perf_counter() if now is None else float(now)
         return self._ingest(self._drain(), now)
 
     def stats(self):
         return dict(self._stats)
 
     def close(self):
-        """控制线程停止后释放 UART；无 close 方法的 SDK 对象通过清引用析构。"""
-        ports, self._ports = self._ports, {}
-        self._stats["yaw"] = self._stats["pitch"] = False
-        error = None
-        for port in ports.values():
-            close = getattr(port, "close", None)
-            if close is not None:
-                try:
-                    close()
-                except Exception as exc:
-                    error = error or exc
-        if error is not None:
-            raise error
+        for port in tuple(self._ports.values()):
+            try:
+                port.close()
+            except Exception:
+                pass
+        self._ports.clear()
+
+
+def estimate_move_seconds(pulses, rpm, acc=0, pulses_per_rev=3200):
+    values = tuple(map(float, (pulses, rpm, acc, pulses_per_rev)))
+    if not all(math.isfinite(v) for v in values):
+        raise ValueError("non-finite motion parameters")
+    pulses, rpm, acc, ppr = values
+    if ppr <= 0 or rpm <= 0 or not 0 <= acc <= 255:
+        raise ValueError("invalid motion parameters")
+    pulses, rpm = abs(pulses), min(5000., rpm)
+    speed = rpm*ppr/60
+    if acc == 0:
+        return pulses/speed
+    ramp = (256-acc)*50e-6
+    acceleration = ppr/(60*ramp)
+    ramp_seconds = rpm*ramp
+    ramp_distance = speed*ramp_seconds
+    if pulses <= ramp_distance:
+        return 2*math.sqrt(pulses/acceleration)
+    return 2*ramp_seconds+(pulses-ramp_distance)/speed
