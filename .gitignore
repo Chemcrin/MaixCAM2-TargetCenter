@@ -20,6 +20,8 @@ __pycache__/
 .DS_Store
 Thumbs.db
 ~$*
+# VSCode Code Runner 的临时文件（"Run Code" 每次重写，无内容价值）
+tempCodeRunnerFile.*
 
 # ---- 工具工作数据 ----
 # .workbuddy/ 里**只有 memory/ 是有长期价值的设计记录**（记录"为什么这么改"、
