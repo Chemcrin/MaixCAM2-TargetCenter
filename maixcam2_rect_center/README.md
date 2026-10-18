@@ -1,11 +1,59 @@
 # MaixCAM2 黑框中心：四边精修、快速跟踪与双轴云台瞄准
 
-构建号 `2026-10-13-canny-kalman-v0.8.0`，应用版本 `0.8.0`。在 MaixVision 中打开本文件夹，选择“运行项目”。
+构建号 `2026-10-18-relock-ackfix-v1.0.0`，应用版本 `1.0.0`。在 MaixVision 中打开本文件夹，选择“运行项目”。
 必须一起下发应用包内的 **25 个文件**（`app.yaml` / `main.py` / `config.py` / `target_api.py` /
 `assets/icon.png` / `vision/` 下 20 个 `.py`），不能只运行当前 `main.py`。
 
 > 只想临时试参数时，也可以先 `python tools/build_single.py` 生成 `dist/main_single.py`，
 > 再用「运行当前文件」—— 那是自包含的单文件版，语义与分模块完全一致。改了源码记得重新生成。
+
+## 2026-10-18（v1.0.0）：亚像素独立复核 + 复锁/ACK 修复 —— 首个板端可用版本
+
+v0.8.0 之后的识别链路按「真值优先」重写并逐项复核（v0.9.0），再修掉两个板端实锤 bug（v0.9.1），
+本版把版本号收口为 `1.0.0`。**v1.0.0 的应用源码与 2026-10-18 板端实测的那份逐字一致**，
+未在发版时再动算法。
+
+### 1. 精度与性能（PC 离线，解析真值）
+
+- 亚像素：121 个相位全检出，**最大中心误差 0.0852px**（P95 0.0832），静态抖动 **0.0139px**；
+  尺度 56~320px、噪声 σ≤8、胶带 14/18/26mm、旋转 0~165°、透视 0~24 全检出。
+- 负样本：18 个结构化干扰（网格/棋盘/实心/U 形/文字/渐变/椭圆/贴边/纯噪声）**0 个危险误检**，
+  4 个被接受但中心正确（≤0.004px）。
+- 锁定态 `CenterTracker.track` **0.809ms/帧**（p95 1.042，占 33.3ms 预算 2.4%）；
+  首帧搜索 3.7ms；8 个嵌套矩形干扰时 25.8ms。
+
+### 2. 板端实测（MaixCAM2，SSH 部署）
+
+- `BUILD_ID` 可见、**`FAULT` 0 次**；`[aim] state=FINE dx=1.88 dy=-1.01 yaw=CW/2p pit=CCW/1p`
+  —— **两轴都发令**，dx 收敛 `1.88→1.70→1.34→-0.95` 后进 SETTLE。
+- 纯检测器空载 **17.3ms/帧**（≈58fps；refine 9.1 / verify 5.6 / 解中心 0.4）；
+  全应用同跑时 `det_ms=39~71ms`（主线程 draw 抢 CPU）；搜索态 0.5~1.4s，`locate`（Canny+轮廓）占 100%。
+- 脱靶后复锁：PC 逐场景实测**恰好 1 个全图搜索帧**，之后全 `track`；原位 1 帧遮挡 0 次搜索。
+
+### 3. 本版修掉的两个板端 bug（详见 `板端故障排查_2026-10-18.md`）
+
+1. **云台完全不动**：`stepper_link._ingest` 的 ACK 看门狗用**两轴共用**的 `ok` 计数武装，
+   yaw 回帧后也要求 pitch 回帧，而 pitch 驱动器 `Response=None` 永不回 ⇒ 20 次超时 ⇒
+   `FAULT: link:ack_timeout:pitch` ⇒ `_control` 首行 return，连屏幕按钮都被清掉。
+   修法：`_ack_seen` **按轴**武装，从没回过帧的轴只 WARN 一次。
+2. **丢锁后复锁慢**：`_refine` 用 `.all(axis=2)` 判越界，`TRACK_RADIUS=12` 时最外侧探测点越界
+   就把该边 24 个采样点全废 ⇒ `refitted<4` ⇒ 每帧退回 roi/full search（板端 0.3~1.4s/帧）。
+   修法：逐探测点判越界，只用两个抽头都在图内的列挑峰。
+
+### 4. 已知问题（下一轮调试入口）
+
+- **P0 回归（本版未修）**：v0.9.x 重写丢掉了 v0.8.0 的「缺边豁免」——
+  `_verify` 的 `MIN_OBSERVED_EDGE_COVERAGE=0.125` 要求每边留证据、`_refine` 在 `refitted<4` 时直接放弃，
+  导致两张**真机帧**（`tools/real_board_frame.png`、`tools/real_scene_corner_gap.png`）被判
+  `no_black_frame`，而 v0.8.0 能检出（0.04px / 0.33px）。两条闸门都是**放宽召回**的守卫，
+  改它牵动 U 形负样本的拒绝，故留待专门一轮处理；`tools/test_real_scene.py` 已标 `expectedFailure`
+  （修好后 unittest 会报 unexpected success）。
+- **30fps 未达成**：板端 track 56~115ms/帧，主线程 draw 20~40ms 抢 CPU。下一步削 draw
+  （去四角 `P1(x,y)` 标签、降 `SHOW_FPS`/`SHOW_WIDTH`），不动检测参数。
+- **pitch 方向未实证**：dy 长期只在 -1~-2.6px 抖动（低于回差），需 >20px 大误差试验；
+  pitch 从不回 ACK ⇒ 无法确认到位，可打开驱动器 `Response=Receive`。
+- **停止应用只能用 MaixVision 停止按钮**：`pkill -f main.py` / `kill -INT` 会在数秒内导致整机重启
+  （相机/ISP 未拆流），且重启清空 `/tmp/maixpy_run`。
 
 ## 2026-10-13（v0.8.0）：Canny 轮廓定位 + 卡尔曼滤波 —— 重构识别链路
 

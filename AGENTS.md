@@ -42,7 +42,7 @@
 │   ├── YYYY-MM-DD.md             逐日流水（append-only）
 │   └── MEMORY.md                 跨会话必须知道的结论
 ├── maixcam2_rect_center/       ★ 唯一的应用目录（自带 app.yaml 的独立应用）
-│   ├── app.yaml                  id = maixcam2_rect_center，version = 0.7.0
+│   ├── app.yaml                  id = maixcam2_rect_center，version = 1.0.0
 │   ├── main.py                   入口（顶部 BUILD_ID）
 │   ├── config.py                 ★ 现场唯一需要改的文件
 │   ├── target_api.py             对外 API：detect_black_frame / CenterTracker / AimLoop
@@ -183,7 +183,7 @@
 **以下命令一律在 `maixcam2_rect_center/` 目录下执行**（脚本按自身位置定位工程根），
 本机 Python 用 `"D:/Python311/python.exe"`（见 §4.1）。
 
-1. **提升 `main.py` 顶部 `BUILD_ID`**（当前 `2026-10-13-canny-kalman-v0.8.0`，
+1. **提升 `main.py` 顶部 `BUILD_ID`**（当前 `2026-10-18-relock-ackfix-v1.0.0`，
    格式 `YYYY-MM-DD-<slug>-vN`）。板端会打印 `[rect-center] <BUILD_ID> ...`，
    **与本地逐字一致才算跑的是新代码**；不更新就无法判断是否生效。
    **改了 `main.py` / `config.py` / `vision/*` / `target_api.py` 任一个都要做。**
