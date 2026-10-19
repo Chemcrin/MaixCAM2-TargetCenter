@@ -7,16 +7,22 @@
 **单应用仓库**：可烧录代码只有 `maixcam2_rect_center/`（`id=maixcam2_rect_center`，app 版本 **1.0.0**，
 BUILD_ID `2026-10-18-relock-ackfix-v1.0.0`，**25 文件**包，门禁全绿：check_pc 24/24、check_app OK=124 FAIL=0）。
 
-- **v1.0.0 的代码来源**：桌面 codex 快照 `Desktop/MaixCAM2-TargetCenter-codex-maixcam2-spec-v0.8.0/...`
+- **v1.0.0 的代码来源**：桌面 codex 快照 `MaixCAM2-TargetCenter-codex-maixcam2-spec-v0.8.0/...`
   的 `maixcam2_rect_center/`（v0.9.1，板端实测通过）**整体导入本仓库**——两套实现差异巨大
-  （`rectangle_center.py` 差 ~950 行），不是补丁关系。快照仓库本身无 remote，仅作历史留存。
-- **git 结构（2026-10-18 起）**：`main` = 主干 = 当前发布点 `f511e23`，`main`/`v0.4.0`/tag `v1.0.0` 三者同点
-  并已 push 成功（ISP 阻断已解除）。**版本锚点改用 annotated tag `vX.Y.Z`**，不再建同名分支
-  （同名会触发 `refname is ambiguous` 警告）。改代码直接提交到 `main`。
-- **契约与日志都在仓库根**：`AGENTS.md`、`.workbuddy/memory/`。**不要在应用目录里建 AGENTS.md / 日志**。
-- **待执行迁移**（已定案未执行，勿与发版混做）：① `maixcam2_rect_center/` → `maixcam2_target_aim/`
-  （同步 app.yaml id、build_single/check_app 路径、全部文档引用）；② 删重复副本 `maixcam2_opus_rework_Acp/`
-  （仍 untracked，未入库）。**执行前确认无并发写入。**
+  （`rectangle_center.py` 差 ~950 行），不是补丁关系。
+  ★ **2026-10-19 该快照已删除**：逐文件比对确认其 app 目录 v0.9.1 全面落后于主线 v1.0.0
+  （BUILD_ID/README/.gitignore/app.yaml 均已更新），**故不回退不合并**；独有文档已抢救进
+  `存档/分析文档/`、`存档/历史脚本/`、`.workbuddy/memory/2026-10-17.md`，127 个源文件/文档
+  归档为 `存档/历史快照/codex-snapshot_2026-10-18_源码与文档.zip`（1.41MB，`*.zip` 需 `-f` 入库）。
+  旧根 app（`target_center_25e`，BUILD_ID `2026-10-05-r8`）可从 `eff3561^` 取回，无需另存。
+- **git 结构（2026-10-18 起）**：`main` = 主干；tag `v1.0.0` 仍指 `f511e23`（发布点），
+  其后 `404b0e1` 为工作区整理。**版本锚点用 annotated tag `vX.Y.Z`**，不再建同名分支
+  （同名会触发 `refname is ambiguous` 警告）。改代码直接提交到 `main`，发布时 commit → 记忆落档 → tag → push。
+- **契约与日志都在仓库根**：`AGENTS.md`、`.workbuddy/memory/`。**不要在应用目录里建 AGENTS.md / 日志**
+  （快照里那份应用内 `AGENTS.md` 属历史残留，已随删除清理）。
+- **待执行迁移**（已定案未执行，勿与发版混做）：`maixcam2_rect_center/` → `maixcam2_target_aim/`
+  （同步 app.yaml id、build_single/check_app 路径、全部文档引用）。**执行前确认无并发写入。**
+  历史重复副本 `maixcam2_opus_rework_Acp/` 已不存在，无需再处理。
 
 ## 1 · v1.0.0 识别链路与闭环（= v0.9.0 复核 + v0.9.1 修复）
 - **分层**：`rect_geometry`（纯几何）/ `contour_locator`（Canny 主级 + Otsu 兜底，2 张掩膜）/ `kalman_filter`
