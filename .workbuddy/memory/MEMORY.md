@@ -16,8 +16,12 @@ BUILD_ID `2026-10-18-relock-ackfix-v1.0.0`，**25 文件**包，门禁全绿：c
   归档为 `存档/历史快照/codex-snapshot_2026-10-18_源码与文档.zip`（1.41MB，`*.zip` 需 `-f` 入库）。
   旧根 app（`target_center_25e`，BUILD_ID `2026-10-05-r8`）可从 `eff3561^` 取回，无需另存。
 - **git 结构（2026-10-18 起）**：`main` = 主干；tag `v1.0.0` 仍指 `f511e23`（发布点），
-  其后 `404b0e1` 为工作区整理。**版本锚点用 annotated tag `vX.Y.Z`**，不再建同名分支
-  （同名会触发 `refname is ambiguous` 警告）。改代码直接提交到 `main`，发布时 commit → 记忆落档 → tag → push。
+  其后 `404b0e1`/`6a46f84` 为工作区整理与记忆落档（**应用代码与 tag v1.0.0 逐字一致**）。
+  **版本锚点用 annotated tag `vX.Y.Z`**，不再建同名分支（同名会触发 `refname is ambiguous` 警告）。
+  ★ **2026-10-19 分支清零**：v0.3.1~v0.7.0、`backup/b-track-v20-pre-v9-rollback` 本地+远程全删
+  （7 条已并入 main，删除无损）；唯一未并入的 v0.3.2 实验线先打 tag `archive/v0.3.2` 再删。
+  现在仓库只有 **1 个分支（main）+ 3 个 tag**（`v1.0.0` / `archive/v0.3.2` / `baseline-dual-track-2026-10-05`）。
+  改代码直接提交到 `main`，发布时 commit → 记忆落档 → tag → push。
 - **契约与日志都在仓库根**：`AGENTS.md`、`.workbuddy/memory/`。**不要在应用目录里建 AGENTS.md / 日志**
   （快照里那份应用内 `AGENTS.md` 属历史残留，已随删除清理）。
 - **待执行迁移**（已定案未执行，勿与发版混做）：`maixcam2_rect_center/` → `maixcam2_target_aim/`
