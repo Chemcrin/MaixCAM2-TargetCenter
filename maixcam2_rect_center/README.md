@@ -338,7 +338,7 @@ SEARCH_EXHAUSTIVE = True     # 默认：搜索永不截断（对齐 v1–V3）
 
 ## 2026-10-12（v0.6.0）：应用 API、MaixVision 图传、双轴搜索与 IMU 补偿
 
-在 v0.5.3 视觉与平滑追踪基础上完成需求文档后四项。当前尚未实机标定：`YAW/PITCH_PULSES_PER_DEG=0`、`GIMBAL_GEAR_RATIO=0`、`IMU_AXES_CALIBRATED=False`、`ENABLE_IMU_FEEDFORWARD=False` 保留。未标定时 SEARCH 按 `SEARCH_PULSES` 固定脉冲扫描（v0.6.3 起，旧行为是一动不动）。启用标定步骤见 [硬件标定与上板检查](硬件标定与上板检查.md)。
+在 v0.5.3 视觉与平滑追踪基础上完成需求文档后四项。当前尚未实机标定：`YAW/PITCH_PULSES_PER_DEG=0`、`GIMBAL_GEAR_RATIO=0`、`IMU_AXES_CALIBRATED=False`、`ENABLE_IMU_FEEDFORWARD=False` 保留。未标定时 SEARCH 按 `SEARCH_PULSES` 固定脉冲扫描（v0.6.3 起，旧行为是一动不动）。启用标定步骤见 [硬件标定与上板检查](../存档/项目自检/硬件标定与上板检查.md)。
 
 ### 应用与复用接口
 
