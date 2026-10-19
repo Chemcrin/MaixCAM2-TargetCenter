@@ -9,7 +9,8 @@
 > - **本文件** —— 协作、工作边界、门禁、git 规范、DoD（**动手前先读这一份**）；
 > - **[`maixcam2_rect_center/README.md`](maixcam2_rect_center/README.md)** —— 人类可读的算法与上板说明；
 > - **[`maixcam2_rect_center/硬件标定与上板检查.md`](maixcam2_rect_center/硬件标定与上板检查.md)** —— 标定门槛与上板步骤；
-> - **[`maixcam2_rect_center/板端识别问题整理_2026-10-13.md`](maixcam2_rect_center/板端识别问题整理_2026-10-13.md)** —— 板端 3.2fps 问题的现场实锤与修改顺序。
+> - **[`maixcam2_rect_center/板端识别问题整理_2026-10-13.md`](maixcam2_rect_center/板端识别问题整理_2026-10-13.md)** —— 板端 3.2fps 问题的现场实锤与修改顺序；
+> - **[`maixcam2_rect_center/板端故障排查_2026-10-18.md`](maixcam2_rect_center/板端故障排查_2026-10-18.md)** —— v1.0.0 板端故障（云台不动 / 复锁慢）的定位与修复记录。
 >
 > 冲突时：**本文件对"协作与流程"生效，README 对"算法与上板"生效**。改一处请顺手同步另一处。
 >
@@ -40,21 +41,31 @@
 ├── AGENTS.md                   ★ 本文件（唯一契约，仓库根）
 ├── .workbuddy/memory/            工作日志与长期记忆（★ 日志放这里，不放应用目录）
 │   ├── YYYY-MM-DD.md             逐日流水（append-only）
-│   └── MEMORY.md                 跨会话必须知道的结论
+│   └── MEMORY.md                 跨会话必须知道的结论（≤3 KB，超了会被注入截断）
 ├── maixcam2_rect_center/       ★ 唯一的应用目录（自带 app.yaml 的独立应用）
 │   ├── app.yaml                  id = maixcam2_rect_center，version = 1.0.0
 │   ├── main.py                   入口（顶部 BUILD_ID）
 │   ├── config.py                 ★ 现场唯一需要改的文件
 │   ├── target_api.py             对外 API：detect_black_frame / CenterTracker / AimLoop
-│   ├── vision/*.py               识别、云台、IMU、显示、装配等模块
+│   ├── vision/*.py               识别、云台、IMU、显示、装配等 20 个模块
 │   ├── dist/main_single.py       单文件版（自动生成）
-│   ├── tools/                    离线验证 / 调参 / 门禁 / 打包（不进应用包）
+│   ├── tools/                    门禁 6 / 回归 21 / 验证 4 / 一次性诊断 5（不进应用包）
 │   ├── assets/icon.png           应用图标
-│   ├── README.md                 算法与上板说明（不进应用包）
-│   ├── 硬件标定与上板检查.md        标定门槛与上板步骤（不进应用包）
-│   └── 板端识别问题整理_2026-10-13.md  板端现场问题清单（不进应用包）
-└── 存档/                         已停用资料（A 轨文档、upstream 参考、分析报告，只读）
+│   ├── README.md                 算法与上板说明（现行）
+│   ├── 硬件标定与上板检查.md        标定门槛与上板步骤（现行）
+│   ├── 板端识别问题整理_2026-10-13.md  板端 3.2fps 现场实锤（现行）
+│   └── 板端故障排查_2026-10-18.md    v1.0.0 板端故障定位（现行）
+└── 存档/                         只读历史，五类
+    ├── reference/                upstream 2025E 参考实现
+    ├── 分析文档/                 设计 / 审查 / 复盘报告（含 v0.9.0 三件套）
+    ├── 提示词/                   生成期提示词存档
+    ├── 历史脚本/                 旧两轨期的一次性脚本
+    └── 历史快照/                 codex v0.9.1 工作树归档 zip
 ```
+
+- **文档分层**：仓库根只放 `AGENTS.md`；应用目录只放 4 篇现行文档（README / 硬件标定 /
+  板端识别问题整理 / 板端故障排查）；阶段性审查报告、提示词、旧脚本**一律进 `存档/`**（只读）。
+  新增文档先判断"是否现行"，历史类不进应用目录。
 
 - **只有一个应用**，`app.yaml` 的 `id` 与目录名一致。
   历史上曾并行维护过两套实现，**现已收敛**：仓库里只剩 `maixcam2_rect_center/` 一套可烧录代码，
