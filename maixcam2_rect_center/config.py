@@ -168,8 +168,7 @@ class Config:
     MAX_DARK_BRIGHT_RATIO = 0.72
     WEAK_EDGE_COVERAGE = 0.25
     MIN_OBSERVED_EDGE_COVERAGE = 0.125  # 整边无证据不输出有效中心，拒绝U形开口。
-    MIN_LINE_COVERAGE = 0.55
-    MAX_LINE_RESIDUAL_PX = 0.8  # 原始640×480像素；拒绝用曲线拟合矩形边。
+    MAX_LINE_RESIDUAL_PX = 0.8  # 原始640×480像素；仅用于挑内点重拟合，不再整边硬拒。
     FILTER_RESET_PX = 25.0
     MIN_AREA_RATIO = 0.008  # 小靶仍须通过原图四边暗带+直线精修，不能只靠面积放行。
     MAX_AREA_RATIO = 0.92
@@ -234,7 +233,12 @@ class Config:
     REFINE_ITERATIONS = 2
     REFINE_RADIUS_WIDE = 20
     RECOVER_MIN_CONTRAST = 80
-    RECOVER_MAX_DARK = 100
+    # 宽半径救援的暗带确证：暗带最亮采样必须 <= min(绝对兜底, 比例×内侧亮度中位数)。
+    # 旧版用绝对 RECOVER_MAX_DARK=100：现场加曝光后真胶带可到 118，会被误拒；
+    # 改成相对判据后 board+40/+70 能检出，window_grid(123/175=0.70) 与
+    # negative_e880(约73/109=0.67) 仍被拒。比例 0.60 是这条分界线。
+    RECOVER_MAX_DARK_RATIO = 0.60
+    RECOVER_MAX_DARK_ABS = 160.0
     PREDICT_MAX_GAP_S = 0.25
     KALMAN_ENABLE = True
     KALMAN_PROCESS_PX = 40.0

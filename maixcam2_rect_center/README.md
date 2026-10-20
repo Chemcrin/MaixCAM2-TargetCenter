@@ -1,11 +1,52 @@
 # MaixCAM2 黑框中心：四边精修、快速跟踪与双轴云台瞄准
 
-构建号 `2026-10-18-relock-ackfix-v1.0.0`，应用版本 `1.0.0`。在 MaixVision 中打开本文件夹，选择“运行项目”。
+构建号 `2026-10-19-recall-fix-v1.0.1`，应用版本 `1.0.1`。在 MaixVision 中打开本文件夹，选择“运行项目”。
 必须一起下发应用包内的 **25 个文件**（`app.yaml` / `main.py` / `config.py` / `target_api.py` /
 `assets/icon.png` / `vision/` 下 20 个 `.py`），不能只运行当前 `main.py`。
 
 > 只想临时试参数时，也可以先 `python tools/build_single.py` 生成 `dist/main_single.py`，
 > 再用「运行当前文件」—— 那是自包含的单文件版，语义与分模块完全一致。改了源码记得重新生成。
+
+## 2026-10-19（v1.0.1）：恢复真实帧召回 —— 去掉共线硬门限 + 宽半径救援改相对暗度
+
+**根因**：v1.0.0 的 `_refine` 要求每条边 24 个采样里至少 14 个落在拟合直线 0.8px 内
+（`MIN_LINE_COVERAGE=0.55`）。真机帧的胶带被遮挡、厚胶带内沿、印刷同心圆会让一条边凑不够数，
+`_refine` 直接返回 `None`；`_rescue` 调的是同一个 `_refine`，所以宽半径也救不回。
+`real_board_frame.png` 的获胜候选顶边只有 **13** 个共线点（门限 13.2，差 0.2 个），底边仅 **4** 个；
+`real_scene_corner_gap.png` 右边 **10/24** 个。整帧 → `no_black_frame` → 每帧全图搜索
+（板端 0.5~1.4s）→ 结果过期 → 闭环 HOLD。
+
+**改动**
+
+1. `_refine` 不再因共线点不足整边硬拒：有 ≥5 个内点就只用内点重拟合，不足 5 个则保留鲁棒全点拟合；
+   曲线/椭圆/开口仍由 `_verify` 的四边暗带覆盖率与 `MIN_OBSERVED_EDGE_COVERAGE` 拒绝。
+   `MIN_LINE_COVERAGE` 删除（不留死参数）。
+2. 宽半径救援的暗带确证从绝对 `RECOVER_MAX_DARK=100` 改为
+   `min(RECOVER_MAX_DARK_ABS=160, RECOVER_MAX_DARK_RATIO=0.60 × 内侧亮度中位数)`：
+   现场加曝光后真胶带最亮采样可到 118，旧绝对阈值会误拒；窗格/纸边仍被相对比值拒绝。
+
+**验证（PC）**
+
+- `test_real_scene`：6/6；两张真机帧首帧 `full_search`，第二帧起 `track`；board+40 灰度仍检出；
+  window_grid 仍拒。
+- `test_performance` 30/30、max **0.084px**、0 误检；`verify_subpixel` 121/121、max **0.0852px**、
+  抖动 **0.0139px**、18 负样本 **0 hazard**；`verify_precision` 76/76、0 误检；`test_images_e2e` 16/16。
+- 板端待验：`[perf] det_stage` 应从长期 `full_search/roi_search` 变成首帧后稳定 `track`；
+  `det_ms` 应从 0.5~1.4s 降到几十 ms。上板日志 `[rect-center] 2026-10-19-recall-fix-v1.0.1`
+  逐字一致才算新代码。
+
+**下一轮 C（结构根治，尚未实施）**
+
+1. `_refine` 的边选择从"最强有向梯度 + 0.45px 距离惩罚"改为**暗带连续性评分**：
+   候选边向里必须有 ≥N px 的暗带、越过胶带宽度后必须变亮；用它自然排除厚胶带内沿、
+   印刷同心圆和窗格细线，而不是靠共线门限事后否决。
+2. 允许 `refitted=3`：某条边确实无证据时沿用输入边；只在 `_verify` 覆盖率
+   ≥`MIN_OBSERVED_EDGE_COVERAGE` 时发布。U 形/开口仍由覆盖率门限拒绝。
+3. `_finalize` 首轮精修失败时回退到粗候选（v0.8.0 行为），不再整帧丢弃。
+4. 用 640×480 **原始板端帧**复标 `MAX_LINE_RESIDUAL_PX`、`REFINE_RADIUS_WIDE`、
+   `MIN_OBSERVED_EDGE_COVERAGE`；当前两张固件是 465×388 / 510×377，绝对像素门限不能直接照搬。
+5. 验收：`test_real_scene` 6/6 + U 形/window_grid/e880 负例 + `verify_subpixel` 121/121 +
+   `test_performance` 30/30 + 板端 `[perf] det_stage/det_ms` 前后对照。
 
 ## 2026-10-18（v1.0.0）：亚像素独立复核 + 复锁/ACK 修复 —— 首个板端可用版本
 
@@ -42,12 +83,12 @@ v0.8.0 之后的识别链路按「真值优先」重写并逐项复核（v0.9.0�
 
 ### 4. 已知问题（下一轮调试入口）
 
-- **P0 回归（本版未修）**：v0.9.x 重写丢掉了 v0.8.0 的「缺边豁免」——
+- **P0（v1.0.1 已修）**：v0.9.x 重写丢掉了 v0.8.0 的「缺边豁免」——
   `_verify` 的 `MIN_OBSERVED_EDGE_COVERAGE=0.125` 要求每边留证据、`_refine` 在 `refitted<4` 时直接放弃，
   导致两张**真机帧**（`tools/real_board_frame.png`、`tools/real_scene_corner_gap.png`）被判
-  `no_black_frame`，而 v0.8.0 能检出（0.04px / 0.33px）。两条闸门都是**放宽召回**的守卫，
-  改它牵动 U 形负样本的拒绝，故留待专门一轮处理；`tools/test_real_scene.py` 已标 `expectedFailure`
-  （修好后 unittest 会报 unexpected success）。
+  `no_black_frame`，而 v0.8.0 能检出（0.04px / 0.33px）。v1.0.1 的实测根因是第一道
+  `_refine` 共线硬门限（不是 `MIN_OBSERVED` 先触发），修法与验证见上方 2026-10-19 小节；
+  `tools/test_real_scene.py` 的两条用例已转正。
 - **30fps 未达成**：板端 track 56~115ms/帧，主线程 draw 20~40ms 抢 CPU。下一步削 draw
   （去四角 `P1(x,y)` 标签、降 `SHOW_FPS`/`SHOW_WIDTH`），不动检测参数。
 - **pitch 方向未实证**：dy 长期只在 -1~-2.6px 抖动（低于回差），需 >20px 大误差试验；

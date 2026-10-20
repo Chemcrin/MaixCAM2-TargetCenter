@@ -254,10 +254,12 @@ class RectangleCenterDetector:
             vx, vy, x, y = cv2.fitLine(samples, cv2.DIST_HUBER, 0, 0.01, 0.01).reshape(4)
             residual = np.abs((samples[:,0]-x)*vy-(samples[:,1]-y)*vx)
             collinear = residual <= getattr(self.cfg, 'MAX_LINE_RESIDUAL_PX', .8)
-            # Ellipses can pass sparse dark-band tests but lack straight edges.
-            if collinear.sum() < max(5, len(self._t)*getattr(self.cfg, 'MIN_LINE_COVERAGE', .55)):
-                return None
-            if not collinear.all():
+            # 不再因"共线点不足"丢弃整条边：真实场景里胶带被遮挡、厚胶带
+            # 内/外沿、印刷同心圆都会让某条边的采样点混入非共线点，v1.0.0
+            # 的硬门限（24×0.55=14 点）会把真机帧整帧判成 no_black_frame。
+            # 有至少 5 个内点就只用内点重拟合；不足 5 个则保留上面的鲁棒全点拟合。
+            # 曲线/椭圆仍由 _verify 的四边暗带覆盖率与 MIN_OBSERVED_EDGE_COVERAGE 拒绝。
+            if collinear.sum() >= 5 and not collinear.all():
                 vx, vy, x, y = cv2.fitLine(samples[collinear],cv2.DIST_HUBER,0,.01,.01).reshape(4)
             # 直线 ax+by+c=0。
             lines.append(np.array([-vy, vx, vy * x - vx * y], np.float64))
@@ -285,8 +287,18 @@ class RectangleCenterDetector:
             return None
         q = self._refine(gray, q, kind, radius)
         candidate = self._verify(gray, q, kind) if q is not None else None
+        if candidate is None:
+            return None
         # These two extra gates are ONLY for wide recovery; keep normal contrast sensitivity.
-        if candidate is not None and candidate['contrast'] >= getattr(self.cfg, 'RECOVER_MIN_CONTRAST', 80) and max(r['dark'] for r in candidate['edge_profile']) <= getattr(self.cfg, 'RECOVER_MAX_DARK', 100):
+        # 暗带确证用**相对亮度**而不是绝对灰度：现场加曝光后真胶带的最亮采样
+        # 可能到 118（v1.0.0 的 RECOVER_MAX_DARK=100 会误拒），而窗格/纸边等
+        # 假边界的暗带/内侧比值仍然偏高。0.60×内侧亮度中位数 + 160 绝对兜底
+        # 在 board+40/+70 与 window_grid/e880 之间都能分开。
+        bright = float(np.median([r['inside'] for r in candidate['edge_profile']]))
+        dark_max = max(r['dark'] for r in candidate['edge_profile'])
+        limit = min(getattr(self.cfg, 'RECOVER_MAX_DARK_ABS', 160.),
+                    getattr(self.cfg, 'RECOVER_MAX_DARK_RATIO', .60) * bright)
+        if candidate['contrast'] >= getattr(self.cfg, 'RECOVER_MIN_CONTRAST', 80) and dark_max <= limit:
             candidate['recovered'] = True
             return candidate
         return None

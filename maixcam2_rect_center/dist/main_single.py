@@ -10,9 +10,9 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-10-18 20:29:24
-    config.py                    sha1=574cc2c58915
-    main.py                      sha1=2a5c7ac18212
+生成时间：2026-10-19 22:36:24
+    config.py                    sha1=258a636a0a2d
+    main.py                      sha1=1824f8eccc27
     target_api.py                sha1=a597b3b90117
     vision/__init__.py           sha1=abc847cb4264
     vision/aim_control.py        sha1=6dab67c57421
@@ -30,7 +30,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
     vision/preview.py            sha1=bae51cd6c3a7
     vision/rate_meter.py         sha1=6f2a054c97a0
     vision/rect_geometry.py      sha1=00d7e433067d
-    vision/rectangle_center.py   sha1=ad7d7bcdd649
+    vision/rectangle_center.py   sha1=f6990a061488
     vision/stepper_link.py       sha1=35bbfea2f5af
     vision/telemetry.py          sha1=9a047c2372a2
     vision/vision_worker.py      sha1=fcf416a9f29a
@@ -39,7 +39,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '574cc2c589157355dd7c7b1c1820d1b500569af1', 'vision/rate_meter.py': '6f2a054c97a00470409a59de9dea42b0bff9c6ba', 'vision/camera_source.py': 'b398fedefe6eaf931d372abe00ba267f7d9697b5', 'vision/vision_worker.py': 'fcf416a9f29ab849861c59c314dc318f070278eb', 'vision/telemetry.py': '9a047c2372a2ce7d2e91928574310095395144aa', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/preview.py': 'bae51cd6c3a7332bd2006b381efb68c258cf2b88', 'vision/rect_geometry.py': '00d7e433067d53b7ad97d89d99662c01c3ca48f8', 'vision/contour_locator.py': 'f141438b8467c43f74470ba653e45b30ec5fb645', 'vision/kalman_filter.py': '9104ffbec3f72996407be9caca85324abeab19e8', 'vision/rectangle_center.py': 'ad7d7bcdd64995fb807b200a254e4166daaff7d8', 'vision/laser_spot.py': 'e15b62182b9d9a9c7ea694519ffebfd94ef46d0a', 'vision/stepper_link.py': '35bbfea2f5afeed77dd7fa22a853f17c3a3d6982', 'vision/imu_heading.py': 'a1193ada2173f113452781bcebc5a5e5b8745db3', 'vision/gimbal_self_test.py': '1094ca64bdc09f087f659b197c1085767a050952', 'vision/gimbal_aim.py': '543b2d46a1e86c861e0ff4c7f4e481950b8a8242', 'vision/gimbal_search.py': 'fc5c09964c192bd9c68e7e837dc3dc37b9bc4579', 'vision/aim_control.py': '6dab67c574216816d723822c82d4a37e4e7fb881', 'vision/gimbal_calibrate.py': 'c7db6a254e404cadea5c1ddd892afe7ae8834aa3', 'vision/app_runtime.py': '4fb552a5ce9e0f070f4be123815a0800b1c00ab7', 'vision/__init__.py': 'abc847cb4264bf79d47c0dae40f584bf4baba64f', 'target_api.py': 'a597b3b90117984974d6da8d04d1e4dc565dd027', 'main.py': '2a5c7ac18212f0429b26c2b1746241f4c090a421'}
+_SRC_SHA1 = {'config.py': '258a636a0a2d0a1a02cd3b6ada38666106470f84', 'vision/rate_meter.py': '6f2a054c97a00470409a59de9dea42b0bff9c6ba', 'vision/camera_source.py': 'b398fedefe6eaf931d372abe00ba267f7d9697b5', 'vision/vision_worker.py': 'fcf416a9f29ab849861c59c314dc318f070278eb', 'vision/telemetry.py': '9a047c2372a2ce7d2e91928574310095395144aa', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/preview.py': 'bae51cd6c3a7332bd2006b381efb68c258cf2b88', 'vision/rect_geometry.py': '00d7e433067d53b7ad97d89d99662c01c3ca48f8', 'vision/contour_locator.py': 'f141438b8467c43f74470ba653e45b30ec5fb645', 'vision/kalman_filter.py': '9104ffbec3f72996407be9caca85324abeab19e8', 'vision/rectangle_center.py': 'f6990a0614881811f1962a6f21ad5a4315298afb', 'vision/laser_spot.py': 'e15b62182b9d9a9c7ea694519ffebfd94ef46d0a', 'vision/stepper_link.py': '35bbfea2f5afeed77dd7fa22a853f17c3a3d6982', 'vision/imu_heading.py': 'a1193ada2173f113452781bcebc5a5e5b8745db3', 'vision/gimbal_self_test.py': '1094ca64bdc09f087f659b197c1085767a050952', 'vision/gimbal_aim.py': '543b2d46a1e86c861e0ff4c7f4e481950b8a8242', 'vision/gimbal_search.py': 'fc5c09964c192bd9c68e7e837dc3dc37b9bc4579', 'vision/aim_control.py': '6dab67c574216816d723822c82d4a37e4e7fb881', 'vision/gimbal_calibrate.py': 'c7db6a254e404cadea5c1ddd892afe7ae8834aa3', 'vision/app_runtime.py': '4fb552a5ce9e0f070f4be123815a0800b1c00ab7', 'vision/__init__.py': 'abc847cb4264bf79d47c0dae40f584bf4baba64f', 'target_api.py': 'a597b3b90117984974d6da8d04d1e4dc565dd027', 'main.py': '1824f8eccc271505554114e5b688cb02debdcc5f'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -218,8 +218,7 @@ class Config:
     MAX_DARK_BRIGHT_RATIO = 0.72
     WEAK_EDGE_COVERAGE = 0.25
     MIN_OBSERVED_EDGE_COVERAGE = 0.125  # 整边无证据不输出有效中心，拒绝U形开口。
-    MIN_LINE_COVERAGE = 0.55
-    MAX_LINE_RESIDUAL_PX = 0.8  # 原始640×480像素；拒绝用曲线拟合矩形边。
+    MAX_LINE_RESIDUAL_PX = 0.8  # 原始640×480像素；仅用于挑内点重拟合，不再整边硬拒。
     FILTER_RESET_PX = 25.0
     MIN_AREA_RATIO = 0.008  # 小靶仍须通过原图四边暗带+直线精修，不能只靠面积放行。
     MAX_AREA_RATIO = 0.92
@@ -284,7 +283,12 @@ class Config:
     REFINE_ITERATIONS = 2
     REFINE_RADIUS_WIDE = 20
     RECOVER_MIN_CONTRAST = 80
-    RECOVER_MAX_DARK = 100
+    # 宽半径救援的暗带确证：暗带最亮采样必须 <= min(绝对兜底, 比例×内侧亮度中位数)。
+    # 旧版用绝对 RECOVER_MAX_DARK=100：现场加曝光后真胶带可到 118，会被误拒；
+    # 改成相对判据后 board+40/+70 能检出，window_grid(123/175=0.70) 与
+    # negative_e880(约73/109=0.67) 仍被拒。比例 0.60 是这条分界线。
+    RECOVER_MAX_DARK_RATIO = 0.60
+    RECOVER_MAX_DARK_ABS = 160.0
     PREDICT_MAX_GAP_S = 0.25
     KALMAN_ENABLE = True
     KALMAN_PROCESS_PX = 40.0
@@ -1909,10 +1913,12 @@ class RectangleCenterDetector:
             vx, vy, x, y = cv2.fitLine(samples, cv2.DIST_HUBER, 0, 0.01, 0.01).reshape(4)
             residual = np.abs((samples[:,0]-x)*vy-(samples[:,1]-y)*vx)
             collinear = residual <= getattr(self.cfg, 'MAX_LINE_RESIDUAL_PX', .8)
-            # Ellipses can pass sparse dark-band tests but lack straight edges.
-            if collinear.sum() < max(5, len(self._t)*getattr(self.cfg, 'MIN_LINE_COVERAGE', .55)):
-                return None
-            if not collinear.all():
+            # 不再因"共线点不足"丢弃整条边：真实场景里胶带被遮挡、厚胶带
+            # 内/外沿、印刷同心圆都会让某条边的采样点混入非共线点，v1.0.0
+            # 的硬门限（24×0.55=14 点）会把真机帧整帧判成 no_black_frame。
+            # 有至少 5 个内点就只用内点重拟合；不足 5 个则保留上面的鲁棒全点拟合。
+            # 曲线/椭圆仍由 _verify 的四边暗带覆盖率与 MIN_OBSERVED_EDGE_COVERAGE 拒绝。
+            if collinear.sum() >= 5 and not collinear.all():
                 vx, vy, x, y = cv2.fitLine(samples[collinear],cv2.DIST_HUBER,0,.01,.01).reshape(4)
             # 直线 ax+by+c=0。
             lines.append(np.array([-vy, vx, vy * x - vx * y], np.float64))
@@ -1940,8 +1946,18 @@ class RectangleCenterDetector:
             return None
         q = self._refine(gray, q, kind, radius)
         candidate = self._verify(gray, q, kind) if q is not None else None
+        if candidate is None:
+            return None
         # These two extra gates are ONLY for wide recovery; keep normal contrast sensitivity.
-        if candidate is not None and candidate['contrast'] >= getattr(self.cfg, 'RECOVER_MIN_CONTRAST', 80) and max(r['dark'] for r in candidate['edge_profile']) <= getattr(self.cfg, 'RECOVER_MAX_DARK', 100):
+        # 暗带确证用**相对亮度**而不是绝对灰度：现场加曝光后真胶带的最亮采样
+        # 可能到 118（v1.0.0 的 RECOVER_MAX_DARK=100 会误拒），而窗格/纸边等
+        # 假边界的暗带/内侧比值仍然偏高。0.60×内侧亮度中位数 + 160 绝对兜底
+        # 在 board+40/+70 与 window_grid/e880 之间都能分开。
+        bright = float(np.median([r['inside'] for r in candidate['edge_profile']]))
+        dark_max = max(r['dark'] for r in candidate['edge_profile'])
+        limit = min(getattr(self.cfg, 'RECOVER_MAX_DARK_ABS', 160.),
+                    getattr(self.cfg, 'RECOVER_MAX_DARK_RATIO', .60) * bright)
+        if candidate['contrast'] >= getattr(self.cfg, 'RECOVER_MIN_CONTRAST', 80) and dark_max <= limit:
             candidate['recovered'] = True
             return candidate
         return None
@@ -4480,7 +4496,7 @@ from vision.preview import Preview, TouchButtons, display_result, apply_maixvisi
 from vision.aim_control import VisionControl, send_uart
 from vision.app_runtime import run
 
-BUILD_ID = "2026-10-18-relock-ackfix-v1.0.0"
+BUILD_ID = "2026-10-19-recall-fix-v1.0.1"
 
 # Compatibility aliases for existing PC tools and board integrations.
 _FrameRate, _LatestVision, _Preview, _Touch = FrameRate, LatestFrameWorker, Preview, TouchButtons

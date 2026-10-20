@@ -43,7 +43,7 @@
 │   ├── YYYY-MM-DD.md             逐日流水（append-only）
 │   └── MEMORY.md                 跨会话必须知道的结论（≤3 KB，超了会被注入截断）
 ├── maixcam2_rect_center/       ★ 唯一的应用目录（自带 app.yaml 的独立应用）
-│   ├── app.yaml                  id = maixcam2_rect_center，version = 1.0.0
+│   ├── app.yaml                  id = maixcam2_rect_center，version = 1.0.1
 │   ├── main.py                   入口（顶部 BUILD_ID）
 │   ├── config.py                 ★ 现场唯一需要改的文件
 │   ├── target_api.py             对外 API：detect_black_frame / CenterTracker / AimLoop
@@ -192,7 +192,7 @@
 **以下命令一律在 `maixcam2_rect_center/` 目录下执行**（脚本按自身位置定位工程根），
 本机 Python 用 `"D:/Python311/python.exe"`（见 §4.1）。
 
-1. **提升 `main.py` 顶部 `BUILD_ID`**（当前 `2026-10-18-relock-ackfix-v1.0.0`，
+1. **提升 `main.py` 顶部 `BUILD_ID`**（当前 `2026-10-19-recall-fix-v1.0.1`，
    格式 `YYYY-MM-DD-<slug>-vN`）。板端会打印 `[rect-center] <BUILD_ID> ...`，
    **与本地逐字一致才算跑的是新代码**；不更新就无法判断是否生效。
    **改了 `main.py` / `config.py` / `vision/*` / `target_api.py` 任一个都要做。**
@@ -206,8 +206,8 @@
    否则「运行当前文件」会漏模块。
 3. **跑门禁**：
    ```bash
-   "D:/Python311/python.exe" -B tools/check_app.py --manifest   # C1..C10 机检 + 打印包内清单（应 22 文件）
-   "D:/Python311/python.exe" -B tools/test_performance.py       # 视觉回归（基线：30/30、max 0.691px、0 误检）
+   "D:/Python311/python.exe" -B tools/check_app.py --manifest   # C1..C10 机检 + 打印包内清单（应 25 文件）
+   "D:/Python311/python.exe" -B tools/test_performance.py       # 视觉回归（基线：30/30、max 0.084px、0 误检）
    "D:/Python311/python.exe" -B tools/test_kalman.py            # 中心卡尔曼滤波（抑抖/跟手/时钟不连续）
    "D:/Python311/python.exe" -B tools/test_real_scene.py        # 真实固件（缺角胶带 + 板端真机帧 + 正视图自洽）
    "D:/Python311/python.exe" -B tools/test_target_api.py        # 对外 API 回归
