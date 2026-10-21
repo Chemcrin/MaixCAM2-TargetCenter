@@ -67,15 +67,17 @@
 
 ## 2. ★ 电机顺序与轴映射（实机定案，别凭直觉改）
 
-背景：最初按丝印以为 "U0=yaw、U2=pitch"，实机发现**正好相反**。轴对不上，闭环参数再对也必发散——代码里叫 "yaw" 的必须真的驱动 yaw 轴。本目录走"代码侧互换"这条路（U0 腾给 pitch，代价是 U0 为系统日志口、pitch 会混内核日志噪声）。
+两台电机的现接法：
 
 | 代码里的轴 | 串口 | 丝印 | 引脚 | 设备路径 | 驱动器 ID | pinmap |
 |---|---|---|---|---|---|---|
-| **pitch** | UART0 | `U0T`/`U0R` | A28 / A29 | `/dev/ttyS0` | **1** | ★ **必须显式 pinmap**（空表静默不通；⚠ ttyS0 也是系统日志口） |
+| **pitch** | UART0 | `U0T`/`U0R` | A28 / A29 | `/dev/ttyS0` | **1** | ★ **必须显式 pinmap**（空表静默不通；ttyS0 也是系统日志口） |
 | **yaw** | UART2 | `U2T`/`U2R` | B0 / B1 | `/dev/ttyS2` | **2** | 需 pinmap 切到 `UART2` 功能 |
 
-落点见 `config.py` 的 `PITCH_*` / `YAW_*` / `ADDR_*` / `PINMAP_STRICT` / `FLUSH_RX_ON_START`
-（**地址跟着电机走，不跟端口**；pinmap 失败只告警，避免把真故障藏成"打不开"）。
+驱动器地址：pitch = 1、yaw = 2，**跟着电机走，不跟端口**。
+串口与 pinmap 落点见 `config.py` 的 `PITCH_DEV`/`PITCH_PINS`、`YAW_DEV`/`YAW_PINS`；
+`PINMAP_STRICT=False`——pinmap 失败只告警，避免把真故障藏成"打不开"；
+U0 混有内核日志，开机清 RX（`FLUSH_RX_ON_START`）。
 
 **方向**：两轴正方向均 CCW（`yaw CCW=左`，`pitch CCW=上`）；
 自检序列 = pitch 上→下、yaw 左→右。
