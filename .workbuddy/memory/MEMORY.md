@@ -34,9 +34,10 @@
 
 ## 4 别踩的坑
 - 耗时不可跨机器比较；「识别不给力」先取板端 [perf] 或原始帧。
-- 手感**实际生效**的是 PULSE_PER_PX_*=3.67（未标定占位）、GAIN=0.30、ACC_TRACK=80、
-  DEADBAND=1.0；`DEG_PER_PX_*` 已从代码删除（AGENTS §3.1 仍写，调它无效）。
-  GAIN/RPM/MAX_STEP 被 `apply_aim_profile("smooth")` 覆盖成 0.30/60/150/80，读 config 字面值会读错。
+- 手感**实际生效**的是 PULSE_PER_PX_*=3.67（未标定占位）、GAIN=0.30、ACC_DEFAULT=80、
+  DEADBAND=1.0；`DEG_PER_PX_*` 已从代码删除（AGENTS §3.1 已于 10-21 重写为 PULSE_PER_PX 口径）。
+  GAIN/GAIN_COARSE/RPM/MAX_STEP 被 `apply_aim_profile("smooth")` 覆盖成
+  0.30/0.65/60/150/80，读 config 字面值会读错（机制已写入 AGENTS §3.1）。
   SEARCH_EXHAUSTIVE=True 是用户明确要的稳定性口径，别为速度动。
 - 轴：ttyS0(U0,ID=1)=pitch、ttyS2(U2,ID=2)=yaw，正方向均 CCW；DIR_SIGN_*=-1 未标定，
   越追越偏就翻号。AIM_PROFILE="smooth" 用户明确保持。
