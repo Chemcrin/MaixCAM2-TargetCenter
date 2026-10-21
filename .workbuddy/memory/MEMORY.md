@@ -25,6 +25,9 @@
 - SSH root@192.168.2.16(sipeed)；看 `[perf]` 的 det_ms。
 
 ## 3 纪律
+- 文档口径（用户 10-21 明确）：**写架构不写实现**——数值/行号/版本/日期不进文档，给符号名让读者去代码找；
+  变更记录不进文档（git 即历史）；导航在 `docs/README.md`；**禁止元叙述**（"人话：""一句话："
+  "严重警告：不要堆术语"这类自我说明句式，直接说事）。
 - 改代码：改 BUILD_ID → build_single.py → check_app/check_pc；新增模块同步 MODULES。
 - ⚠ 本机 Write 会写 CRLF ⇒ check_app C6 红；改完全仓 LF 归一。
 - ⚠ main.py 曾被外部整份覆盖：改完立即 build_single --smoke + check_app --manifest。
