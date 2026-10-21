@@ -87,7 +87,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from vision.rectangle_center import RectangleCenterDetector
-from vision.laser_spot import LaserSpotDetector, deviation
+from vision.laser_spot import FixedLaser, deviation
 
 __all__ = ["Result", "load_config", "to_gray", "detect_black_frame",
            "CenterTracker", "track_center", "reset", "AimLoop", "fixed_laser_error"]
@@ -228,7 +228,7 @@ class CenterTracker:
     def __init__(self, cfg=None, with_laser=False, use_raw=None):
         self.cfg = cfg if cfg is not None else load_config()
         self.detector = RectangleCenterDetector(self.cfg)
-        self.laser = LaserSpotDetector(self.cfg) if with_laser else None
+        self.laser = FixedLaser(self.cfg) if with_laser else None
         if use_raw is None:
             use_raw = bool(getattr(self.cfg, "AIM_USE_RAW", True))
         self.use_raw = bool(use_raw)
@@ -237,7 +237,7 @@ class CenterTracker:
         """清空跟踪锁定状态（换靶、换场景时调用，避免拿旧框去搜）。"""
         self.detector = RectangleCenterDetector(self.cfg)
         if self.laser is not None:
-            self.laser = LaserSpotDetector(self.cfg)
+            self.laser = FixedLaser(self.cfg)
         return self
 
     def track(self, frame, now=None):
@@ -252,7 +252,7 @@ class CenterTracker:
         if not res.get("valid"):
             return res
         if self.laser is not None:
-            ls = self.laser.process(gray, now)
+            ls = self.laser.static_state()
             res["laser"] = ls
             dv = deviation(ls, res, use_raw=self.use_raw)
             if dv is not None:

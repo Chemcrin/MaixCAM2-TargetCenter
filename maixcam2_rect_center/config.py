@@ -190,33 +190,13 @@ class Config:
     # Optional temporal smoothing. Zero disables it.
     CENTER_ALPHA = 0.70
 
-    # ---- 激光光斑读数（相机与激光固连 -> 光斑位置近似固定）------------------
-    # 只在标称位置周围 LASER_ROI_RADIUS 内找最亮点，输出亚像素质心，并给出它到
-    # 黑框中心的水平/垂直偏差，画在屏幕左上角。2026-10-07 现场标定：光斑约在
-    # (294, 202)，背景灰度 145 / 峰值 177。换镜头或重装激光笔后重新标定这两个值，
-    # 也能直接看板端日志 [perf] ... laser= 与屏幕读数反推真实位置。
+    # ---- 激光光斑读数（相机与激光固连 -> 光斑位置是常量，写死）--------------
+    # 不做任何图像检测：每帧只算"黑框中心 − 光斑常量"的两次减法（见 laser_spot.py）。
+    # 标定值 2026-10-07 现场实测 (294, 202)。换镜头或重装激光笔后重标这两个值：
+    # 看屏幕读数 LASER (u,v) 或板端日志 [perf] ... laser= 反推真实位置，填回这里。
     ENABLE_LASER = True
     LASER_U_NOMINAL = 294
     LASER_V_NOMINAL = 202
-    LASER_ROI_RADIUS = 64
-    # 光斑位置从哪来：
-    #   "fixed"（默认） 不检测，直接用上面的标定常量 —— 光斑位置写死，每帧只算
-    #                  "黑框中心 − 该常量"的像素差，零检测开销；
-    #   "detect"        每 LASER_INTERVAL_S 实测一次光斑（自校准，吸收机构/温度漂移）。
-    # 需要重新标定 U/V 时：临时改成 "detect"，把屏幕左上角读到的 `LASER (u,v)` 填回上面两行。
-    LASER_MODE = "fixed"
-    # 判据：峰值 >= max(LASER_MIN_PEAK, 背景 + LASER_MIN_CONTRAST)，且亮点面积在
-    # [MIN_PIXELS, MAX_PIXELS] 内。面积上限用来挡白墙高光/灯罩反光（那些会很大）。
-    LASER_MIN_PEAK = 140.0
-    LASER_MIN_CONTRAST = 20.0
-    LASER_MIN_PIXELS = 2
-    LASER_MAX_PIXELS = 160
-    # 限频：默认 0.30s ≈ 每秒算 3 次，其余帧沿用上次结果（显示仍是每帧画）。
-    LASER_INTERVAL_S = 0.30
-    # 单次更新跳变上限（像素）：超过判为误检，保留上次位置。0 = 关闭该门限。
-    LASER_MAX_JUMP_PX = 40.0
-    # 位置平滑（0 = 不平滑，直接用最新质心）。
-    LASER_SMOOTH_ALPHA = 0.60
 
     # v0.8: bounded Canny/Otsu search; exhaustive verification remains enabled.
     EDGE_CLOSE_PX = 3
