@@ -10,8 +10,8 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-10-26 01:37:23
-    config.py                    sha1=1b2635914081
+生成时间：2026-10-26 01:46:30
+    config.py                    sha1=8ac4fa4b2e0e
     main.py                      sha1=73e1ce0b7e76
     target_api.py                sha1=72bebb4bc573
     vision/__init__.py           sha1=cb0b828b205f
@@ -39,7 +39,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '1b263591408141760821af353c51d7ab3bc6a5fe', 'vision/rate_meter.py': '6f2a054c97a00470409a59de9dea42b0bff9c6ba', 'vision/camera_source.py': 'b398fedefe6eaf931d372abe00ba267f7d9697b5', 'vision/vision_worker.py': 'fcf416a9f29ab849861c59c314dc318f070278eb', 'vision/telemetry.py': '9a047c2372a2ce7d2e91928574310095395144aa', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/preview.py': 'bae51cd6c3a7332bd2006b381efb68c258cf2b88', 'vision/rect_geometry.py': '00d7e433067d53b7ad97d89d99662c01c3ca48f8', 'vision/contour_locator.py': 'e2543d10c5f2e45dfda218a24be4a490c7f88885', 'vision/kalman_filter.py': '9104ffbec3f72996407be9caca85324abeab19e8', 'vision/rectangle_center.py': 'b947c0b9afef2e2d9ff5ca9d5a5ccca168a60e37', 'vision/laser_spot.py': '05116ea284a6ab488ba2dac1a76da986e3e1add5', 'vision/stepper_link.py': '35bbfea2f5afeed77dd7fa22a853f17c3a3d6982', 'vision/imu_heading.py': 'a1193ada2173f113452781bcebc5a5e5b8745db3', 'vision/gimbal_self_test.py': '1094ca64bdc09f087f659b197c1085767a050952', 'vision/gimbal_aim.py': '543b2d46a1e86c861e0ff4c7f4e481950b8a8242', 'vision/gimbal_search.py': 'fc5c09964c192bd9c68e7e837dc3dc37b9bc4579', 'vision/aim_control.py': '7aa7a6427fc68e80d8a2d3f2fa668885671ceec8', 'vision/gimbal_calibrate.py': 'c7db6a254e404cadea5c1ddd892afe7ae8834aa3', 'vision/app_runtime.py': '4fb552a5ce9e0f070f4be123815a0800b1c00ab7', 'vision/__init__.py': 'cb0b828b205fa79aabefeadc46db5dd63089bc2d', 'target_api.py': '72bebb4bc57304930404b80733163b4575aefe0c', 'main.py': '73e1ce0b7e766a2180a0f1077fefa956d1fd67cc'}
+_SRC_SHA1 = {'config.py': '8ac4fa4b2e0e456c3e2aca1402c8ddd8f5be2172', 'vision/rate_meter.py': '6f2a054c97a00470409a59de9dea42b0bff9c6ba', 'vision/camera_source.py': 'b398fedefe6eaf931d372abe00ba267f7d9697b5', 'vision/vision_worker.py': 'fcf416a9f29ab849861c59c314dc318f070278eb', 'vision/telemetry.py': '9a047c2372a2ce7d2e91928574310095395144aa', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/preview.py': 'bae51cd6c3a7332bd2006b381efb68c258cf2b88', 'vision/rect_geometry.py': '00d7e433067d53b7ad97d89d99662c01c3ca48f8', 'vision/contour_locator.py': 'e2543d10c5f2e45dfda218a24be4a490c7f88885', 'vision/kalman_filter.py': '9104ffbec3f72996407be9caca85324abeab19e8', 'vision/rectangle_center.py': 'b947c0b9afef2e2d9ff5ca9d5a5ccca168a60e37', 'vision/laser_spot.py': '05116ea284a6ab488ba2dac1a76da986e3e1add5', 'vision/stepper_link.py': '35bbfea2f5afeed77dd7fa22a853f17c3a3d6982', 'vision/imu_heading.py': 'a1193ada2173f113452781bcebc5a5e5b8745db3', 'vision/gimbal_self_test.py': '1094ca64bdc09f087f659b197c1085767a050952', 'vision/gimbal_aim.py': '543b2d46a1e86c861e0ff4c7f4e481950b8a8242', 'vision/gimbal_search.py': 'fc5c09964c192bd9c68e7e837dc3dc37b9bc4579', 'vision/aim_control.py': '7aa7a6427fc68e80d8a2d3f2fa668885671ceec8', 'vision/gimbal_calibrate.py': 'c7db6a254e404cadea5c1ddd892afe7ae8834aa3', 'vision/app_runtime.py': '4fb552a5ce9e0f070f4be123815a0800b1c00ab7', 'vision/__init__.py': 'cb0b828b205fa79aabefeadc46db5dd63089bc2d', 'target_api.py': '72bebb4bc57304930404b80733163b4575aefe0c', 'main.py': '73e1ce0b7e766a2180a0f1077fefa956d1fd67cc'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -226,7 +226,7 @@ class Config:
     MIN_EDGE_CONTRAST = 20.0
     MAX_DARK_BRIGHT_RATIO = 0.72
     MIN_SIDE_CONTRAST = 15.0
-    MAX_WEAK_SIDE_CONTRAST = 10.0
+    MAX_WEAK_SIDE_CONTRAST = 40.0
     MIN_STRONG_SIDES = 3
     MIN_TAPE_RATIO = 0.62       # 实测暗带宽 / 18mm 理论宽；细窗框/屏幕边框会被拒
     SUPPORT_MIN = 0.45

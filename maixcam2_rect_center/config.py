@@ -176,7 +176,7 @@ class Config:
     MIN_EDGE_CONTRAST = 20.0
     MAX_DARK_BRIGHT_RATIO = 0.72
     MIN_SIDE_CONTRAST = 15.0
-    MAX_WEAK_SIDE_CONTRAST = 10.0
+    MAX_WEAK_SIDE_CONTRAST = 40.0
     MIN_STRONG_SIDES = 3
     MIN_TAPE_RATIO = 0.62       # 实测暗带宽 / 18mm 理论宽；细窗框/屏幕边框会被拒
     SUPPORT_MIN = 0.45
