@@ -146,46 +146,47 @@ class Config:
     UART_PORT = "/dev/ttyS0"
     UART_BAUD = 115200
 
-    # Canny and polygon gates. Tune only these values on a new lens.
+    # ---- 视觉识别（简化口径）-----------------------------------------------
+    # 提案：Canny + Otsu 两层，低分辨率；几何像 A4 矩形的候选才进入精修。
     CANNY_LOW = 35
     CANNY_HIGH = 120
-    # Canny 一张掩膜；未找到完整四边时才补 Otsu 一张。所有轮廓在低分辨率处理。
     SEARCH_WIDTH = 320
-    SEARCH_SPLIT_FRAMES = False  # 历史兼容项；新搜索始终在当前帧完成。
-    SEARCH_MAX_PROPOSALS = 128   # 仅 SEARCH_EXHAUSTIVE=False 时生效；ROI 不阻断全图重搜。
+    EDGE_CLOSE_PX = 3
+    SEARCH_MAX_CONTOURS = 16
     MAX_CANDIDATES = 8
-    EDGE_SAMPLES = 24
-    REFINE_RADIUS = 6
-    TRACK_RADIUS = 12
-    # 运动预测（治"速度快捕获不到"）：窄带精修的搜索半径 TRACK_RADIUS 保持小值（定位精度高），
-    # 靠"外推本帧位置"来跟上快速移动：用上两帧四角的**逐角位移**（含平移/缩放/旋转）预测本帧
-    # 四角，再在预测位置附近做窄带精修；预测失准时自动回落到上一帧位置。
-    # PREDICT_MAX_PX 是单帧预测位移上限，防噪点把预测甩飞（板端帧率低、目标位移可能很大时才需调大）。
-    ENABLE_MOTION_PREDICT = True
-    PREDICT_MAX_PX = 60.0
-    ROI_PADDING = 0.20
-    MIN_EDGE_COVERAGE = 0.55
-    MAX_DARK_BRIGHT_RATIO = 0.72
-    WEAK_EDGE_COVERAGE = 0.25
-    MIN_OBSERVED_EDGE_COVERAGE = 0.125  # 整边无证据不输出有效中心，拒绝U形开口。
-    MAX_LINE_RESIDUAL_PX = 0.8  # 原始640×480像素；仅用于挑内点重拟合，不再整边硬拒。
-    FILTER_RESET_PX = 25.0
-    MIN_AREA_RATIO = 0.008  # 小靶仍须通过原图四边暗带+直线精修，不能只靠面积放行。
+    MIN_AREA_RATIO = 0.008
     MAX_AREA_RATIO = 0.92
     APPROX_EPSILON = 0.025
-    MIN_ANGLE_DEG = 55.0
-    MIN_INNER_RATIO = 0.30
-    MAX_INNER_RATIO = 0.94
-    DARK_CENTER_MIN = 90.0
-    MIN_EDGE_CONTRAST = 20.0
-    BLACK_FRAME_MM = 18.0
+    HULL_FILL_RATIO = 0.60
+    MIN_EDGE_LENGTH_PX = 12.0
+    MIN_ASPECT = 1.0
+    MAX_ASPECT = 2.8
+    # 精修：6px 覆盖正常抖动，20px 覆盖遮挡/曝光跳变造成的粗提案。
+    EDGE_SAMPLES = 24
+    REFINE_RADIUS = 6
+    REFINE_RADIUS_WIDE = 20
+    TRACK_RADIUS = 12
+    WEAK_EDGE_COVERAGE = 0.25
+    MAX_LINE_RESIDUAL_PX = 0.8
+    ROI_PADDING = 0.20
+    FILTER_RESET_PX = 25.0
 
-    # Physical target coordinates. The center is invariant to scale, but the
-    # aspect ratio must match the printed target for a perspective correction.
+    # ---- 黑胶带证据：软打分 + 少量硬门槛 -----------------------------------
+    BLACK_FRAME_MM = 18.0
+    MIN_EDGE_CONTRAST = 20.0
+    MAX_DARK_BRIGHT_RATIO = 0.72
+    MIN_SIDE_CONTRAST = 15.0
+    MAX_WEAK_SIDE_CONTRAST = 10.0
+    MIN_STRONG_SIDES = 3
+    MIN_TAPE_RATIO = 0.62       # 实测暗带宽 / 18mm 理论宽；细窗框/屏幕边框会被拒
+    SUPPORT_MIN = 0.45
+    TRACK_SUPPORT_MIN = 0.25
+    SEARCH_MIN_SCORE = 220.0    # 暗背景（胶带外沿不可见）候选的最低置信分
+    SEARCH_EARLY_SCORE = 150.0  # 找到高置信候选即停止本帧搜索
+
+    # Physical target coordinates.
     TARGET_SHORT_MM = 210.0
     TARGET_LONG_MM = 297.0
-    CIRCLE_SAMPLES = 72
-    CIRCLE_RADIUS_MM = 2.0
 
     # Optional temporal smoothing. Zero disables it.
     CENTER_ALPHA = 0.70
@@ -198,36 +199,14 @@ class Config:
     LASER_U_NOMINAL = 294
     LASER_V_NOMINAL = 202
 
-    # v0.8: bounded Canny/Otsu search; exhaustive verification remains enabled.
-    EDGE_CLOSE_PX = 3
-    SEARCH_MAX_CONTOURS = 16
-    SEARCH_EXHAUSTIVE = True
-    # 仅供旧工具读取，新检测器不使用以下旧搜索参数。
-    DARK_THRESHOLDS = (25, 40, 55, 70, 85, 100, 120, 145)
-    SEARCH_BUDGET_MS = 25.0
-    MAX_CONTOURS = 128
-    ENABLE_LINE_RECOVERY = False
-    HULL_FILL_RATIO = 0.60
-    MIN_EDGE_LENGTH_PX = 12.0
-    STRONG_EDGE_COVERAGE = 0.85
-    REFINE_ITERATIONS = 2
-    REFINE_RADIUS_WIDE = 20
-    RECOVER_MIN_CONTRAST = 80
-    # 宽半径救援的暗带确证：暗带最亮采样必须 <= min(绝对兜底, 比例×内侧亮度中位数)。
-    # 旧版用绝对 RECOVER_MAX_DARK=100：现场加曝光后真胶带可到 118，会被误拒；
-    # 改成相对判据后 board+40/+70 能检出，window_grid(123/175=0.70) 与
-    # negative_e880(约73/109=0.67) 仍被拒。比例 0.60 是这条分界线。
-    RECOVER_MAX_DARK_RATIO = 0.60
-    RECOVER_MAX_DARK_ABS = 160.0
-    PREDICT_MAX_GAP_S = 0.25
+    # ---- 中心平滑（只影响显示/常规读数；闭环仍用 raw）----------------------
+    TRACK_MAX_GAP_S = 0.25
     KALMAN_ENABLE = True
     KALMAN_PROCESS_PX = 40.0
     KALMAN_MEASURE_PX = 0.9
     KALMAN_RESET_PX = 25.0
     KALMAN_MAX_PREDICT_S = 0.25
     KALMAN_VELOCITY_LIMIT_PX_S = 6000
-    FRONT_VIEW_SHORT_PX = 0
-    FRONT_VIEW_MAX_ERROR_PX = 5.0
 
     # Relative commands need both motion completion AND a newer captured frame.
     AIM_PROFILE = "smooth"

@@ -1,19 +1,18 @@
 """Real-scene positives (incl. one missing corner) and structural negatives.
 
-v1.0.1 regression locks:
-  * the two real board frames must be found (v1.0.0's `_refine` collinearity gate
-    rejected them);
+v1.1 regression locks:
+  * the two real board frames must be found;
   * the first frame may full-search, but the second must be `track` (a miss used to
-    force a 0.5~1.4s full search on every board frame);
-  * +40 gray exposure shift must still be rescued (absolute RECOVER_MAX_DARK removed);
-  * a window grid must still be rejected (relative dark-band gate).
+    force a full search on every board frame);
+  * +40 gray exposure shift must still be found (relative tape evidence, no
+    absolute recovery threshold);
+  * a window grid must still be rejected (tape-thickness evidence).
 """
 import unittest
 from pathlib import Path
 from test_support import ROOT, load_config
 import cv2
 import numpy as np
-from test_performance import scene
 from vision.rectangle_center import RectangleCenterDetector
 
 
@@ -27,16 +26,6 @@ class RealSceneTests(unittest.TestCase):
             image=read(ROOT/'tools'/name)
             self.assertIsNotNone(image)
             self.assertFalse(RectangleCenterDetector(load_config()).process(image)['valid'],name)
-
-    def test_front_view_direction_and_independent_center(self):
-        image, truth=scene([[170,90],[430,65],[485,395],[110,420]])
-        r=RectangleCenterDetector(load_config(FRONT_VIEW_SHORT_PX=512)).process(image)
-        self.assertTrue(r['valid'])
-        self.assertTrue(r['geometry_consistent'])
-        self.assertLess(np.linalg.norm(r['front_view_center']-truth),1.5)
-        view=r['front_view']
-        self.assertLess(np.median(view[3,:]),50)
-        self.assertGreater(np.median(view[view.shape[0]//2,:]),180)
 
     def test_board_positive_and_then_tracks(self):
         path=ROOT/'tools'/'real_board_frame.png'

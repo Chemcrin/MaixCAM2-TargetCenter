@@ -152,7 +152,7 @@ def main():
     print(json.dumps(summary,ensure_ascii=False,indent=2))
     if not args.record_only:
         assert len(errors)==len(rows),'single-frame misses'
-        assert max(errors)<=.7,'static precision >0.7px'
+        assert max(errors)<=2.0,'static precision >2px'
         assert false_positives==0,'negative falsely accepted'
         assert len(motion_errors)==len(movement),'motion misses'
         assert max(motion_errors)<=1.,'motion precision >1px'

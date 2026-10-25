@@ -1,10 +1,8 @@
-"""PC 回归/性能比较：python -B tools/test_performance.py [--legacy PATH]。
+"""PC 回归/性能比较：python -B tools/test_performance.py。
 
 合成图中心真值来自独立 OpenCV 投影，不用待测实现生成预期结果。
 PC 耗时只比较改动前后；不能换算为 MaixCAM2 实测帧率。
 """
-import argparse
-import importlib.util
 import json
 import sys
 import time
@@ -16,7 +14,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from config import Config
-from vision.rectangle_center import RectangleCenterDetector, draw_result
+from vision.rectangle_center import RectangleCenterDetector
 
 
 def scene(q, paper=220, tape=20, background=175, glare=False, noise=False):
@@ -77,7 +75,7 @@ def acquire(det, image, limit=120):
     return result, limit
 
 
-def run(legacy_path=None):
+def run():
     cv2.setNumThreads(Config.OPENCV_THREADS)
     data = fixtures()
     errors, failed = [], []
@@ -114,17 +112,6 @@ def run(legacy_path=None):
                   motion_max_error_px=round(max(movement_errors),3), motion_stages=stages,
                   lost_valid=lost['valid'], reacquired=reacquired['valid'],
                   optimized=benchmark(RectangleCenterDetector, data[0][0]))
-    if legacy_path:
-        spec = importlib.util.spec_from_file_location('legacy', legacy_path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        class LegacyConfig(Config):
-            MIN_ANGLE_DEG = 55.0
-            MIN_INNER_RATIO = 0.30
-            MAX_INNER_RATIO = 0.94
-            DARK_CENTER_MIN = 90.0
-        report['legacy'] = benchmark(lambda cfg: mod.RectangleCenterDetector(LegacyConfig), data[0][0])
-        report['speedup'] = round(report['legacy']['median_ms'] / report['optimized']['median_ms'],2)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     assert not failed, 'all 30 fixtures must be found'
     assert max(errors) <= .7, 'center precision must be <=0.7px'
@@ -135,7 +122,4 @@ def run(legacy_path=None):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--legacy')
-    args = parser.parse_args()
-    run(args.legacy)
+    run()

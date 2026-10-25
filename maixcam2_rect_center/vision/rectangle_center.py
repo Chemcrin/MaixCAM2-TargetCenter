@@ -1,32 +1,39 @@
-"""Canny proposals -> dark-band verification -> subpixel lines -> projective center.
+"""Canny/Otsu proposals -> gradient line refine -> four-side tape evidence -> center.
 
-Tracking samples only four narrow strips. Searches always finish in the same frame;
-ROI failure never consumes the right to attempt a full-frame reacquisition.
+One search pass. Every proposal gets a cheap geometric prefilter, a narrow and a
+wide line refine, and a soft tape score; the best candidate wins. There is no
+verify/rescue cascade, no front-view warp and no per-side hard coverage gate.
+Tracking refines the previous quadrilateral directly.
+
+The target center is the intersection of the quadrilateral diagonals: a projective
+map sends the rectangle's diagonal intersection (its center) to the image diagonal
+intersection, so no homography is needed to publish the center.
 """
 import time
+
 import cv2
 import numpy as np
-from .rect_geometry import (polygon_area as _polygon_area, order_quad as _order_quad,
-    side_lengths as _side_lengths, gaussian_solve as _gaussian_solve,
-    homography as _homography, rectangle_corners as _rectangle,
-    sample_batch as _sample, homography_8x8, project_points, inverse_map_points,
-    standard_circle, quad_is_valid, warp_front_view)
+
 from .contour_locator import ContourLocator
 from .kalman_filter import ConstantVelocityKalman2D
+from .rect_geometry import (homography, order_quad, polygon_area, project_points,
+                            quad_is_valid, rectangle_corners, sample_batch,
+                            side_lengths)
+
+
+def _quad_center(q):
+    """Diagonal intersection of an ordered quadrilateral (projective center)."""
+    def line(a, b):
+        return np.cross(np.r_[a, 1.], np.r_[b, 1.])
+    p = np.cross(line(q[0], q[2]), line(q[1], q[3]))
+    return (p[:2] / p[2]).astype(np.float64)
 
 
 class RectangleCenterDetector:
-    """有状态检测器：跨帧记住锁定框(_track)与平滑中心(_smooth)，稳态只做窄带精修。
+    """有状态检测器：跨帧记住锁定框与平滑中心。
 
-    状态字段：
-        _track       上一帧验证通过的外框（dict 候选）；None = 未锁定
-        _prev_quad   再上一帧的候选四角（运动预测用）；失锁时清空
-        _lost        连续未检出帧数（>0 = 刚失锁，禁用预测，避免用旧速度外推）
-        _smooth      上一帧输出中心，用于 CENTER_ALPHA 一阶平滑（仅显示口径）
-        _locked_th   上次成功的二值化阈值（下次优先复用，减少阈值轮换）
-        _roi_retry   失锁后是否还允许一次"ROI 搜索"（用一次即置 False，防反复局部搜）
-        _search_jobs 每 ROI 的阈值轮换进度（持续失败时跨帧轮换候选）
-    每帧重置的临时量：_search_count / _threshold_count / _proposals / _deadline（时间预算）。
+    搜索 = 两个 proposal 层（Canny/Otsu）→ 几何预筛 → 精修 → 四边胶带证据打分；
+    跟踪 = 只在上一帧四边形周围做窄带精修，失败才回退 ROI/全图搜索。
     """
 
     def __init__(self, config):
@@ -34,67 +41,54 @@ class RectangleCenterDetector:
         self.last = None
         self._smooth = None
         self._track = None
-        self._prev_quad = None                                 # 上上帧的候选四角（运动预测用）
-        self._lost = 0                                         # 连续未检出帧数（>0 时不预测）
-        self._locked_th = None
-        self._frame = 0
-        self._kernel = np.ones((3, 3), np.uint8)               # 二值化后闭运算核
-        # 四边上均匀分布的参数 t ∈ (0.12, 0.88)：避开四角（角点附近因透视最易模糊）。
+        self._frame_shape = None
+        self._kernel = np.ones((3, 3), np.uint8)
+        # 四边均匀参数 t ∈ (0.12, 0.88)：避开透视下最易糊的角点。
         self._t = np.linspace(0.12, 0.88, config.EDGE_SAMPLES, dtype=np.float32)
-        self._circle_cache = {}                                # 正视面圆周采样点缓存（按尺存）
         self._layout_cache = {}
         self._physical_cache = {}
         self._offset_cache = {}
         self._search_count = 0
-        self._threshold_count = 0
-        self._search_jobs = {}
+        self._mask_count = 0
         self._proposals = 0
-        self._deadline = float("inf")
-        self._roi_retry = True
         self.locator = ContourLocator(config)
-        self._prev_timestamp = self._timestamp = self._frame_shape = None
+        self._prev_timestamp = self._timestamp = None
         self._kalman = ConstantVelocityKalman2D(
             getattr(config, "KALMAN_PROCESS_PX", 40.), getattr(config, "KALMAN_MEASURE_PX", .9),
             getattr(config, "KALMAN_RESET_PX", 25.), getattr(config, "KALMAN_MAX_PREDICT_S", .25),
             getattr(config, "KALMAN_VELOCITY_LIMIT_PX_S", 6000.))
 
     def reset(self):
-        self.last = self._smooth = self._track = self._prev_quad = None
-        self._prev_timestamp = self._timestamp = self._frame_shape = None
-        self._lost = 0
-        self._roi_retry = True
+        self.last = self._smooth = self._track = None
+        self._prev_timestamp = self._timestamp = None
         self._kalman.reset()
 
     def _valid_quad(self, q, shape, margin=1):
         return quad_is_valid(q, shape, margin, getattr(self.cfg, "MIN_EDGE_LENGTH_PX", 12.))
 
+    # ------------------------------------------------------------- physical layout
     def _layout(self, q, kind):
-        """由四边形朝向推断物理长宽比，并给出该 kind 对应的物理矩形四角。
-
-        horizontal：两条"横向边长之和" > 两条"纵向边长之和" → 长边水平 → w=长边(mm)。
-        kind=="inner" 时物理矩形向内缩进一个胶带宽度 BLACK_FRAME_MM（对应内框角点）。
-        """
-        lengths = _side_lengths(q)
+        """由四边形朝向推断物理长宽比，并给出该 kind 对应的物理矩形四角。"""
+        lengths = side_lengths(q)
         horizontal = lengths[0] + lengths[2] > lengths[1] + lengths[3]
         w, h = ((self.cfg.TARGET_LONG_MM, self.cfg.TARGET_SHORT_MM) if horizontal
                 else (self.cfg.TARGET_SHORT_MM, self.cfg.TARGET_LONG_MM))
         inset = self.cfg.BLACK_FRAME_MM if kind == "inner" else 0.0
-        return w, h, self._physical_rectangle(w,h,inset)
+        return w, h, self._physical_rectangle(w, h, inset)
 
     def _physical_rectangle(self, w, h, inset=0.):
-        key = (w,h,inset)
+        key = (w, h, inset)
         if key not in self._physical_cache:
-            self._physical_cache[key] = _rectangle(w,h,inset)
+            self._physical_cache[key] = rectangle_corners(w, h, inset)
         return self._physical_cache[key]
 
-    def _verify(self, gray, q, kind, diagnostic=False):
-        """在正视面选取四边稀疏采样点并投影，不生成整幅 warp 图。
+    # ------------------------------------------------------------- tape evidence
+    def _evidence(self, gray, q, kind):
+        """四边暗带证据（不设通过/拒绝门槛，门槛留在搜索评分处）。
 
-        每条边检查胶带厚度方向的暗带覆盖率与内侧亮区对比，允许局部反光；
-        背景可以是黑色，不再强制外侧为白色。普通纸边及实心黑块会失败。
+        返回每边的 dark / inside / contrast / coverage、内外框、mm→px 单应。
+        采样点落到图像外时返回 None：这种候选既量不准也不该外推中心。
         """
-        if diagnostic:
-            self.last_diagnostic = {"reason": "invalid_geometry"}
         if not self._valid_quad(q, gray.shape):
             return None
         w, h, physical_quad = self._layout(q, kind)
@@ -102,14 +96,11 @@ class RectangleCenterDetector:
         if tape <= 0 or 2 * tape >= min(w, h):
             raise ValueError("BLACK_FRAME_MM must be between 0 and half the short side")
         try:
-            # 求 mm → px 单应：把物理矩形映射到图像候选四边形 q。
-            rect_to_image = _homography(physical_quad, q)
-            t = self._t
-            # 沿每条边的法向采 5 个偏移：0.20/0.40/0.60×胶带宽 = 黑带内部三点（应为暗），
-            # 1.22/1.45×胶带宽 = 越过内沿的亮面两点（应为亮）。暗亮对比即边证据。
+            rect_to_image = homography(physical_quad, q)
             key = (w, h, tape)
             if key not in self._layout_cache:
                 offsets = tape * np.array([0.20, 0.40, 0.60, 1.22, 1.45])
+                t = self._t
                 p = np.empty((4, len(t), 5, 2), np.float64)
                 p[0, :, :, 0] = (tape + t * (w - 2 * tape))[:, None]
                 p[0, :, :, 1] = offsets
@@ -120,117 +111,78 @@ class RectangleCenterDetector:
                 p[3, :, :, 0] = offsets
                 p[3, :, :, 1] = (tape + (1 - t) * (h - 2 * tape))[:, None]
                 self._layout_cache[key] = p
-            p = self._layout_cache[key]
-            mapped = project_points(rect_to_image, p.reshape(-1, 2)).reshape(p.shape)
+            mapped = project_points(rect_to_image, self._layout_cache[key].reshape(-1, 2)).reshape(
+                4, len(self._t), 5, 2)
         except (ValueError, np.linalg.LinAlgError):
             return None
         gh, gw = gray.shape
-        # 任何采样点落到图像外 → 该候选不可信（中心也无法可靠外推）。
         if (mapped[..., 0].min() < 0 or mapped[..., 1].min() < 0 or
                 mapped[..., 0].max() >= gw - 1 or mapped[..., 1].max() >= gh - 1):
             return None
-        samples = _sample(gray, mapped).astype(np.float32)
-        # 每条边、每个 t：暗带取三点最大值（黑带里最亮的那个仍应暗），亮面取两点中位数。
+        samples = sample_batch(gray, mapped).astype(np.float32)
         dark = np.max(samples[:, :, :3], axis=2)
         bright = (samples[:, :, 3] + samples[:, :, 4]) * .5
         delta = bright - dark
-        # "该证据成立" = 对比度达标 且 暗带确实比亮面暗（比值约束，排除两侧都亮的纸边）。
         coverage = ((delta >= self.cfg.MIN_EDGE_CONTRAST) &
                     (dark <= bright * self.cfg.MAX_DARK_BRIGHT_RATIO)).mean(axis=1)
-        med_dark, med_bright, edge_contrast = np.median(np.stack((dark,bright,delta)),axis=2)
-        contrast = float(np.median(edge_contrast))
-        if diagnostic:
-            self.last_diagnostic = dict(reason="dark_band_gates", coverage=coverage.tolist(),
-                contrast=edge_contrast.tolist(), dark=np.median(dark,axis=1).tolist(),
-                inside=np.median(bright,axis=1).tolist())
-        # 至少三边的大部分采样成立，第四边也必须有证据，不接受凭亮中心猜框。
-        if (np.count_nonzero(coverage >= self.cfg.MIN_EDGE_COVERAGE) < 3 or
-                contrast < self.cfg.MIN_EDGE_CONTRAST):
+        rows = [dict(dark=float(np.median(dark[i])), inside=float(np.median(bright[i])),
+                     contrast=float(np.median(delta[i])), coverage=float(coverage[i]))
+                for i in range(4)]
+        outer = q.copy() if kind == 'outer' else project_points(
+            rect_to_image, self._physical_rectangle(w, h)).astype(np.float32)
+        if kind != 'outer' and not self._valid_quad(outer, gray.shape):
             return None
-        # Missing-edge exemption needs three strong sides, never a lone bright stripe.
-        if coverage.min() < self.cfg.WEAK_EDGE_COVERAGE and np.sort(coverage)[1] < getattr(self.cfg, "STRONG_EDGE_COVERAGE", .85):
-            return None
-        # Entirely missing sides cannot determine a fresh precise rectangle.
-        # This rejects U-shapes even when their other three sides are perfect.
-        if coverage.min() < getattr(self.cfg, 'MIN_OBSERVED_EDGE_COVERAGE', .125):
-            return None
-        rows = [dict(dark=float(med_dark[i]), inside=float(med_bright[i]),
-                     contrast=float(edge_contrast[i]), coverage=float(coverage[i])) for i in range(4)]
-        outer = q.copy() if kind=='outer' else project_points(rect_to_image, self._physical_rectangle(w,h)).astype(np.float32)
-        if kind!='outer' and not self._valid_quad(outer, gray.shape):
-            return None
-        # 返回候选：外框(图像)、内框(胶带内沿)、mm→px 单应、四边剖面、质量分。
-        # 打分 = 中位对比度 + 60×平均覆盖率，用于多候选时择优（分数越高越像真靶纸）。
-        return dict(quad=q, outer_quad=outer,
-                    inner_quad=q.copy() if kind=='inner' else project_points(rect_to_image, self._physical_rectangle(w,h,tape)).astype(np.float32),
-                    kind=kind, rect_to_image=rect_to_image, width_mm=w, height_mm=h,
-                    edge_profile=rows, contrast=contrast,
-                    min_contrast=float(edge_contrast.min()), coverage=coverage,
-                    score=float(contrast + 60 * coverage.mean()),
-                    rank=float(contrast + 60 * coverage.mean() + 40 * coverage.min()))
+        inner = q.copy() if kind == 'inner' else project_points(
+            rect_to_image, self._physical_rectangle(w, h, tape)).astype(np.float32)
+        return dict(quad=q, outer_quad=outer, inner_quad=inner, kind=kind,
+                    rect_to_image=rect_to_image, width_mm=w, height_mm=h,
+                    edge_profile=rows, contrast=float(np.median(delta)),
+                    min_contrast=float(delta.min()),
+                    coverage=coverage, score=float(np.median(delta) + 60 * coverage.mean()))
 
+    # ------------------------------------------------------------- line refine
     def _refine(self, gray, q, kind, radius):
-        """当前帧四条灰度窄带 → 有方向的边缘跳变 → fitLine → 四角交点。
-
-        与 _verify 的区别：_verify 只判"像不像"，_refine 才真正**重新定位**每条边。
-        步骤：沿四边已有点 (base) 的法向 ±radius 采样灰度 → 求有向梯度 → 每列取
-        "最近预测位置"的跳变（offset 越小越优先，防止误锁到内侧印刷圆或另一侧胶带边）
-        → 用 fitLine 拟合四条直线 → 相邻直线两两求交 = 亚像素四角。
-        精修结果偏离原 q 超过 radius*2.8 或四角体检不过 → 判失败（返回 None）。
-        """
+        """在四边窄带内找有向梯度跳变，鲁棒拟合四条直线，交点即亚像素四角。"""
         q = np.asarray(q, np.float32)
         nxt = np.roll(q, -1, axis=0)
         e = nxt - q
         lengths = np.linalg.norm(e, axis=1)
         if lengths.min() < 10:
             return None
-        normal = np.column_stack((-e[:, 1], e[:, 0])) / lengths[:, None]   # 各边外/内法向
+        normal = np.column_stack((-e[:, 1], e[:, 0])) / lengths[:, None]
         base = q[:, None, :] * (1 - self._t[None, :, None]) + nxt[:, None, :] * self._t[None, :, None]
         radius = int(radius)
         if radius not in self._offset_cache:
             offsets = np.arange(-radius, radius + 1, dtype=np.float32)
             self._offset_cache[radius] = (offsets, np.abs(offsets[1:-1])[None, None, :] * .45)
         offsets, penalty = self._offset_cache[radius]
-        # 每条边、每个 t、每个法向偏移 → 采样点网格 (4, len(t), 2r+1, 2)。
         points = base[:, :, None, :] + normal[:, None, None, :] * offsets[None, None, :, None]
         gh, gw = gray.shape
-        # ★ 逐探测点判越界，**不能**用 .all(axis=2) 把整条 t 采样一律作废。
-        #   半径 12 时采样窗会伸出图像边界（大靶、靶贴边都是常态），整条边被
-        #   误判成"无有效采样" → _refine 返回 None → 每帧退回 ROI/全图搜索。
-        #   2026-10-18 板端实锤：TRACK_RADIUS=12、靶顶边 y≈10 时 track 永远失败，
-        #   det_stage 长期停在 roi_search/full_search（300~1400ms/帧）。
         probe_ok = ((points[..., 0] >= 1) & (points[..., 0] < gw - 1) &
                     (points[..., 1] >= 1) & (points[..., 1] < gh - 1))
-        values = _sample(gray, points).astype(np.float32)
-        gradient = values[:, :, 2:] - values[:, :, :-2]                    # 中心差分近似梯度
+        values = sample_batch(gray, points).astype(np.float32)
+        gradient = values[:, :, 2:] - values[:, :, :-2]
         if kind == "outer":
-            gradient *= -1                                                 # 外框要求暗→亮方向相反
-        # 中心差分的两个抽头都在图内，该列的跳变才可信。
+            gradient *= -1
         edge_ok = probe_ok[:, :, :-2] & probe_ok[:, :, 2:]
-        # 近预测边缘优先，避免捕获靶纸内部印刷圆或另一侧的胶带边缘。
         indices = np.argmax(np.where(edge_ok, gradient - penalty, -np.inf), axis=2)
         strength = np.take_along_axis(gradient, indices[..., None], axis=2)[..., 0]
-        # Interpolate the UNPENALISED gradient peak; the distance prior must not
-        # pull the measured edge toward last frame (that creates tracking lag).
+        # 抛物线插值用**未加距离惩罚**的梯度峰；惩罚只用于挑最近的边。
         left_i = np.maximum(indices - 1, 0)
         right_i = np.minimum(indices + 1, gradient.shape[2] - 1)
         left = np.take_along_axis(gradient, left_i[..., None], axis=2)[..., 0]
         right = np.take_along_axis(gradient, right_i[..., None], axis=2)[..., 0]
-        # 邻点越界时令其等于峰值：曲率必为负、修正量为 0（退回整数偏移），
-        # 既不用边界复制出来的假值去插值，也不因此丢掉整条采样。
         left = np.where(np.take_along_axis(edge_ok, left_i[..., None], axis=2)[..., 0], left, strength)
         right = np.where(np.take_along_axis(edge_ok, right_i[..., None], axis=2)[..., 0], right, strength)
-        curvature = left - 2*strength + right
+        curvature = left - 2 * strength + right
         sub = np.zeros_like(strength)
-        usable = (indices>0) & (indices<gradient.shape[2]-1) & (curvature < -1e-3)
-        np.divide(.5*(left-right),curvature,out=sub,where=usable)
-        selected = offsets[indices + 1] + np.clip(sub,-.5,.5)
-        good_edges = edge_ok.any(axis=2) & (strength >= self.cfg.MIN_EDGE_CONTRAST*.7)
-        # The common all-visible case reduces eight small NumPy median calls to
-        # two batched calls; partial/glared edges retain the masked robust path.
+        usable = (indices > 0) & (indices < gradient.shape[2] - 1) & (curvature < -1e-3)
+        np.divide(.5 * (left - right), curvature, out=sub, where=usable)
+        selected = offsets[indices + 1] + np.clip(sub, -.5, .5)
+        good_edges = edge_ok.any(axis=2) & (strength >= self.cfg.MIN_EDGE_CONTRAST * .7)
         if good_edges.all():
-            medians = np.median(selected,axis=1)
-            deviations = np.median(np.abs(selected-medians[:,None]),axis=1)
+            medians = np.median(selected, axis=1)
+            deviations = np.median(np.abs(selected - medians[:, None]), axis=1)
         else:
             medians = deviations = None
         lines = []
@@ -238,176 +190,201 @@ class RectangleCenterDetector:
         for i in range(4):
             good = good_edges[i].copy()
             if good.sum() < max(5, len(self._t) * self.cfg.WEAK_EDGE_COVERAGE):
-                # Collect a placeholder so all four sides are sampled, but a
-                # precise result below requires four actually measured lines.
                 lines.append(np.cross(np.r_[q[i], 1.], np.r_[nxt[i], 1.]))
                 continue
             shifts = selected[i, good]
             med = float(medians[i]) if medians is not None else float(np.median(shifts))
-            mad = float(deviations[i]) if deviations is not None else float(np.median(np.abs(shifts-med)))
-            # 去掉偏离中位数过大的离群跳变（反光/杂物），再确认仍够点。
+            mad = float(deviations[i]) if deviations is not None else float(np.median(np.abs(shifts - med)))
             good &= np.abs(selected[i] - med) <= max(2.5, mad * 3)
             if good.sum() < 5:
                 return None
             samples = base[i, good] + selected[i, good, None] * normal[i]
-            # 用鲁棒 Huber 回归拟合该边直线；fitLine 返回 (vx, vy, x0, y0)。
             vx, vy, x, y = cv2.fitLine(samples, cv2.DIST_HUBER, 0, 0.01, 0.01).reshape(4)
-            residual = np.abs((samples[:,0]-x)*vy-(samples[:,1]-y)*vx)
+            residual = np.abs((samples[:, 0] - x) * vy - (samples[:, 1] - y) * vx)
             collinear = residual <= getattr(self.cfg, 'MAX_LINE_RESIDUAL_PX', .8)
-            # 不再因"共线点不足"丢弃整条边：真实场景里胶带被遮挡、厚胶带
-            # 内/外沿、印刷同心圆都会让某条边的采样点混入非共线点，v1.0.0
-            # 的硬门限（24×0.55=14 点）会把真机帧整帧判成 no_black_frame。
-            # 有至少 5 个内点就只用内点重拟合；不足 5 个则保留上面的鲁棒全点拟合。
-            # 曲线/椭圆仍由 _verify 的四边暗带覆盖率与 MIN_OBSERVED_EDGE_COVERAGE 拒绝。
             if collinear.sum() >= 5 and not collinear.all():
-                vx, vy, x, y = cv2.fitLine(samples[collinear],cv2.DIST_HUBER,0,.01,.01).reshape(4)
-            # 直线 ax+by+c=0。
+                vx, vy, x, y = cv2.fitLine(samples[collinear], cv2.DIST_HUBER, 0, .01, .01).reshape(4)
             lines.append(np.array([-vy, vx, vy * x - vx * y], np.float64))
             refitted += 1
         if refitted < 4:
             return None
         lines = np.asarray(lines)
-        # 相邻两条直线（roll 1 使其错位一位）叉积求交点：交点齐次坐标 = 两直线系数叉积。
         crosses = np.cross(np.roll(lines, 1, axis=0), lines)
         if np.any(np.abs(crosses[:, 2]) < 1e-8):
-            return None                                                    # 有平行边 → 退化
+            return None
         refined = (crosses[:, :2] / crosses[:, 2:]).astype(np.float32)
         if (np.linalg.norm(refined - q, axis=1).max() > radius * 2.8 or
                 not self._valid_quad(refined, gray.shape)):
-            return None                                                    # 跑太远或形状不合法
+            return None
         return refined
 
-    def _four_edges_complete(self, candidate):
-        return (min(candidate['coverage']) >= self.cfg.MIN_EDGE_COVERAGE and
-                candidate['contrast'] >= self.cfg.MIN_EDGE_CONTRAST)
+    # ------------------------------------------------------------- scoring helpers
+    @staticmethod
+    def _aspect(q):
+        lengths = side_lengths(q)
+        return float(max((lengths[0] + lengths[2]) * .5, (lengths[1] + lengths[3]) * .5) /
+                     max(1., min((lengths[0] + lengths[2]) * .5, (lengths[1] + lengths[3]) * .5)))
 
-    def _rescue(self, gray, q, kind):
-        radius = getattr(self.cfg, 'REFINE_RADIUS_WIDE', 20)
-        if radius <= self.cfg.REFINE_RADIUS:
+    def _edge_support(self, gray, q, band=3):
+        """四条边上强梯度的比例；只用于低分候选提前淘汰，不作硬门槛。"""
+        q = np.asarray(q, np.float32)
+        nxt = np.roll(q, -1, axis=0)
+        e = nxt - q
+        lengths = np.linalg.norm(e, axis=1)
+        if lengths.min() < 8:
+            return 0.
+        normal = np.column_stack((-e[:, 1], e[:, 0])) / lengths[:, None]
+        t = np.linspace(.12, .88, 12, dtype=np.float32)
+        base = q[:, None, :] * (1 - t[None, :, None]) + nxt[:, None, :] * t[None, :, None]
+        ds = np.arange(-band, band + 1, dtype=np.float32)
+        points = base[:, :, None, :] + normal[:, None, None, :] * ds[None, None, :, None]
+        values = sample_batch(gray, points).astype(np.float32)
+        grad = values[:, :, 2:] - values[:, :, :-2]
+        return float((np.abs(grad).max(axis=2) >= 8.).mean())
+
+    def _tape_ratio(self, gray, q, dark, bright):
+        """实测暗带宽度 / 18mm 理论宽度；None 表示暗侧一直延伸到扫描上限（暗背景）。"""
+        q = np.asarray(q, np.float32)
+        nxt = np.roll(q, -1, axis=0)
+        e = nxt - q
+        lengths = np.linalg.norm(e, axis=1)
+        if lengths.min() < 10:
+            return 0.
+        normal = np.column_stack((-e[:, 1], e[:, 0])) / lengths[:, None]
+        short = float(min((lengths[0] + lengths[2]) * .5, (lengths[1] + lengths[3]) * .5))
+        expected = max(2., short * self.cfg.BLACK_FRAME_MM / self.cfg.TARGET_SHORT_MM)
+        maxd = max(4, int(expected * 2.6))
+        t = np.linspace(.15, .85, 10, dtype=np.float32)
+        base = q[:, None, :] * (1 - t[None, :, None]) + nxt[:, None, :] * t[None, :, None]
+        ds = np.arange(1, maxd + 1, dtype=np.float32)
+        thr = .5 * (float(dark) + float(bright))
+        runs = []
+        hit = 0
+        for sign in (1., -1.):
+            points = base[:, :, None, :] + normal[:, None, None, :] * (sign * ds)[None, None, :, None]
+            values = sample_batch(gray, points).astype(np.float32)
+            if sign > 0:
+                pos = values
+            else:
+                neg = values
+        for i in range(4):
+            for j in range(pos.shape[1]):
+                a, ha = self._run_length(pos[i, j], thr)
+                b, hb = self._run_length(neg[i, j], thr)
+                runs.append(max(a, b))
+                hit += int(ha or hb)
+        if not runs:
+            return 0.
+        if hit >= .5 * len(runs):
             return None
-        q = self._refine(gray, q, kind, radius)
-        candidate = self._verify(gray, q, kind) if q is not None else None
-        if candidate is None:
-            return None
-        # These two extra gates are ONLY for wide recovery; keep normal contrast sensitivity.
-        # 暗带确证用**相对亮度**而不是绝对灰度：现场加曝光后真胶带的最亮采样
-        # 可能到 118（v1.0.0 的 RECOVER_MAX_DARK=100 会误拒），而窗格/纸边等
-        # 假边界的暗带/内侧比值仍然偏高。0.60×内侧亮度中位数 + 160 绝对兜底
-        # 在 board+40/+70 与 window_grid/e880 之间都能分开。
-        bright = float(np.median([r['inside'] for r in candidate['edge_profile']]))
-        dark_max = max(r['dark'] for r in candidate['edge_profile'])
-        limit = min(getattr(self.cfg, 'RECOVER_MAX_DARK_ABS', 160.),
-                    getattr(self.cfg, 'RECOVER_MAX_DARK_RATIO', .60) * bright)
-        if candidate['contrast'] >= getattr(self.cfg, 'RECOVER_MIN_CONTRAST', 80) and dark_max <= limit:
-            candidate['recovered'] = True
-            return candidate
-        return None
+        return float(np.median(runs) / expected)
 
-    def _accept(self, gray, q, kind):
-        return self._verify(gray, q, kind) or self._rescue(gray, q, kind)
+    @staticmethod
+    def _run_length(values, thr):
+        dark = values < thr
+        if not dark.any():
+            return 0., False
+        start = int(np.argmax(dark))
+        if start > 3:
+            return 0., False
+        bright_after = values[start + 1:] > thr
+        if not bright_after.any():
+            return float(len(values) - start), True
+        return float(np.argmax(bright_after) + 1), False
 
-    def _finalize(self, gray, candidate, iterations):
-        for iteration in range(max(1, iterations)):
-            q = self._refine(gray, candidate['quad'], candidate['kind'], self.cfg.REFINE_RADIUS)
-            precise = self._verify(gray, q, candidate['kind']) if q is not None else None
-            if precise is None:
-                if iteration == 0:
-                    return None  # Never publish an unrefined coarse proposal as precise.
-                break
-            shift = np.linalg.norm(q-candidate['quad'], axis=1).max()
-            candidate = precise
-            if shift < .2:
-                break
-        return candidate
+    def _sides_ok(self, cand):
+        """四边软证据：至少三边暗带明确，剩下的边必须确实很弱而不是一条亮边。"""
+        rows = cand['edge_profile']
+        good = 0
+        for row in rows:
+            ok = (row['contrast'] >= self.cfg.MIN_SIDE_CONTRAST and
+                  row['dark'] <= self.cfg.MAX_DARK_BRIGHT_RATIO * max(1., row['inside']))
+            good += int(ok)
+            if not ok and not 0. < row['contrast'] < self.cfg.MAX_WEAK_SIDE_CONTRAST:
+                return False
+        return good >= self.cfg.MIN_STRONG_SIDES
+
+    # ------------------------------------------------------------- search
+    def _proposal_quads(self, gray, roi=None):
+        """Canny + Otsu 两层候选；只去掉完全相同的四边形。"""
+        out = []
+        for level in (ContourLocator.LEVEL_MASK, ContourLocator.LEVEL_EDGE):
+            quads = self.locator.locate(gray, roi, level)
+            self._mask_count += self.locator.last_stats.get('masks', 0)
+            for q, _ in quads:
+                if any(np.max(np.linalg.norm(q - old, axis=1)) < 2 for old in out):
+                    continue
+                out.append(q)
+        return out
 
     def _search(self, gray, roi=None):
         self._search_count += 1
-        cap = None if getattr(self.cfg, 'SEARCH_EXHAUSTIVE', True) else self.cfg.SEARCH_MAX_PROPOSALS
-        # A local cap cannot veto the required full search. Counters still accumulate.
-        proposals_at_start = self._proposals
         best = None
-        for level in (0, 1):
-            candidates = self.locator.locate(gray, roi, level)
-            self._mask_count += self.locator.last_stats['masks']
-            for q, kind in candidates:
-                if cap is not None and self._proposals-proposals_at_start >= cap:
-                    break
-                self._proposals += 1
-                candidate = self._accept(gray, q, kind)
-                if candidate is None:
-                    continue
-                if self._four_edges_complete(candidate) and not candidate.get('recovered'):
-                    precise = self._finalize(gray, candidate, getattr(self.cfg, 'REFINE_ITERATIONS', 2))
-                    if precise is not None:
-                        return precise
-                    continue
-                if best is None or candidate['rank'] > best['rank']:
-                    best = candidate
-        return self._finalize(gray, best, getattr(self.cfg, 'REFINE_ITERATIONS', 2)) if best else None
+        area_img = float(gray.shape[0] * gray.shape[1])
+        for q0 in self._proposal_quads(gray, roi):
+            self._proposals += 1
+            a0 = self._aspect(q0)
+            if not self.cfg.MIN_ASPECT <= a0 <= self.cfg.MAX_ASPECT:
+                continue
+            if abs(polygon_area(q0)) * .5 < area_img * self.cfg.MIN_AREA_RATIO:
+                continue
+            for kind in ('outer', 'inner'):
+                for radius in (self.cfg.REFINE_RADIUS, self.cfg.REFINE_RADIUS_WIDE):
+                    q = self._refine(gray, q0, kind, radius)
+                    if q is None:
+                        continue
+                    a = self._aspect(q)
+                    area = abs(polygon_area(q)) * .5
+                    if not self.cfg.MIN_ASPECT <= a <= self.cfg.MAX_ASPECT:
+                        continue
+                    if not area_img * self.cfg.MIN_AREA_RATIO <= area <= area_img * self.cfg.MAX_AREA_RATIO:
+                        continue
+                    cand = self._evidence(gray, q, kind)
+                    if cand is None or cand['contrast'] < self.cfg.MIN_EDGE_CONTRAST:
+                        continue
+                    if not self._sides_ok(cand):
+                        continue
+                    dark = float(np.median([r['dark'] for r in cand['edge_profile']]))
+                    bright = float(np.median([r['inside'] for r in cand['edge_profile']]))
+                    if dark > self.cfg.MAX_DARK_BRIGHT_RATIO * max(1., bright):
+                        continue
+                    tape = self._tape_ratio(gray, q, dark, bright)
+                    if tape is not None and tape < self.cfg.MIN_TAPE_RATIO:
+                        continue
+                    support = self._edge_support(gray, q)
+                    if support < self.cfg.SUPPORT_MIN:
+                        continue
+                    con = min(1.5, max(0., cand['contrast'] / 80.))
+                    score = (np.sqrt(area) * np.exp(-((np.log(a / (self.cfg.TARGET_LONG_MM /
+                             self.cfg.TARGET_SHORT_MM))) / .45) ** 2) *
+                             support ** 2 * (0.10 + float(np.mean(cand['coverage']))) * (0.25 + con))
+                    if tape is None and score < self.cfg.SEARCH_MIN_SCORE:
+                        continue
+                    if best is None or score > best[0]:
+                        best = (score, cand)
+            if best is not None and best[0] >= self.cfg.SEARCH_EARLY_SCORE:
+                break
+        return best[1] if best is not None else None
 
+    # ------------------------------------------------------------- center filtering
     def _continuous_time(self, newer, older):
-        return older is not None and np.isfinite([newer, older]).all() and 0 < newer-older <= getattr(self.cfg, 'PREDICT_MAX_GAP_S', .25)
-
-    def _motion_delta(self, timestamp=None):
-        timestamp = time.perf_counter() if timestamp is None else timestamp
-        if not getattr(self.cfg, 'ENABLE_MOTION_PREDICT', True) or self._prev_quad is None or self._track is None or self._lost:
-            return None
-        if not self._continuous_time(timestamp, self._timestamp) or not self._continuous_time(self._timestamp, self._prev_timestamp):
-            return None
-        delta = (self._track['quad']-self._prev_quad)*(timestamp-self._timestamp)/(self._timestamp-self._prev_timestamp)
-        step, cap = np.linalg.norm(delta, axis=1).max(), getattr(self.cfg, 'PREDICT_MAX_PX', 60.)
-        if cap > 0 and step > cap:
-            delta *= cap/step
-        return delta
+        return (older is not None and np.isfinite([newer, older]).all() and
+                0 < newer - older <= self.cfg.TRACK_MAX_GAP_S)
 
     def _filter_center(self, raw, timestamp):
         if getattr(self.cfg, 'KALMAN_ENABLE', True):
             self._smooth = self._kalman.update(raw, timestamp)
         else:
             alpha = self.cfg.CENTER_ALPHA
-            if self._smooth is None or alpha <= 0 or np.linalg.norm(raw-self._smooth) > self.cfg.FILTER_RESET_PX or not self._continuous_time(timestamp, self._timestamp):
+            if (self._smooth is None or alpha <= 0 or
+                    np.linalg.norm(raw - self._smooth) > self.cfg.FILTER_RESET_PX or
+                    not self._continuous_time(timestamp, self._timestamp)):
                 self._smooth = raw.copy()
             else:
-                self._smooth += alpha*(raw-self._smooth)
+                self._smooth += alpha * (raw - self._smooth)
         return self._smooth
 
-    @staticmethod
-    def _midline_mm(profile, extent_mm):
-        profile = np.asarray(profile, float)
-        low, high = np.percentile(profile, [10, 65])
-        if high-low < 5:
-            raise ValueError('front view lacks dark-band contrast')
-        threshold = (low+high)/2
-        n = len(profile)
-        # Only the first/last third can contain the tape inner edges, not printed rings.
-        def crossing(indices, rising):
-            for i in indices:
-                a, b = profile[i:i+2]
-                if (a <= threshold < b) if rising else (a >= threshold > b):
-                    return i+(threshold-a)/(b-a)
-            raise ValueError('front-view edge missing')
-        left = crossing(range(n//3), True)
-        right = crossing(range(n-2, 2*n//3, -1), False)
-        return (left+right)*.5*extent_mm/(n-1)
-
-    def _center(self, gray, candidate):
-        w, h, matrix = candidate['width_mm'], candidate['height_mm'], candidate['rect_to_image']
-        raw = project_points(matrix, [[w/2, h/2]])[0]
-        front = int(getattr(self.cfg, 'FRONT_VIEW_SHORT_PX', 0))
-        if front > 0:
-            view = warp_front_view(gray, matrix, w, h, front)
-            candidate['front_view'] = view
-            try:
-                center_mm = [self._midline_mm(np.median(view[view.shape[0]//3:2*view.shape[0]//3], axis=0), w),
-                             self._midline_mm(np.median(view[:, view.shape[1]//3:2*view.shape[1]//3], axis=1), h)]
-                center = project_points(matrix, [center_mm])[0]
-                error = float(np.linalg.norm(center-raw))
-                candidate.update(front_view_center=center, front_view_error_px=error,
-                                 geometry_consistent=error <= getattr(self.cfg, 'FRONT_VIEW_MAX_ERROR_PX', 5.))
-            except ValueError:
-                candidate.update(front_view_center=None, geometry_consistent=False)
-        return raw
-
+    # ------------------------------------------------------------- main entry
     def process(self, gray, timestamp=None):
         started = time.perf_counter()
         timestamp = started if timestamp is None else float(timestamp)
@@ -422,101 +399,73 @@ class RectangleCenterDetector:
             self.reset()
             self._frame_shape = g.shape
         self._search_count = self._mask_count = self._proposals = 0
-        candidate, stage = None, 'full_search'
         if g.size == 0:
             self.reset()
-            return dict(valid=False, stage='empty_frame', masks=0, search_count=0, proposals=0, detector_ms=0.)
-        delta = self._motion_delta(timestamp)
+            return dict(valid=False, stage='empty_frame', masks=0, search_count=0,
+                        proposals=0, detector_ms=0.)
+        candidate, stage = None, 'full_search'
         if self._track is not None:
-            kind = self._track['kind']
-            guesses = [self._track['quad']+delta] if delta is not None else []
-            guesses.append(self._track['quad'])
-            for guess in guesses:
-                q = self._refine(g, guess, kind, self.cfg.TRACK_RADIUS)
-                candidate = self._verify(g, q, kind) if q is not None else None
-                if candidate is not None:
-                    stage = 'track'
+            for kind in (self._track['kind'], 'outer' if self._track['kind'] == 'inner' else 'inner'):
+                q = self._refine(g, self._track['quad'], kind, self.cfg.TRACK_RADIUS)
+                if q is None:
+                    continue
+                cand = self._evidence(g, q, kind)
+                if cand is not None and self._edge_support(g, q) >= self.cfg.TRACK_SUPPORT_MIN:
+                    candidate, stage = cand, 'track'
                     break
-        if candidate is None and self._track is not None and self._roi_retry:
-            q = self._track['outer_quad'] + (delta if delta is not None else 0)
-            lo, hi = q.min(axis=0), q.max(axis=0)
-            pad = np.maximum((hi-lo)*self.cfg.ROI_PADDING, 24)
-            lo = np.maximum(0, np.floor(lo-pad)).astype(int)
-            hi = np.minimum([g.shape[1], g.shape[0]], np.ceil(hi+pad)).astype(int)
-            self._roi_retry = False
-            candidate = self._search(g, tuple(map(int, (*lo, *(hi-lo)))))
-            stage = 'roi_search'
-        # Never use elif: ROI failure must still attempt a complete full-frame search.
+            if candidate is None:
+                q = self._track['outer_quad']
+                span = q.max(axis=0) - q.min(axis=0)
+                lo = np.maximum(0, q.min(axis=0) - span * self.cfg.ROI_PADDING - 24).astype(int)
+                hi = np.minimum([g.shape[1], g.shape[0]],
+                                q.max(axis=0) + span * self.cfg.ROI_PADDING + 24).astype(int)
+                candidate = self._search(g, tuple(map(int, (*lo, *(hi - lo)))))
+                stage = 'roi_search'
         if candidate is None:
             candidate, stage = self._search(g), 'full_search'
         if candidate is None:
-            self._smooth = self._prev_quad = self._prev_timestamp = None
+            self._smooth = self._track = None
             self._kalman.reset()
-            self._lost += 1
             result = dict(valid=False, stage='no_black_frame')
         else:
-            previous = self._track
-            raw = self._center(g, candidate)
+            raw = _quad_center(candidate['quad'])
             center = self._filter_center(raw, timestamp)
-            self._prev_quad = self._prev_timestamp = None
-            if previous is not None and not self._lost and previous['kind'] == candidate['kind'] and self._continuous_time(timestamp, self._timestamp):
-                q = previous['quad']
-                if stage != 'track':
-                    q = min((np.roll(q, i, axis=0) for i in range(4)), key=lambda p: np.sum((p-candidate['quad'])**2))
-                self._prev_quad, self._prev_timestamp = q.copy(), self._timestamp
-            self._track, self._timestamp, self._lost, self._roi_retry = candidate, timestamp, 0, True
-            key = (candidate['width_mm'], candidate['height_mm'], self.cfg.CIRCLE_RADIUS_MM, self.cfg.CIRCLE_SAMPLES)
-            if key not in self._circle_cache:
-                self._circle_cache[key] = standard_circle(*key)
+            self._track, self._timestamp = candidate, timestamp
             result = dict(candidate)
             result.update(valid=True, stage=stage, u=float(center[0]), v=float(center[1]),
-                          raw_u=float(raw[0]), raw_v=float(raw[1]), quad=candidate['outer_quad'],
-                          detected_quad=candidate['quad'], outer_inferred=candidate['kind']=='inner',
-                          circle_points=project_points(candidate['rect_to_image'], self._circle_cache[key]))
-        result.update(captured_at=timestamp, image_size=(g.shape[1],g.shape[0]),
+                          raw_u=float(raw[0]), raw_v=float(raw[1]),
+                          quad=candidate['outer_quad'], detected_quad=candidate['quad'],
+                          outer_inferred=candidate['kind'] == 'inner')
+        result.update(captured_at=timestamp, image_size=(g.shape[1], g.shape[0]),
                       threshold=None, search_count=self._search_count, masks=self._mask_count,
                       thresholds=self._mask_count, proposals=self._proposals,
-                      detector_ms=(time.perf_counter()-started)*1000)
+                      detector_ms=(time.perf_counter() - started) * 1000)
         self.last = result
         return result
 
 
 def draw_result(gray, result, show_width=480, top_offset=0):
-    """缩小后再转 BGR 和描边，输出坐标仍为相机原图坐标。
+    """缩小后转 BGR 描边；输出坐标仍是相机原图坐标。
 
-    top_offset：屏幕上方的文字整体下移量（像素）。激光读数面板占用左上角时由
-    main.py 传 vision.laser_spot.PANEL_H，避免两处文字叠在一起。
-
-    绘制元素（均按 scale 换算到缩小图坐标，避免在原始分辨率上画）：
-        · 绿色外框 quad、青色内框 inner_quad
-        · 洋红四角圆点 + "P1..P4 (x,y)" 标签（原图坐标）
-        · 蓝色靶心十字 + "(u,v) stage 耗时" 文字
-    返回 BGR 画布，交由 _Preview.render 再 letterbox 到屏幕画布。
+    只画外框、内框和靶心十字——不画四角标签，减少板端绘制耗时。
     """
     g = np.asarray(gray).squeeze()
-    scale = min(1.0, float(show_width) / g.shape[1])        # 原图 → 缩小图 的比例
+    scale = min(1.0, float(show_width) / g.shape[1])
     if scale < 1:
         g = cv2.resize(g, (int(round(g.shape[1] * scale)), int(round(g.shape[0] * scale))))
     canvas = cv2.cvtColor(g, cv2.COLOR_GRAY2BGR)
     if not result.get("valid"):
-        # 无效：只提示一行红字，不画任何框（过期结果已在 main._display_result 降级）。
-        cv2.putText(canvas, "NO BLACK RECTANGLE", (8, 24 + top_offset), cv2.FONT_HERSHEY_SIMPLEX, .55, (0, 0, 255), 1)
+        cv2.putText(canvas, "NO BLACK RECTANGLE", (8, 24 + top_offset),
+                    cv2.FONT_HERSHEY_SIMPLEX, .55, (0, 0, 255), 1)
         return canvas
-    q = np.rint(result["quad"] * scale).astype(np.int32)          # 外框（缩小图坐标）
-    iq = np.rint(result["inner_quad"] * scale).astype(np.int32)   # 内框（缩小图坐标）
+    q = np.rint(result["quad"] * scale).astype(np.int32)
     cv2.polylines(canvas, [q], True, (0, 255, 0), 2, cv2.LINE_AA)
-    cv2.polylines(canvas, [iq], True, (0, 220, 220), 1)
-    for i, (x, y) in enumerate(result["quad"]):
-        p = tuple(q[i])
-        cv2.circle(canvas, p, 4, (255, 0, 255), -1)               # 洋红实心点
-        # 标签用**原图坐标**（x,y），便于与日志/回算对照；位置做边界夹取防出画。
-        label = "P%d (%d,%d)" % (i + 1, round(float(x)), round(float(y)))
-        tw = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, .36, 1)[0][0]
-        pos = (max(0, min(int(p[0]) + 5, canvas.shape[1] - tw - 1)),
-               max(12, min(int(p[1]) - 7, canvas.shape[0] - 5)))
-        cv2.putText(canvas, label, pos, cv2.FONT_HERSHEY_SIMPLEX, .36, (255, 255, 0), 1, cv2.LINE_AA)
+    if result.get("inner_quad") is not None:
+        iq = np.rint(result["inner_quad"] * scale).astype(np.int32)
+        cv2.polylines(canvas, [iq], True, (0, 220, 220), 1)
     c = tuple(np.rint(np.array([result["u"], result["v"]]) * scale).astype(int))
-    cv2.drawMarker(canvas, c, (255, 0, 0), cv2.MARKER_CROSS, 14, 2)   # 蓝色靶心十字
+    cv2.drawMarker(canvas, c, (255, 0, 0), cv2.MARKER_CROSS, 14, 2)
     cv2.putText(canvas, "(%d,%d) %s %.1fms" % (round(result["u"]), round(result["v"]),
-                result["stage"], result["detector_ms"]), (8, 22 + top_offset), cv2.FONT_HERSHEY_SIMPLEX, .45, (255, 220, 0), 1)
+                result["stage"], result["detector_ms"]), (8, 22 + top_offset),
+                cv2.FONT_HERSHEY_SIMPLEX, .45, (255, 220, 0), 1)
     return canvas

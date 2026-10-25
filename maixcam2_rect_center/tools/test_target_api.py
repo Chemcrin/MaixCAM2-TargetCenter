@@ -130,7 +130,7 @@ def test_laser_deviation():
     res = tr.track(image)
     check(res.aim_valid and res.dx is not None, "with_laser 时 aim_valid/dx 可用")
     check(abs(res.dx - (res.raw_u - nominal_u)) < 1e-6 and
-          abs(res.dy - (res.raw_v - nominal_v)) < 1e-6, "dx/dy = 靶心 − 光斑（raw 口径）")
+          abs(res.dy - (res.raw_v - nominal_v)) < 1e-6, "dx/dy = 靶心 - 光斑（raw 口径）")
     check(res.laser.get("reason") == "fixed" and res.laser["u"] == nominal_u,
           "光斑为写死常量（reason=fixed）")
 

@@ -195,7 +195,7 @@ def _wrap(raw, gray):
 def detect_black_frame(frame, cfg=None, detector=None):
     """**无状态**识别黑框，返回 ``Result``（没识别到则 ``valid=False``，``bool(res)`` 为假）。
 
-    每帧都是一次完整的"缩小图Canny/Otsu 候选 → 四边暗带验证 → 亚像素精修"，不依赖上一帧，
+    每帧都是一次完整的"缩小图 Canny/Otsu 提案 → 直线精修 → 四边胶带证据打分"，不依赖上一帧，
     适合"只在某几问里取一次黑框"的用法。传 ``detector`` 可复用分配，但每次都清空跟踪状态；
     连续视频使用 ``CenterTracker``。
 
