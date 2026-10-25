@@ -15,6 +15,8 @@
   暗背景 `_tape_ratio=None` 时用 SEARCH_MIN_SCORE=220 兜底。
 - PC：全图搜索 median 4.2ms（真实 board 7ms）、track 1.26ms；performance 30/30 max .14px、
   precision 76/76 max .76px、subpixel 121/121 max .064px、e2e 16/16；实心块/窗格/椭圆/照片拒检。
+- 多角度 `tools/test_angles.py`：干净 155/155 max .79px、径向畸变 72/72 max 3.27px、
+  真实 corner 旋转缩放 21/21 max 3.37px。`MAX_WEAK_SIDE_CONTRAST=40` 是为一条弱边留余量。
 
 ## 2 板端（2026-10-18 实测；v1.1 未上板）
 - 旧版 det_ms=39~71ms、track 56~115ms，30fps 未达成；v1.1 需看 `[perf] det_ms/det_stage`。
