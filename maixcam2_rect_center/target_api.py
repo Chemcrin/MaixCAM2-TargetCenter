@@ -87,7 +87,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from vision.rectangle_center import RectangleCenterDetector
-from vision.laser_spot import FixedLaser, deviation
+from vision.laser_spot import LaserSpotDetector, deviation
 
 __all__ = ["Result", "load_config", "to_gray", "detect_black_frame",
            "CenterTracker", "track_center", "reset", "AimLoop", "fixed_laser_error"]
@@ -195,7 +195,7 @@ def _wrap(raw, gray):
 def detect_black_frame(frame, cfg=None, detector=None):
     """**无状态**识别黑框，返回 ``Result``（没识别到则 ``valid=False``，``bool(res)`` 为假）。
 
-    每帧都是一次完整的"缩小图 Canny/Otsu 提案 → 直线精修 → 四边胶带证据打分"，不依赖上一帧，
+    每帧都是一次完整的"缩小图Canny/Otsu 候选 → 四边暗带验证 → 亚像素精修"，不依赖上一帧，
     适合"只在某几问里取一次黑框"的用法。传 ``detector`` 可复用分配，但每次都清空跟踪状态；
     连续视频使用 ``CenterTracker``。
 
@@ -228,7 +228,7 @@ class CenterTracker:
     def __init__(self, cfg=None, with_laser=False, use_raw=None):
         self.cfg = cfg if cfg is not None else load_config()
         self.detector = RectangleCenterDetector(self.cfg)
-        self.laser = FixedLaser(self.cfg) if with_laser else None
+        self.laser = LaserSpotDetector(self.cfg) if with_laser else None
         if use_raw is None:
             use_raw = bool(getattr(self.cfg, "AIM_USE_RAW", True))
         self.use_raw = bool(use_raw)
@@ -237,7 +237,7 @@ class CenterTracker:
         """清空跟踪锁定状态（换靶、换场景时调用，避免拿旧框去搜）。"""
         self.detector = RectangleCenterDetector(self.cfg)
         if self.laser is not None:
-            self.laser = FixedLaser(self.cfg)
+            self.laser = LaserSpotDetector(self.cfg)
         return self
 
     def track(self, frame, now=None):
@@ -252,7 +252,7 @@ class CenterTracker:
         if not res.get("valid"):
             return res
         if self.laser is not None:
-            ls = self.laser.static_state()
+            ls = self.laser.process(gray, now)
             res["laser"] = ls
             dv = deviation(ls, res, use_raw=self.use_raw)
             if dv is not None:

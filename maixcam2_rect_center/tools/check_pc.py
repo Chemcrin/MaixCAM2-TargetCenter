@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 TESTS=(
- 'test_performance.py','verify_precision.py','test_precision_control.py','test_kalman.py','test_real_scene.py','test_angles.py','test_target_api.py',
+ 'test_performance.py','verify_precision.py','test_precision_control.py','test_kalman.py','test_real_scene.py','test_target_api.py',
  'test_tracking.py','test_runtime_performance.py','test_gimbal_aim.py','test_gimbal_tracking.py',
  'test_aimloop_tracking.py','test_gimbal_search.py','test_imu_heading.py','test_imu_turn_tracking.py',
  'test_preview_stream.py','test_app_runtime.py','test_main_self_test.py','test_extension_control.py',

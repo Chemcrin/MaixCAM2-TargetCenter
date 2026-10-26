@@ -123,16 +123,26 @@ def test_signature_functional():
 
 
 def test_laser_deviation():
-    image, _ = scene(BASE_Q)
+    image, truth = scene(BASE_Q)
     nominal_u, nominal_v = 294, 202
-    # 光斑位置写死：dx/dy 应等于 靶心 − 标称常量
+    # fixed 模式：光斑位置写死，dx/dy 应等于 中心 − 标称
     tr = CenterTracker(with_laser=True)
     res = tr.track(image)
     check(res.aim_valid and res.dx is not None, "with_laser 时 aim_valid/dx 可用")
     check(abs(res.dx - (res.raw_u - nominal_u)) < 1e-6 and
-          abs(res.dy - (res.raw_v - nominal_v)) < 1e-6, "dx/dy = 靶心 - 光斑（raw 口径）")
-    check(res.laser.get("reason") == "fixed" and res.laser["u"] == nominal_u,
-          "光斑为写死常量（reason=fixed）")
+          abs(res.dy - (res.raw_v - nominal_v)) < 1e-6, "dx/dy = 靶心 − 光斑（raw 口径）")
+    # detect 模式：把亮斑画在"靶心左上 12/9 像素"处，验证实测与符号
+    cfg = load_config(LASER_MODE="detect", LASER_MIN_CONTRAST=20.0, LASER_MIN_PEAK=140.0)
+    spot = (int(round(truth[0])) - 12, int(round(truth[1])) + 9)   # 靶心右侧 12px、上方 9px
+    cv2.circle(image, spot, 3, 255, -1)
+    td = CenterTracker(cfg, with_laser=True)
+    td.track(image)                      # 第一次：建立基准
+    res2 = td.track(image, now=10.0)     # 越过 LASER_INTERVAL_S，真正实测
+    check(res2.laser.get("found") and abs(res2.laser["u"] - spot[0]) < 1.5,
+          "detect 模式实测到光斑", "u=%.1f v=%.1f" % (res2.laser["u"], res2.laser["v"]))
+    check(abs(res2.dx - 12.0) < 2.5 and abs(res2.dy + 9.0) < 2.5,
+          "偏差幅值与符号正确（靶心在光斑右侧、上方）",
+          "dx=%+.1f dy=%+.1f" % (res2.dx, res2.dy))
 
 
 def test_config_override():

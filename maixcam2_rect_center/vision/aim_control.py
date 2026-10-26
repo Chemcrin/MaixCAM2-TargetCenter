@@ -4,7 +4,7 @@ import threading
 import time
 from .gimbal_self_test import GimbalSelfTest
 from .gimbal_search import SearchSweep
-from .laser_spot import FixedLaser, deviation
+from .laser_spot import LaserSpotDetector, deviation
 from .rectangle_center import RectangleCenterDetector
 
 
@@ -24,8 +24,9 @@ class VisionControl:
         self.request_search = threading.Event()
         self.request_bias = threading.Event()
         self.detector = RectangleCenterDetector(cfg)
-        self.laser = FixedLaser(cfg) if cfg.ENABLE_LASER else None
-        self.laser_state = self.laser.static_state() if self.laser else None
+        self.laser = LaserSpotDetector(cfg) if cfg.ENABLE_LASER else None
+        self.laser_static = self.laser is not None and self.laser.mode == 'fixed'
+        self.laser_state = self.laser.static_state() if self.laser_static else None
         self.last_capture = -1e9
         self.stale_stopped = True
         self.notice = ''
@@ -38,6 +39,8 @@ class VisionControl:
         started = self._clock.perf_counter()
         result = self.detector.process(gray, timestamp=captured_at)
         detected = self._clock.perf_counter()
+        if self.laser is not None and not self.laser_static:
+            self.laser_state = self.laser.process(gray, captured_at)
         dv = deviation(self.laser_state, result, use_raw=self.cfg.AIM_USE_RAW) if self.laser_state else None
         if dv is not None:
             result.update(laser_u=self.laser_state['u'], laser_v=self.laser_state['v'], dx=dv[0], dy=dv[1])

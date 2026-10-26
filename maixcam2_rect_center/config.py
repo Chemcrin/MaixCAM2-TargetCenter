@@ -146,67 +146,104 @@ class Config:
     UART_PORT = "/dev/ttyS0"
     UART_BAUD = 115200
 
-    # ---- 视觉识别（简化口径）-----------------------------------------------
-    # 提案：Canny + Otsu 两层，低分辨率；几何像 A4 矩形的候选才进入精修。
+    # Canny and polygon gates. Tune only these values on a new lens.
     CANNY_LOW = 35
     CANNY_HIGH = 120
+    # Canny 一张掩膜；未找到完整四边时才补 Otsu 一张。所有轮廓在低分辨率处理。
     SEARCH_WIDTH = 320
-    EDGE_CLOSE_PX = 3
-    SEARCH_MAX_CONTOURS = 16
+    SEARCH_SPLIT_FRAMES = False  # 历史兼容项；新搜索始终在当前帧完成。
+    SEARCH_MAX_PROPOSALS = 128   # 仅 SEARCH_EXHAUSTIVE=False 时生效；ROI 不阻断全图重搜。
     MAX_CANDIDATES = 8
-    MIN_AREA_RATIO = 0.008
-    MAX_AREA_RATIO = 0.92
-    APPROX_EPSILON = 0.025
-    HULL_FILL_RATIO = 0.60
-    MIN_EDGE_LENGTH_PX = 12.0
-    MIN_ASPECT = 1.0
-    MAX_ASPECT = 2.8
-    # 精修：6px 覆盖正常抖动，20px 覆盖遮挡/曝光跳变造成的粗提案。
     EDGE_SAMPLES = 24
     REFINE_RADIUS = 6
-    REFINE_RADIUS_WIDE = 20
     TRACK_RADIUS = 12
-    WEAK_EDGE_COVERAGE = 0.25
-    MAX_LINE_RESIDUAL_PX = 0.8
+    # 运动预测（治"速度快捕获不到"）：窄带精修的搜索半径 TRACK_RADIUS 保持小值（定位精度高），
+    # 靠"外推本帧位置"来跟上快速移动：用上两帧四角的**逐角位移**（含平移/缩放/旋转）预测本帧
+    # 四角，再在预测位置附近做窄带精修；预测失准时自动回落到上一帧位置。
+    # PREDICT_MAX_PX 是单帧预测位移上限，防噪点把预测甩飞（板端帧率低、目标位移可能很大时才需调大）。
+    ENABLE_MOTION_PREDICT = True
+    PREDICT_MAX_PX = 60.0
     ROI_PADDING = 0.20
-    FILTER_RESET_PX = 25.0
-
-    # ---- 黑胶带证据：软打分 + 少量硬门槛 -----------------------------------
-    BLACK_FRAME_MM = 18.0
-    MIN_EDGE_CONTRAST = 20.0
+    MIN_EDGE_COVERAGE = 0.55
     MAX_DARK_BRIGHT_RATIO = 0.72
-    MIN_SIDE_CONTRAST = 15.0
-    MAX_WEAK_SIDE_CONTRAST = 40.0
-    MIN_STRONG_SIDES = 3
-    MIN_TAPE_RATIO = 0.62       # 实测暗带宽 / 18mm 理论宽；细窗框/屏幕边框会被拒
-    SUPPORT_MIN = 0.45
-    TRACK_SUPPORT_MIN = 0.25
-    SEARCH_MIN_SCORE = 220.0    # 暗背景（胶带外沿不可见）候选的最低置信分
-    SEARCH_EARLY_SCORE = 150.0  # 找到高置信候选即停止本帧搜索
+    WEAK_EDGE_COVERAGE = 0.25
+    MIN_OBSERVED_EDGE_COVERAGE = 0.125  # 整边无证据不输出有效中心，拒绝U形开口。
+    MIN_LINE_COVERAGE = 0.55
+    MAX_LINE_RESIDUAL_PX = 0.8  # 原始640×480像素；拒绝用曲线拟合矩形边。
+    FILTER_RESET_PX = 25.0
+    MIN_AREA_RATIO = 0.008  # 小靶仍须通过原图四边暗带+直线精修，不能只靠面积放行。
+    MAX_AREA_RATIO = 0.92
+    APPROX_EPSILON = 0.025
+    MIN_ANGLE_DEG = 55.0
+    MIN_INNER_RATIO = 0.30
+    MAX_INNER_RATIO = 0.94
+    DARK_CENTER_MIN = 90.0
+    MIN_EDGE_CONTRAST = 20.0
+    BLACK_FRAME_MM = 18.0
 
-    # Physical target coordinates.
+    # Physical target coordinates. The center is invariant to scale, but the
+    # aspect ratio must match the printed target for a perspective correction.
     TARGET_SHORT_MM = 210.0
     TARGET_LONG_MM = 297.0
+    CIRCLE_SAMPLES = 72
+    CIRCLE_RADIUS_MM = 2.0
 
     # Optional temporal smoothing. Zero disables it.
     CENTER_ALPHA = 0.70
 
-    # ---- 激光光斑读数（相机与激光固连 -> 光斑位置是常量，写死）--------------
-    # 不做任何图像检测：每帧只算"黑框中心 − 光斑常量"的两次减法（见 laser_spot.py）。
-    # 标定值 2026-10-07 现场实测 (294, 202)。换镜头或重装激光笔后重标这两个值：
-    # 看屏幕读数 LASER (u,v) 或板端日志 [perf] ... laser= 反推真实位置，填回这里。
+    # ---- 激光光斑读数（相机与激光固连 -> 光斑位置近似固定）------------------
+    # 只在标称位置周围 LASER_ROI_RADIUS 内找最亮点，输出亚像素质心，并给出它到
+    # 黑框中心的水平/垂直偏差，画在屏幕左上角。2026-10-07 现场标定：光斑约在
+    # (294, 202)，背景灰度 145 / 峰值 177。换镜头或重装激光笔后重新标定这两个值，
+    # 也能直接看板端日志 [perf] ... laser= 与屏幕读数反推真实位置。
     ENABLE_LASER = True
     LASER_U_NOMINAL = 294
     LASER_V_NOMINAL = 202
+    LASER_ROI_RADIUS = 64
+    # 光斑位置从哪来：
+    #   "fixed"（默认） 不检测，直接用上面的标定常量 —— 光斑位置写死，每帧只算
+    #                  "黑框中心 − 该常量"的像素差，零检测开销；
+    #   "detect"        每 LASER_INTERVAL_S 实测一次光斑（自校准，吸收机构/温度漂移）。
+    # 需要重新标定 U/V 时：临时改成 "detect"，把屏幕左上角读到的 `LASER (u,v)` 填回上面两行。
+    LASER_MODE = "fixed"
+    # 判据：峰值 >= max(LASER_MIN_PEAK, 背景 + LASER_MIN_CONTRAST)，且亮点面积在
+    # [MIN_PIXELS, MAX_PIXELS] 内。面积上限用来挡白墙高光/灯罩反光（那些会很大）。
+    LASER_MIN_PEAK = 140.0
+    LASER_MIN_CONTRAST = 20.0
+    LASER_MIN_PIXELS = 2
+    LASER_MAX_PIXELS = 160
+    # 限频：默认 0.30s ≈ 每秒算 3 次，其余帧沿用上次结果（显示仍是每帧画）。
+    LASER_INTERVAL_S = 0.30
+    # 单次更新跳变上限（像素）：超过判为误检，保留上次位置。0 = 关闭该门限。
+    LASER_MAX_JUMP_PX = 40.0
+    # 位置平滑（0 = 不平滑，直接用最新质心）。
+    LASER_SMOOTH_ALPHA = 0.60
 
-    # ---- 中心平滑（只影响显示/常规读数；闭环仍用 raw）----------------------
-    TRACK_MAX_GAP_S = 0.25
+    # v0.8: bounded Canny/Otsu search; exhaustive verification remains enabled.
+    EDGE_CLOSE_PX = 3
+    SEARCH_MAX_CONTOURS = 16
+    SEARCH_EXHAUSTIVE = True
+    # 仅供旧工具读取，新检测器不使用以下旧搜索参数。
+    DARK_THRESHOLDS = (25, 40, 55, 70, 85, 100, 120, 145)
+    SEARCH_BUDGET_MS = 25.0
+    MAX_CONTOURS = 128
+    ENABLE_LINE_RECOVERY = False
+    HULL_FILL_RATIO = 0.60
+    MIN_EDGE_LENGTH_PX = 12.0
+    STRONG_EDGE_COVERAGE = 0.85
+    REFINE_ITERATIONS = 2
+    REFINE_RADIUS_WIDE = 20
+    RECOVER_MIN_CONTRAST = 80
+    RECOVER_MAX_DARK = 100
+    PREDICT_MAX_GAP_S = 0.25
     KALMAN_ENABLE = True
     KALMAN_PROCESS_PX = 40.0
     KALMAN_MEASURE_PX = 0.9
     KALMAN_RESET_PX = 25.0
     KALMAN_MAX_PREDICT_S = 0.25
     KALMAN_VELOCITY_LIMIT_PX_S = 6000
+    FRONT_VIEW_SHORT_PX = 0
+    FRONT_VIEW_MAX_ERROR_PX = 5.0
 
     # Relative commands need both motion completion AND a newer captured frame.
     AIM_PROFILE = "smooth"

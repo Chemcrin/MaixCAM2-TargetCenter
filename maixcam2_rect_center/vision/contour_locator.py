@@ -1,4 +1,4 @@
-"""Bounded low-resolution proposals: Canny (edges) and Otsu (dark mask)."""
+"""Bounded low-resolution proposals: one Canny mask, one Otsu fallback."""
 import time
 import cv2
 import numpy as np
