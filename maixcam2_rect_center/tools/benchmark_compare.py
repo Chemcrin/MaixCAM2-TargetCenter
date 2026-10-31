@@ -8,7 +8,7 @@ import types
 from pathlib import Path
 import cv2
 import numpy as np
-from test_support import ROOT, load_config
+from test_support import ROOT, REPORTS, load_config
 from test_performance import scene
 from vision.rectangle_center import RectangleCenterDetector
 
@@ -16,7 +16,7 @@ from vision.rectangle_center import RectangleCenterDetector
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ref',default='efe5a61',help='本次原始源码快照，或其它基线Git提交')
-    parser.add_argument('--output',type=Path,default=ROOT/'tools'/'precision_report'/'ab_timing.json')
+    parser.add_argument('--output',type=Path,default=REPORTS/'precision'/'ab_timing.json')
     args = parser.parse_args()
     cv2.setNumThreads(1)
     for name,path in (('geometry','rect_geometry.py'),('locator','contour_locator.py'),('detector','rectangle_center.py')):

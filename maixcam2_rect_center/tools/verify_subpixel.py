@@ -11,7 +11,7 @@
 
     python -B tools/verify_subpixel.py                 # 全套，约 10s
     python -B tools/verify_subpixel.py --quick          # 跳过旋转/透视
-    python -B tools/verify_subpixel.py --output tools/subpixel_report
+    python -B tools/verify_subpixel.py --output ../reports/subpixel
 """
 import argparse
 import html
@@ -23,6 +23,7 @@ import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
+REPORTS = ROOT.parent / "reports"   # 产物落在应用目录外，避免 MaixVision 打包超 30MB
 sys.path.insert(0, str(ROOT))
 from config import Config
 from target_api import CenterTracker
@@ -193,7 +194,7 @@ def suites(quick=False):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--output', type=Path, default=ROOT / 'tools' / 'subpixel_report')
+    ap.add_argument('--output', type=Path, default=REPORTS / 'subpixel')
     ap.add_argument('--quick', action='store_true')
     args = ap.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)

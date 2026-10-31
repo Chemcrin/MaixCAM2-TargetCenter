@@ -29,6 +29,12 @@ tempCodeRunnerFile.*
 .workbuddy/*
 !.workbuddy/memory/
 
+# ---- 报告产物 ----
+# tools/ 下的验证器 / 回放器把 HTML、逐帧 json、标注视频写到 reports/（**应用目录之外**）。
+# 这样 MaixVision 打包 project 目录时不会把几十 MB 产物带进去（超 30MB 会拒绝运行）。
+# 报告随时可用原视频 / 原脚本重跑，不进库。
+reports/
+
 # ---- 测试产出的图片 ----
 # tools/*.jpg 都是跑 tools/ 下脚本时自动重新生成的（debug_overlay.jpg /
 # hardscene_montage.jpg / exp_*.jpg），每次都重写会造成大量无意义 diff。
@@ -48,3 +54,8 @@ screenshot*.jpg
 # dist/main_single.py **不忽略**（它是「运行当前文件」直接用的交付物，且有
 # build_single.py --check 守着它与源码同步）；这里只忽略压缩包。
 *.zip
+
+# ---- 实拍测试录像 ----
+# vest视频/ 是现场录的 MaixVision 回放素材（mp4 约 45MB），只在本机当回归输入，
+# 不进库；换机器时从原始录像重新拷进来即可（tools/run_video.py 的输入）。
+vest视频/

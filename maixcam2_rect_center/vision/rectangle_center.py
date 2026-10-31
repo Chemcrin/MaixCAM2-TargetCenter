@@ -54,6 +54,7 @@ class RectangleCenterDetector:
         self._weak_edges = 0                                    # 其中内点偏少、按 partial 计的边数
         self._fallback_edges = []                               # 本次精修用先验/输入边兜底的边号
         self._partial_refine = False                            # 本次精修是否有边用了兜底/弱证据
+        self.last_refine = None                                 # 最近一次 _refine 的边级诊断（只读）
         self._deadline = float("inf")
         self._roi_retry = True
         self.locator = ContourLocator(config)
@@ -345,6 +346,11 @@ class RectangleCenterDetector:
             lines.append(np.array([-vy, vx, vy * x - vx * y], np.float64))
             measured += 1
         min_measured = 4 if require_all else int(getattr(self.cfg, 'PARTIAL_MIN_EDGES', 3))
+        # 边级尸检：每条边有多少列找到可用跳变、最终实测几条、哪几条用了兜底边。
+        # 只写诊断字段，不参与任何判据 —— 板端 [perf] 与 PC 录像回放靠它定位"卡在哪一层"。
+        self.last_refine = dict(good=[int(v) for v in good_edges.sum(axis=1)],
+                                measured=int(measured), fallback=list(self._fallback_edges),
+                                radius=int(radius), require_all=bool(require_all))
         if measured < min_measured:
             return None
         self._refined_edges = measured

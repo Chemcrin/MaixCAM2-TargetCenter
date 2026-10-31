@@ -15,7 +15,7 @@
 
 用法：
     python -B tools/compare_guoyi_scheme.py            # 打印 A–E 五节对拍报告
-    python -B tools/compare_guoyi_scheme.py --figures   # 另存两张可视证据图到 tools/e2e_report/
+    python -B tools/compare_guoyi_scheme.py --figures   # 另存两张可视证据图到 ../reports/e2e/
 
 结论摘要（2026-10-12 实测）：
     · 逆透视中心：倾角 0–78° 误差恒 0.000px（质心/外接框中心最大 10.02px）——
@@ -35,6 +35,7 @@ import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
+REPORTS = ROOT.parent / "reports"   # 产物落在应用目录外，避免 MaixVision 打包超 30MB
 sys.path.insert(0, str(ROOT))
 from config import Config
 from vision.rectangle_center import RectangleCenterDetector
@@ -319,7 +320,7 @@ def section_e():
 
 # ------------------------------------------------------------------ 可视证据图
 def figures():
-    out = ROOT / "tools" / "e2e_report"
+    out = REPORTS / "e2e"
     out.mkdir(parents=True, exist_ok=True)
     e2e = _load(ROOT / "tools" / "test_images_e2e.py", "e2e")
 

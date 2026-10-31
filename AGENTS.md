@@ -39,9 +39,15 @@
 │   ├── dist/main_single.py     单文件版（自动生成）
 │   ├── tools/                  门禁 / 回归 / 验证 / 一次性诊断（不进应用包）
 │   └── README.md               算法与上板说明（★ 应用目录内唯一文档）
+├── reports/                    工具产物（★ 应用目录**之外**，不进库）：
+│   video/ precision/ subpixel/ e2e/ —— tools/ 下的回放/验证脚本默认写这里
 └── 存档/                       历史资料（只读）：项目自检(现行运维参考) / 分析文档 /
                                 提示词 / 历史脚本 / 历史快照 / reference(upstream 2025E)
 ```
+
+> ⚠ **为什么产物必须放在应用目录外**：MaixVision「运行项目」打包的是整个项目目录，
+> **不按 `app.yaml` 的 exclude 裁剪**，合计超 30MB 直接拒绝运行。报告、标注视频、
+> 逐帧 json 一律落 `reports/`；`check_app.py` 的 C11 会量目录总体积兜底。
 
 - **只有一个应用**。历史实现一律进 `存档/` 或 git 历史（`git log` / `git show` 可取回）。
 - **文档归位**：契约 → 本文件；导航 → `docs/README.md`；算法/上板 → 应用目录 `README.md`；
@@ -62,6 +68,7 @@
 3. `dist/main_single.py` 是生成物，**不要手改**——用 `tools/build_single.py` 重生成。
 4. `main.py` 是唯一反复被并发覆写的文件（见 §5.1）：改完**立刻** `build_single.py` + 门禁 + 提交。
 5. `存档/` 只读：不 import、不打包、不顺手修。
+所有功能要求**封装为api**，由主函数调用，出问题只找相应的代码分区，不要影响其他部分的内容
 
 ---
 
@@ -69,10 +76,10 @@
 
 两台电机的现接法：
 
-| 代码里的轴 | 串口 | 丝印 | 引脚 | 设备路径 | 驱动器 ID | pinmap |
-|---|---|---|---|---|---|---|
-| **pitch** | UART0 | `U0T`/`U0R` | A28 / A29 | `/dev/ttyS0` | **1** | ★ **必须显式 pinmap**（空表静默不通；ttyS0 也是系统日志口） |
-| **yaw** | UART2 | `U2T`/`U2R` | B0 / B1 | `/dev/ttyS2` | **2** | 需 pinmap 切到 `UART2` 功能 |
+| 代码里的轴     | 串口    | 丝印          | 引脚        | 设备路径         | 驱动器 ID | pinmap                                  |
+| --------- | ----- | ----------- | --------- | ------------ | ------ | --------------------------------------- |
+| **pitch** | UART0 | `U0T`/`U0R` | A28 / A29 | `/dev/ttyS0` | **1**  | ★ **必须显式 pinmap**（空表静默不通；ttyS0 也是系统日志口） |
+| **yaw**   | UART2 | `U2T`/`U2R` | B0 / B1   | `/dev/ttyS2` | **2**  | 需 pinmap 切到 `UART2` 功能                  |
 
 驱动器地址：pitch = 1、yaw = 2，**跟着电机走，不跟端口**。
 串口与 pinmap 落点见 `config.py` 的 `PITCH_DEV`/`PITCH_PINS`、`YAW_DEV`/`YAW_PINS`；
@@ -221,8 +228,9 @@ git checkout <sha> -- <文件>                             # 恢复单文件；�
 5. 位置模式 `acc=0` = 瞬时启停 → 卡顿/冲击。自检与闭环都给非 0 acc，越小越柔。
 6. 标定依赖视觉会阻塞（黑框出视野干等）→ 已加 `CALIBRATE_VISUAL_TIMEOUT_S` 快速失败。
 7. `app.yaml` 的 `exclude` 漏目录 → 文档混进应用包；改完核 `check_app.py --manifest`。
-8. 调试抓屏迅速堆爆工作区 → 定期 `tools/clean_artifacts.py`（扫描）/ `--apply`（删除），
-   保持应用目录 ≤5MB；脚本只删可再生产物，**保留测试固件**。
+8. 调试抓屏与报告会迅速堆爆项目目录 → 产物写 `reports/`（应用目录外）；
+   `tools/clean_artifacts.py`（扫描）/ `--apply`（删除）只清可再生产物，**保留测试固件**；
+   `check_app.py` 的 C11 在目录超 30MB 时直接判 FAIL（MaixVision 打包上限）。
 9. 显示在主进程 daemon 线程（`SHOW_ASYNC=True`，`vision/preview.py`）；**不要把 `Display()`
    放进子进程**——子进程起不来就一帧不画且无报错。排查先看 `[preview] mode=`。
 10. 板端单帧超过 `RESULT_MAX_AGE_S` 即判 stale，且 `[perf]` 的 stage 被替换成 `"stale"`、

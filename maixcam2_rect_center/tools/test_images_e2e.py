@@ -3,7 +3,7 @@
 把「合成靶纸图（多视角/光照/反光/噪声，真值来自独立 OpenCV 投影）」加上
 「真实拍摄的负样本照片」喂给 B 轨对外 API，逐图输出：
     是否检出 / stage / 中心误差(px) / 耗时(ms)
-并生成一张标注总览图 tools/e2e_report/e2e_overview.png 供人工目视核对。
+并生成一张标注总览图 ../reports/e2e/e2e_overview.png 供人工目视核对。
 
 纯 PC，不依赖 maix / 相机。用于回答「B 轨功能现在能否正常用」。
 """
@@ -16,12 +16,13 @@ import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
+REPORTS = ROOT.parent / "reports"   # 产物落在应用目录外，避免 MaixVision 打包超 30MB
 sys.path.insert(0, str(ROOT))
 
 from target_api import detect_black_frame, CenterTracker
 from vision.rectangle_center import draw_result
 
-OUT = ROOT / "tools" / "e2e_report"
+OUT = REPORTS / "e2e"
 OUT.mkdir(parents=True, exist_ok=True)
 W, H = 640, 480
 

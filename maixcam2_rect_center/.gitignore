@@ -11,12 +11,12 @@ __pycache__/
 *.pyo
 
 # ---- 测试 / 调试产出（可随时重新生成）----
-# e2e 报告目录：每次跑 tools/test_images_e2e.py 都会重画总览图 + 重写结果 json
-# -> 整个目录不回库，避免无意义二进制/数值 diff。
-tools/e2e_report/
-# 精度 / 亚像素复核报告：verify_precision.py、verify_subpixel.py 每次重新渲染 HTML + 重写 json。
+# ⚠ 产物目录已移到 **应用目录之外** 的 ../reports/（MaixVision 打包整个项目目录，
+#   产物留在这里会把项目撑爆 30MB 上限）。本节只兜底历史路径与漏网抓屏。
 tools/precision_report/
 tools/subpixel_report/
+tools/e2e_report/
+tools/video_report/
 # 板端 / 桌面调试截图（与根 .gitignore 同口径）。
 screenshot*.png
 frame*.png

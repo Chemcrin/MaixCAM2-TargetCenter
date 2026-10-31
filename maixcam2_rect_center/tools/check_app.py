@@ -42,6 +42,7 @@ CHECKS = {
     "C8": "BUILD_ID 存在且被打印；有 dist/main_single.py 时核对一致",
     "C9": "exclude 覆盖 .md / tools / dist / __pycache__ / 调试截图；报告失效条目",
     "C10": "包内清单无禁入类型，合计体积在预算内",
+    "C11": "项目目录总体积在 MaixVision 打包上限内",
 }
 
 # ---------------------------------------------------------------- 结果收集
@@ -572,6 +573,37 @@ def main(argv=None) -> int:
         add(FAIL, "C10", "包内没有 main.py")
     if "app.yaml" not in packed_names:
         add(FAIL, "C10", "包内没有 app.yaml（打包时成员必须在 zip 根目录，不能再套一层）")
+
+    # ---------------- C11 项目目录总体积
+    # MaixVision「运行项目」打包的是**整个项目目录**，不按 app.yaml 的 exclude 裁剪；
+    # 超过 30MB 直接拒绝运行。所以这里量目录总占用，与 C10 的"包内清单"是两件事。
+    project_bytes = project_files = 0
+    biggest: list[tuple[int, str]] = []
+    for base, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in (".git", "__pycache__", ".vscode")]
+        for name in names:
+            p = Path(base) / name
+            try:
+                sz = p.stat().st_size
+            except OSError:
+                continue
+            project_bytes += sz
+            project_files += 1
+            if sz >= 256 * 1024:
+                biggest.append((sz, str(p.relative_to(root)).replace("\\", "/")))
+    biggest.sort(reverse=True)
+    detail = "、".join("%s %.1fMB" % (n, s / 1048576.0) for s, n in biggest[:3])
+    if project_bytes > 30 * 1024 * 1024:
+        add(FAIL, "C11", "项目目录 %.1fMB 超过 MaixVision 30MB 上限（会拒绝运行），"
+                         "最大项：%s。产物请写到 ../reports/，"
+                         "并跑 tools/clean_artifacts.py --apply"
+                         % (project_bytes / 1048576.0, detail))
+    elif project_bytes > 8 * 1024 * 1024:
+        add(WARN, "C11", "项目目录 %.1fMB 偏大（MaixVision 上限 30MB），最大项：%s"
+                         % (project_bytes / 1048576.0, detail))
+    else:
+        add(OK, "C11", "项目目录 %d 个文件，合计 %.2fMB（上限 30MB）"
+                       % (project_files, project_bytes / 1048576.0))
 
     # ---------------- 输出
     # 保证每个检查项都有结论：否则"没报错"与"根本没检查"分不清。

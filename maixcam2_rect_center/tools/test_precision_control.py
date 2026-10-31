@@ -3,7 +3,7 @@ import json
 from unittest.mock import patch
 import cv2
 import numpy as np
-from test_support import ROOT, load_config
+from test_support import ROOT, REPORTS, load_config
 from test_performance import scene
 from target_api import AimLoop
 from vision.stepper_link import estimate_move_seconds
@@ -67,7 +67,7 @@ def main():
             assert loop.link.moves>0
             report = dict(simulation=True,frames=frame+1,initial_error_px=initial,
                           final_truth_error_px=expected.tolist(),commands=loop.link.moves)
-            output = ROOT/'tools'/'precision_report'/'control_simulation.json'
+            output = REPORTS/'precision'/'control_simulation.json'
             output.parent.mkdir(parents=True,exist_ok=True)
             output.write_text(json.dumps(report,indent=2),encoding='utf-8')
             print(json.dumps(report,indent=2))

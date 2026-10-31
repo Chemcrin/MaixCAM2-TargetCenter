@@ -1,137 +1,98 @@
 class Config:
-    # Camera profile. GRAYSCALE keeps the MaixCAM2 frame buffer small.
+    # ---- 相机 / 显示 ----
     CAMERA_W = 640
     CAMERA_H = 480
-    CAMERA_FPS = 40  # 25ms采图周期，给30+fps识别/显示留余量；必须上板核查实际吞吐。
+    CAMERA_FPS = 40          # 25ms 采图周期，给 30+fps 识别/显示留余量
     CAMERA_BUFFERS = 2
     SKIP_FRAMES = 10
-    # 镜头畸变校正：默认关闭 —— 未按本镜头标定过的软件畸变校正会**引入**畸变
-    # （识别黑框时画面外凸/边缘拉伸，2026-10-10 实测定案）。确需把边缘直线拉直、
-    # 且已按本镜头标定 LENS_STRENGTH 时，再临时打开。
+    # 软件畸变校正默认关闭：未按本镜头标定会**引入**畸变（2026-10-10 实测定案）
     LENS_CORR = False
     LENS_STRENGTH = 1.5
     SHOW = True
-    # 视频主循环与后台识别/串口解耦；后台忙时只保留最新帧，不积压旧图像。
-    # ★ 画布宽度：0 = 用**屏幕原始宽度**（推荐）。MaixCAM2 屏幕 640×480 与本工程相机
-    #   (CAMERA_W/H=640×480) 宽高比一致，画布=屏幕尺寸时 show() 拿到与屏幕同尺寸的图，
-    #   **驱动层不必再每帧缩放一次**（旧值 480 会让 640×480 先被缩到 480×360、再被驱动
-    #   放大回 640×480，纯属来回折腾）；画布坐标还与触摸坐标天然 1:1，省掉比例换算。
-    #   >0 才按比例缩小 —— 只有"MaixVision 图传带宽吃紧"时才值得用（本机屏幕会被放大回全屏）。
+    # 0 = 用屏幕原始宽度（推荐）：640×480 画布与相机同尺寸，驱动层不再缩放，触摸坐标 1:1
     SHOW_WIDTH = 0
     SHOW_FPS = 40
-    SHOW_JPEG_QUALITY = 70   # 只影响 MaixVision JPEG 图传，检测始终用原始灰度图。
-    # 本地 Display 构造时临时 MAIXVISION=0，完成后恢复会话。
-    # False: 独立进程连接本机 MaixVision 桥；True: 只用本地屏。
-    # JPEG/网络不进入原生 show()，预览断连不会触发 500ms 忙等。
+    SHOW_JPEG_QUALITY = 70   # 只影响 MaixVision 图传，检测始终用原始灰度图
     DISABLE_MAIXVISION_STREAM = False
-    VISION_ASYNC = True
-    # ★ 显示线程化：True = 绘制完成后把画布交给**独立显示线程**去 show()，主循环**永不等待 show**。
-    #   屏幕驱动或 MaixVision 图传慢时，只表现为"预览掉帧"（丢帧而非排队），
-    #   识别、串口与云台闭环仍跑满相机帧率。False = 旧行为（主循环内同步 show，慢就整体卡住）。
-    SHOW_ASYNC = True
-    RESULT_MAX_AGE_S = 0.20  # 以采图时刻计龄；过期结果不画框、不下发追踪指令。
+    VISION_ASYNC = True      # 后台识别，忙时只保留最新帧，不积压旧图
+    SHOW_ASYNC = True        # 独立显示线程：show() 慢只掉预览帧，不拖识别/串口/闭环
+    RESULT_MAX_AGE_S = 0.20  # 以采图时刻计龄；过期结果不画框、不下发指令
     UART_RX_MAX_BYTES = 256
     UART_RX_BUFFER_MAX_BYTES = 1024
-    # ---- 屏幕交互：把「上电自检」做成屏幕上的可点击按钮（不再上电自动跑）----
-    # True=在显示画布右上角画 SELF-TEST 按钮，点一下才触发自检；无显示/无触摸屏时自动禁用。
-    ENABLE_TOUCH_BUTTON = True
+    ENABLE_TOUCH_BUTTON = True   # 屏幕右上角 SELF-TEST 按钮（点一下才自检）
     OPENCV_THREADS = 1
     LOG_INTERVAL = 2.0
-    # ---- 双 ZDT 云台链路 -------------------------------------------------
-    # ★ 实测轴映射定案（2026-10-09 实机测定，见 AGENTS.md §2；勿凭直觉改）：
-    #     yaw   = UART2 / B0,B1 / /dev/ttyS2 / 驱动器 ID=2
-    #     pitch = UART0 / A28,A29 / /dev/ttyS0 / 驱动器 ID=1
-    #   起因：最初以为 "U0=yaw、U2=pitch"，实机发现正好相反。地址跟着"电机"走，不跟着端口。
-    #   首次上板请先把云台架空，并确认驱动器已设为 UART_FUN/115200/0x6B。
+
+    # ---- 双 ZDT 云台链路（轴映射 2026-10-09 实测定案，见 AGENTS.md §2）----
+    #   yaw   = UART2 / B0,B1   / /dev/ttyS2 / 驱动器 ID=2
+    #   pitch = UART0 / A28,A29 / /dev/ttyS0 / 驱动器 ID=1
     ENABLE_GIMBAL = True
     YAW_DEV, YAW_BAUD = "/dev/ttyS2", 115200
     YAW_PINS = {"B0": "UART2_TX", "B1": "UART2_RX"}
     PITCH_DEV, PITCH_BAUD = "/dev/ttyS0", 115200
-    # ⚠ U0(A28/A29) 并非默认复用成 UART0，走空表会静默不通 —— 必须显式 pinmap；
-    #    且 ttyS0 还是系统日志口（开机有内核日志/终端回显），故下面 FLUSH_RX_ON_START=True。
+    # ⚠ U0 必须显式 pinmap（空表静默不通）；ttyS0 还是系统日志口，故开机清 RX
     PITCH_PINS = {"A28": "UART0_TX", "A29": "UART0_RX"}
     ADDR_YAW, ADDR_PITCH = 2, 1
-    # pinmap 失败时：True=报错中止；False=只告警、仍尝试打开 UART（避免把真故障藏成"打不开"）。
-    PINMAP_STRICT = False
-    # 开机清空两条串口的 RX 缓冲（U0 是日志口，会混入内核启动日志/终端回显）。
+    PINMAP_STRICT = False    # 失败只告警，避免把真故障藏成"打不开"
     FLUSH_RX_ON_START = True
-    # 闭环方向符号：两轴正方向均为 CCW（yaw CCW=左 / pitch CCW=上）。按几何推断取 -1
-    # （相机与激光同装在云台上 ⇒ 云台转过去时靶心在画面里反向移动）。
-    # ⚠ 未经标定：上电追踪若"越追越偏"（误差持续变大、云台一路跑向一侧），把对应那项改成 +1。
+    # 闭环方向符号：两轴正方向均 CCW（yaw CCW=左 / pitch CCW=上）。
+    # 相机与激光同装云台 ⇒ 云台转过去时靶心在画面里反向移动，故取 -1。
+    # ⚠ 未经标定：上电若"越追越偏"，把对应项翻成 +1。
     DIR_SIGN_YAW = -1
     DIR_SIGN_PITCH = -1
-    PULSE_PER_PX_YAW = 3.67       # 必须用实机开环标定替换
-    PULSE_PER_PX_PITCH = 3.67     # 必须用实机开环标定替换
-    GAIN_YAW = 0.5
-    GAIN_PITCH = 0.5
-    DEADBAND_PX = 1.0  # 每轴像素死区；原2px会掩盖亚像素识别收益。
-    MAX_STEP_PULSES = 360
-    RPM_FINE = 300
-    # 曲线加减速档位（位置模式）：0 = 不用曲线、直接以设定速度瞬时启停（卡顿/冲击根源，勿用）；
-    # ≠0 时每 (256-acc)*50us 变 1RPM，acc 越小越柔（常用 20~80）。自检与闭环共用本值。
+    PULSE_PER_PX_YAW = 3.67       # ★ 主参数，必须用实机开环标定替换
+    PULSE_PER_PX_PITCH = 3.67
+    GAIN_YAW = 0.5                # 被 AIM_PROFILE 覆盖，实际值见文件末尾 profiles
+    GAIN_PITCH = 0.5              # 同上
+    DEADBAND_PX = 1.0             # 每轴死区；应 ≥1.5× 实测回差
+    MAX_STEP_PULSES = 360         # 同上，被 profile 覆盖
+    RPM_FINE = 300                # 同上，被 profile 覆盖
+    # 曲线加减速档位：0 = 瞬时启停（勿用）；≠0 时每 (256-acc)*50us 变 1RPM，越小越柔
     ACC_DEFAULT = 80
     COMMAND_INTERVAL_S = 0.08
 
-    # 上电自检：度数对应的脉冲数必须按实际减速机构标定。
-    # 0 表示未标定，程序跳过自动扫动，避免用错误比例撞限位。
+    # ---- 上电自检 ----
     GIMBAL_SELF_TEST = True
     SELF_TEST_YAW_DEG = 15.0
     SELF_TEST_PITCH_DEG = 30.0
-    # 固定脉冲自检幅度（AGENTS.md §3.2）：>0 时**不依赖**"脉冲/度"标定即可动作，
-    # 因此屏幕按钮点了就能跑（推荐）。置 0 才回退到按 SELF_TEST_*_DEG × PULSES_PER_DEG 换算角度。
-    SELF_TEST_PULSES = 400
+    SELF_TEST_PULSES = 400        # >0 时按固定脉冲走，不依赖"脉冲/度"标定
     YAW_PULSES_PER_DEG = 0.0
     PITCH_PULSES_PER_DEG = 0.0
-    # 两轴正方向均为 CCW：yaw CCW=左 / CW=右，pitch CCW=上(仰) / CW=下（见 AGENTS.md §2）。
     YAW_POSITIVE_CCW = True
     PITCH_POSITIVE_CCW = True
     SELF_TEST_RPM = 900
     SELF_TEST_SETTLE_S = 0.35
     MOTOR_PULSES_PER_REV = 3200
-    # 减速比未知时留 0：自检角度换算优先用上面的实测 PULSES_PER_DEG，不猜齿轮比。
-    # 若已知 i = 大齿轮齿数/小齿轮齿数，填进来即可让自检在未做脉冲/度标定时也生效。
-    GIMBAL_GEAR_RATIO = 0.0
+    GIMBAL_GEAR_RATIO = 0.0       # 未知留 0：自检不猜齿轮比
 
-    # ---- 闭环口径（需求文档 §5.2）-----------------------------------------
-    # True = 用未平滑的 raw_u/raw_v 算 dx/dy（推荐）：CENTER_ALPHA 只留给显示，
-    # 闭环用平滑值会附加 ≈28ms 滞后，底盘运动时直接变成瞄准误差。
-    # 切换坐标系后 PULSE_PER_PX_* 必须在同一套坐标下重新标定。
+    # ---- 闭环口径 ----
+    # True = 用 raw_u/raw_v 算 dx/dy：CENTER_ALPHA 只留给显示，闭环用平滑值会加 ≈28ms 滞后
     AIM_USE_RAW = True
-    # 离群拒收：|误差| 超过该值先当误检丢弃，连续 JUMP_CONFIRM_FRAMES 帧才采信。
-    # 防止单帧误检（反光/干扰）给出 dx=2000px 而甩头。
-    JUMP_REJECT_PX = 400.0
-    JUMP_CONFIRM_FRAMES = 3
-    # 粗/精两段增益：|e| > COARSE_PX 用 GAIN_COARSE（大步快速逼近），否则用 GAIN_YAW/PITCH。
-    # 必须保持 gain <= 1，否则增量闭环不收敛（需求文档 §7.4）。
-    COARSE_PX = 24.0
-    GAIN_COARSE = 0.9
-    RPM_COARSE = 1200
+    JUMP_REJECT_PX = 400.0        # 离群拒收：先当误检丢掉
+    JUMP_CONFIRM_FRAMES = 3       # 连续这么多帧才采信跳变
+    COARSE_PX = 24.0              # |e| 超过它切粗调
+    GAIN_COARSE = 0.9             # 被 profile 覆盖；必须 ≤1，否则增量闭环不收敛
+    RPM_COARSE = 1200             # 被 profile 覆盖
 
-    # ---- 链路健康（ACK / E2 看门狗，需求文档 §7.9）------------------------
+    # ---- 链路健康 ----
     ENABLE_ACK_WATCHDOG = True
-    E2_REENABLE = True          # 收到 E2（未使能/堵转）自动补发一次 0xF3
+    E2_REENABLE = True            # 收到 E2（未使能/堵转）自动补发一次 0xF3
     E2_WINDOW_S = 2.0
-    E2_FAULT_COUNT = 10         # 窗口内 E2 超过该次数 -> FAULT 停机
-    # ACK 硬超时（ms）：自动识别 —— 只有在收到过确认帧（驱动器 Response=Receive/Reached/Both）
-    # 之后才启用；Response=None 时收不到确认帧，该判据自动不生效，不会误判 FAULT。0 = 关闭。
-    RX_TIMEOUT_MS = 300
+    E2_FAULT_COUNT = 10
+    RX_TIMEOUT_MS = 300           # 只在收到过确认帧后生效；0 = 关闭
     RX_TIMEOUT_LIMIT = 20
 
-    # ---- 失锁重捕获（可选，默认关）---------------------------------------
-    # 上电目标不在视野内时可开启自动慢扫；扫动为小步低转速、有累计脉冲上限，
-    # 避免大幅甩动。开启前先确认机械行程与限位。
+    # ---- 失锁重捕获（默认关）----
     ENABLE_SCAN = False
     LOST_FRAMES = 15
     SCAN_STEP_DEG = 1.5
     SCAN_LIMIT_DEG = 15.0
-    SCAN_STEP_PULSES = 40       # 未标定脉冲/度时用的脉冲步长
+    SCAN_STEP_PULSES = 40
     SCAN_LIMIT_PULSES = 400
     SCAN_RPM = 60
     SCAN_STEP_INTERVAL_S = 0.15
 
-    # ---- 开环标定（一次性；标完把 CALIBRATE_AXIS 置回 ""）----------------
-    # "yaw"/"pitch"：开机只做该轴开环标定，实测并打印 PULSE_PER_PX/DIR_SIGN/交叉项/回差。
-    # 标定期不发闭环指令。跑一次拿到数值填进本文件后，务必置回 ""。
+    # ---- 开环标定（一次性；标完把 CALIBRATE_AXIS 置回 ""）----
     CALIBRATE_AXIS = ""
     CALIBRATE_PULSES = 2000
     CALIBRATE_RPM = 300
@@ -139,133 +100,115 @@ class Config:
     CALIBRATE_SETTLE_S = 1.0
     CALIBRATE_TIMEOUT_S = 20.0
 
-    # 兼容旧版纯视觉 ASCII 输出；开启云台时默认关闭，避免同一串口混发两种协议。
-    # ⚠ 本组只在 ENABLE_GIMBAL=False 的降级路径使用；ENABLE_GIMBAL=True 时电机走
-    #    YAW_DEV/PITCH_DEV 两条串口，本条的 /dev/ttyS0 是系统日志口，切勿改成实际接线。
+    # 旧版纯视觉 ASCII 输出，仅 ENABLE_GIMBAL=False 的降级路径使用
     ENABLE_UART = False
     UART_PORT = "/dev/ttyS0"
     UART_BAUD = 115200
 
-    # Canny and polygon gates. Tune only these values on a new lens.
+    # ---- 搜索 ----
     CANNY_LOW = 35
     CANNY_HIGH = 120
-    # Canny 一张掩膜；未找到完整四边时才补 Otsu 一张。所有轮廓在低分辨率处理。
-    SEARCH_WIDTH = 320
-    SEARCH_SPLIT_FRAMES = False  # 历史兼容项；新搜索始终在当前帧完成。
-    SEARCH_MAX_PROPOSALS = 128   # 仅 SEARCH_EXHAUSTIVE=False 时生效；ROI 不阻断全图重搜。
+    SEARCH_WIDTH = 320            # 搜索在低分辨率做；精修回到原图
+    SEARCH_SPLIT_FRAMES = False   # 历史兼容项
+    SEARCH_MAX_PROPOSALS = 128    # 仅 SEARCH_EXHAUSTIVE=False 时生效
     MAX_CANDIDATES = 8
-    EDGE_SAMPLES = 24
-    REFINE_RADIUS = 6
-    TRACK_RADIUS = 12
-    # 运动预测（治"速度快捕获不到"）：窄带精修的搜索半径 TRACK_RADIUS 保持小值（定位精度高），
-    # 靠"外推本帧位置"来跟上快速移动：用上两帧四角的**逐角位移**（含平移/缩放/旋转）预测本帧
-    # 四角，再在预测位置附近做窄带精修；预测失准时自动回落到上一帧位置。
-    # PREDICT_MAX_PX 是单帧预测位移上限，防噪点把预测甩飞（板端帧率低、目标位移可能很大时才需调大）。
+    EDGE_SAMPLES = 24             # 每条边的采样列数
+    REFINE_RADIUS = 6             # 窄带精修半径（原图 px）
+    TRACK_RADIUS = 12             # 追踪时的窄带半径
+    # 运动预测：用上两帧四角的逐角位移外推本帧位置，再在预测处窄带精修
     ENABLE_MOTION_PREDICT = True
-    PREDICT_MAX_PX = 60.0
+    PREDICT_MAX_PX = 60.0         # 单帧预测位移上限，防噪点把预测甩飞
     ROI_PADDING = 0.20
-    MIN_EDGE_COVERAGE = 0.55
-    MAX_DARK_BRIGHT_RATIO = 0.72
-    WEAK_EDGE_COVERAGE = 0.25
-    MIN_OBSERVED_EDGE_COVERAGE = 0.125  # 整边无证据不输出有效中心，拒绝U形开口。
-    MIN_LINE_COVERAGE = 0.55
-    MAX_LINE_RESIDUAL_PX = 0.8  # 原始640×480像素；拒绝用曲线拟合矩形边。
-    FILTER_RESET_PX = 25.0
-    MIN_AREA_RATIO = 0.008  # 小靶仍须通过原图四边暗带+直线精修，不能只靠面积放行。
+    EDGE_CLOSE_PX = 3
+    SEARCH_MAX_CONTOURS = 16
+    SEARCH_EXHAUSTIVE = True
+    # 提案阶段允许"部分角出画"的四边形：与 _verify 的 MAX_CLIPPED_EDGES 同口径。
+    # 关掉它，贴边/大靶的候选在搜索层就被丢掉，验证层的出画容忍等于白写。
+    SEARCH_ALLOW_CLIPPED = True
+    DARK_THRESHOLDS = (25, 40, 55, 70, 85, 100, 120, 145)   # 仅供旧工具读取
+    SEARCH_BUDGET_MS = 25.0
+    MAX_CONTOURS = 128
+    ENABLE_LINE_RECOVERY = False
+    HULL_FILL_RATIO = 0.60
+    MIN_EDGE_LENGTH_PX = 12.0
+
+    # ---- 胶带证据判据 ----
+    MIN_EDGE_COVERAGE = 0.55      # 一条边"成立"所需的采样覆盖率
+    WEAK_EDGE_COVERAGE = 0.25     # 弱边下限（低于它必须有其它强边兜住）
+    MIN_OBSERVED_EDGE_COVERAGE = 0.125   # 画面内整边无证据 → 拒 U 形开口
+    STRONG_EDGE_COVERAGE = 0.85   # 强边：可放宽其它边
+    MAX_DARK_BRIGHT_RATIO = 0.72  # 暗带最亮 ≤ 0.72×亮面，排除"两侧都亮"的纸边
+    MIN_EDGE_CONTRAST = 20.0      # 暗/亮对比度下限（灰度）
+    MIN_LINE_COVERAGE = 0.55      # 拟合一条边所需内点比例
+    MAX_LINE_RESIDUAL_PX = 0.8    # 原图像素；拒绝用曲线拟合矩形边
+    MIN_AREA_RATIO = 0.008
     MAX_AREA_RATIO = 0.92
     APPROX_EPSILON = 0.025
     MIN_ANGLE_DEG = 55.0
     MIN_INNER_RATIO = 0.30
     MAX_INNER_RATIO = 0.94
     DARK_CENTER_MIN = 90.0
-    MIN_EDGE_CONTRAST = 20.0
     BLACK_FRAME_MM = 18.0
-
-    # Physical target coordinates. The center is invariant to scale, but the
-    # aspect ratio must match the printed target for a perspective correction.
-    TARGET_SHORT_MM = 210.0
-    TARGET_LONG_MM = 297.0
-    CIRCLE_SAMPLES = 72
-    CIRCLE_RADIUS_MM = 2.0
-
-    # Optional temporal smoothing. Zero disables it.
-    CENTER_ALPHA = 0.70
-
-    # ---- 激光光斑读数（相机与激光固连 -> 光斑位置近似固定）------------------
-    # 只在标称位置周围 LASER_ROI_RADIUS 内找最亮点，输出亚像素质心，并给出它到
-    # 黑框中心的水平/垂直偏差，画在屏幕左上角。2026-10-07 现场标定：光斑约在
-    # (294, 202)，背景灰度 145 / 峰值 177。换镜头或重装激光笔后重新标定这两个值，
-    # 也能直接看板端日志 [perf] ... laser= 与屏幕读数反推真实位置。
-    ENABLE_LASER = True
-    LASER_U_NOMINAL = 294
-    LASER_V_NOMINAL = 202
-    LASER_ROI_RADIUS = 64
-    # 光斑位置从哪来：
-    #   "fixed"（默认） 不检测，直接用上面的标定常量 —— 光斑位置写死，每帧只算
-    #                  "黑框中心 − 该常量"的像素差，零检测开销；
-    #   "detect"        每 LASER_INTERVAL_S 实测一次光斑（自校准，吸收机构/温度漂移）。
-    # 需要重新标定 U/V 时：临时改成 "detect"，把屏幕左上角读到的 `LASER (u,v)` 填回上面两行。
-    LASER_MODE = "fixed"
-    # 判据：峰值 >= max(LASER_MIN_PEAK, 背景 + LASER_MIN_CONTRAST)，且亮点面积在
-    # [MIN_PIXELS, MAX_PIXELS] 内。面积上限用来挡白墙高光/灯罩反光（那些会很大）。
-    LASER_MIN_PEAK = 140.0
-    LASER_MIN_CONTRAST = 20.0
-    LASER_MIN_PIXELS = 2
-    LASER_MAX_PIXELS = 160
-    # 限频：默认 0.30s ≈ 每秒算 3 次，其余帧沿用上次结果（显示仍是每帧画）。
-    LASER_INTERVAL_S = 0.30
-    # 单次更新跳变上限（像素）：超过判为误检，保留上次位置。0 = 关闭该门限。
-    LASER_MAX_JUMP_PX = 40.0
-    # 位置平滑（0 = 不平滑，直接用最新质心）。
-    LASER_SMOOTH_ALPHA = 0.60
-
-    # v0.8: bounded Canny/Otsu search; exhaustive verification remains enabled.
-    EDGE_CLOSE_PX = 3
-    SEARCH_MAX_CONTOURS = 16
-    SEARCH_EXHAUSTIVE = True
-    # 仅供旧工具读取，新检测器不使用以下旧搜索参数。
-    DARK_THRESHOLDS = (25, 40, 55, 70, 85, 100, 120, 145)
-    SEARCH_BUDGET_MS = 25.0
-    MAX_CONTOURS = 128
-    ENABLE_LINE_RECOVERY = False
-    HULL_FILL_RATIO = 0.60
-    MIN_EDGE_LENGTH_PX = 12.0
-    STRONG_EDGE_COVERAGE = 0.85
     REFINE_ITERATIONS = 2
-    REFINE_RADIUS_WIDE = 20
+    REFINE_RADIUS_WIDE = 20       # 窄带够不到真边时的宽半径精修
+    # 宽半径救援（仅兜底）：主判据是相对亮度，绝对上限防过曝误收
     RECOVER_MIN_CONTRAST = 80
-    RECOVER_MAX_DARK_ABS = 160.0   # 宽半径救援的暗带绝对上限（仅兜底，主判据是相对亮度）
-    RECOVER_MAX_DARK_RATIO = 0.60  # 暗带最亮采样 ≤ 0.60×图内亮面中位数
-    # ---- 部分可见 / 出画：修 _verify 与 _refine 口径冲突（2026-10-31）----
-    # _verify 允许"3 条边有证据 + 1 条弱边"（MIN_OBSERVED 只拒画面内完全无证据的边），
-    # 但 _refine 原先要求 4 条边全实测 → 真机帧/贴边帧永远出不来。
-    # 现在：refine 允许最多 1 条边用上一帧/输入边兜底，实测 ≥ PARTIAL_MIN_EDGES 即出版；
-    # 结果带 partial=True（屏幕黄色框），控制侧可据此降增益/降步长。
-    CLIP_MIN_EDGE_VALID = 0.5   # 一条边至少 50% 采样点在图内才算"可见"
-    MAX_CLIPPED_EDGES = 1       # 最多允许 1 条边被画面裁掉
-    PARTIAL_MIN_EDGES = 3       # partial 至少实测 3 条边（第 4 条用先验边）
-    # partial/复锁的连续性门：3 边补出来的中心只可信"还是同一张靶"。
-    # 完整 4 边 + 强证据的候选不受限（真换靶/大扫动也能锁）；其余候选按**面积比**
-    # 判同一张靶（丢失期间云台可能大幅扫动，位置不设硬门；尺度突变才是误锁特征）。
+    RECOVER_MAX_DARK_ABS = 160.0
+    RECOVER_MAX_DARK_RATIO = 0.60
+
+    # ---- 部分可见 / 出画 ----
+    # _verify 允许"3 条边有证据 + 第 4 条弱/被裁"，_refine 最多 1 条边用先验兜底；
+    # 实测 ≥ PARTIAL_MIN_EDGES 即出版，结果标 partial（黄框），控制侧可降增益。
+    CLIP_MIN_EDGE_VALID = 0.5     # 一条边至少 50% 采样点在图内才算"可见"
+    MAX_CLIPPED_EDGES = 1         # 最多允许 1 条边被画面裁掉
+    PARTIAL_MIN_EDGES = 3         # partial 至少实测 3 条边（第 4 条用先验边）
+    # 复锁尺度门：3 边补出来的中心只可信"还是同一张靶"，按面积比判；
+    # 完整 4 边 + 强证据不受限（真换靶/大扫动也能锁）。
     REACQUIRE_AREA_RATIO = 3.0
     PREDICT_MAX_GAP_S = 0.25
+
+    # ---- 中心滤波（显示口径）----
+    CENTER_ALPHA = 0.70           # 0 = 关闭
+    FILTER_RESET_PX = 25.0
     KALMAN_ENABLE = True
     KALMAN_PROCESS_PX = 40.0
     KALMAN_MEASURE_PX = 0.9
     KALMAN_RESET_PX = 25.0
     KALMAN_MAX_PREDICT_S = 0.25
     KALMAN_VELOCITY_LIMIT_PX_S = 6000
-    FRONT_VIEW_SHORT_PX = 0
+    FRONT_VIEW_SHORT_PX = 0       # >0 才做正视面复核（当前关闭）
     FRONT_VIEW_MAX_ERROR_PX = 5.0
 
-    # Relative commands need both motion completion AND a newer captured frame.
-    AIM_PROFILE = "smooth"
+    # ---- 物理靶面 ----
+    TARGET_SHORT_MM = 210.0
+    TARGET_LONG_MM = 297.0
+    CIRCLE_SAMPLES = 72
+    CIRCLE_RADIUS_MM = 2.0
+
+    # ---- 激光光斑读数（相机与激光固连，光斑位置近似固定）----
+    # "fixed"：不检测，每帧只算"黑框中心 − 标定常量"，零开销（默认）
+    # "detect"：每 LASER_INTERVAL_S 实测一次，用于重标 U/V
+    ENABLE_LASER = True
+    LASER_U_NOMINAL = 294
+    LASER_V_NOMINAL = 202
+    LASER_ROI_RADIUS = 64
+    LASER_MODE = "fixed"
+    LASER_MIN_PEAK = 140.0
+    LASER_MIN_CONTRAST = 20.0
+    LASER_MIN_PIXELS = 2
+    LASER_MAX_PIXELS = 160        # 面积上限挡白墙高光/灯罩反光
+    LASER_INTERVAL_S = 0.30
+    LASER_MAX_JUMP_PX = 40.0      # 单次更新跳变上限，0 = 关闭
+    LASER_SMOOTH_ALPHA = 0.60
+
+    # ---- 瞄准调度 ----
+    AIM_PROFILE = "smooth"        # 见文件末尾 profiles：覆盖 6 个增益/转速/限幅
     AIM_PROGRESSIVE = True
     ACC_TRACK = 80
     AIM_WAIT_MOTION = True
     AIM_MOTION_MARGIN_S = 0.03
     AIM_HISTORY_MAX_GAP_S = 0.30
-    DIVERGE_GUARD = True
+    DIVERGE_GUARD = True          # 发散兜底停机
     DIVERGE_CONFIRM_FRAMES = 6
     DIVERGE_RATIO = 1.15
     DIVERGE_MIN_PX = 4.0
@@ -281,6 +224,7 @@ class Config:
     SEARCH_USE_IMU = True
     SEARCH_IMU_MARGIN_DEG = 3.0
 
+    # ---- IMU 前馈（默认关）----
     ENABLE_IMU_FEEDFORWARD = False
     IMU_YAW_AXIS = (0, 0, 1)
     IMU_PITCH_AXIS = (0, -1, 0)
@@ -292,6 +236,8 @@ class Config:
     IMU_BIAS_MAX_STD_DPS = 0.25
     IMU_BIAS_MAX_DPS = 2.0
     IMU_HOLD_MAX_S = 0.25
+
+    # ---- MaixVision 图传桥 ----
     SHOW_STREAM_HOST = "127.0.0.1"
     SHOW_STREAM_PORT = 7899
     SHOW_STREAM_WIDTH = 480

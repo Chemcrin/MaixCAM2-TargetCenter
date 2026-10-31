@@ -1,16 +1,20 @@
-"""清理 B 轨「可再生的调试产物」，把工作区体积压回可控范围。
+"""清理 B 轨「可再生的调试产物」，把应用目录体积压回可控范围。
 
 默认**只扫描不删除**（打印清单与总体积）；确认无误后加 `--apply` 才真正删除。
+
+为什么必须清：MaixVision「运行项目」打包的是**整个项目目录**（不按 app.yaml 的
+exclude 裁剪），合计超过 30MB 会直接拒绝运行。所以产物一律写到应用目录之外的
+`../reports/`，应用目录只留源码、测试固件与单文件版。
 
 只删「能重新生成 / 已被 .gitignore 忽略」的东西，**绝不碰**源码、测试固件、文档与单文件版：
 
     删除：
-      - tools/e2e_report/ 下的 *.png        （抓屏/总览图，跑一次 e2e 就会重画）
+      - tools/{precision,subpixel,e2e,video}_report/   历史产物目录（现已改到 ../reports/）
       - 任意 __pycache__/ 目录与 *.pyc/*.pyo
       - screenshot*.png / frame*.png / mask*.png / debug_*.png（与 .gitignore 同口径）
     保留：
       - tools/negative_e421.png / negative_e880.png  ← **测试输入固件，必须保留**
-      - tools/e2e_report/ 下的 *.html / *.json        （自包含审查报告与其结果）
+      - tools/real_board_frame.png / real_scene_corner_gap.png ← 真实场景回归固件
       - 全部 *.py / *.md / *.yaml / assets/ / dist/
 
 用法：
@@ -24,9 +28,11 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-E2E = os.path.join(ROOT, "tools", "e2e_report")
-# 测试输入固件：无论规则怎么匹配都绝不动。
-KEEP_NAMES = {"negative_e421.png", "negative_e880.png"}
+# 历史产物目录：旧版脚本把报告写在应用目录里，现在统一写到 ../reports/。
+LEGACY_REPORTS = ["precision_report", "subpixel_report", "e2e_report", "video_report"]
+# 测试输入固件 / 回归固件：无论规则怎么匹配都绝不动。
+KEEP_NAMES = {"negative_e421.png", "negative_e880.png",
+              "real_board_frame.png", "real_scene_corner_gap.png"}
 JUNK_PREFIXES = ("screenshot", "frame", "mask", "debug_")
 
 
@@ -49,10 +55,10 @@ def _walk_size(path):
 def collect():
     """返回 (待删文件列表, 待删目录列表)。"""
     files, dirs = [], []
-    if os.path.isdir(E2E):
-        for name in sorted(os.listdir(E2E)):
-            if name.lower().endswith(".png") and name not in KEEP_NAMES:
-                files.append(os.path.join(E2E, name))
+    for name in LEGACY_REPORTS:
+        path = os.path.join(HERE, name)
+        if os.path.isdir(path):
+            dirs.append(path)
     for base, subdirs, names in os.walk(ROOT):
         if os.path.basename(base) == "__pycache__":
             dirs.append(base)
@@ -82,13 +88,13 @@ def main():
     before = _walk_size(ROOT)
     files, dirs = collect()
     freed = sum(_walk_size(p) for p in files) + sum(_walk_size(p) for p in dirs)
-    print("[clean] B 轨当前体积 = %s" % human(before))
-    print("[clean] 命中可再生调试产物：%d 个文件 + %d 个 __pycache__ 目录，共 %s"
+    print("[clean] 应用目录当前体积 = %s（MaixVision 打包上限 30MB）" % human(before))
+    print("[clean] 命中可再生调试产物：%d 个文件 + %d 个目录，共 %s"
           % (len(files), len(dirs), human(freed)))
     for path in files[:20]:
         print("        - %s" % os.path.relpath(path, ROOT).replace("\\", "/"))
     if len(files) > 20:
-        print("        … 其余 %d 个文件（多为 e2e 抓屏）" % (len(files) - 20))
+        print("        … 其余 %d 个文件（抓屏 / 缓存）" % (len(files) - 20))
     for path in dirs:
         print("        - %s/" % os.path.relpath(path, ROOT).replace("\\", "/"))
     if not files and not dirs:
@@ -107,9 +113,10 @@ def main():
     after = _walk_size(ROOT)
     print("[clean] 已清理：%s -> %s（释放 %s）" % (human(before), human(after), human(before - after)))
     if after > limit_mb * 1048576:
-        print("[clean] ⚠ 仍超过 %.0fMB 上限，请检查是否又新增了大体积产物。" % limit_mb)
+        print("[clean] ⚠ 仍超过 %.0fMB，请检查是否又新增了大体积产物。" % limit_mb)
     else:
         print("[clean] OK：在 %.0fMB 上限内。" % limit_mb)
+    print("[clean] 报告产物在 ../reports/（应用目录外，不参与 MaixVision 打包）。")
     return 0
 
 

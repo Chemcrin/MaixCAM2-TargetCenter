@@ -2,6 +2,9 @@
 import sys
 from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
+# 报告产物一律落在应用目录之外的 reports/：MaixVision 打包整个项目目录，
+# 产物留在这里会把项目撑爆 30MB 上限。
+REPORTS = ROOT.parent / "reports"
 sys.path.insert(0, str(ROOT))
 from target_api import load_config
 from vision.aim_control import VisionControl

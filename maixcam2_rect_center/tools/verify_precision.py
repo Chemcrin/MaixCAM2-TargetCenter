@@ -1,6 +1,6 @@
 """独立生成抗锯齿靶图，逐帧验证中心/固定激光偏差，并导出可复查报告。
 
-python -B tools/verify_precision.py --output tools/precision_report
+python -B tools/verify_precision.py --output ../reports/precision
 不重试漏检帧；真值只用 OpenCV 四点投影，不调用被测几何代码。
 """
 import argparse
@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
+REPORTS = ROOT.parent / "reports"
 sys.path.insert(0, str(ROOT))
 from config import Config
 from target_api import CenterTracker
@@ -76,7 +77,7 @@ def stats(values):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output',type=Path,default=ROOT/'tools'/'precision_report')
+    parser.add_argument('--output',type=Path,default=REPORTS/'precision')
     parser.add_argument('--record-only',action='store_true',help='记录改动前基线，不执行验收断言')
     args = parser.parse_args()
     args.output.mkdir(parents=True,exist_ok=True)

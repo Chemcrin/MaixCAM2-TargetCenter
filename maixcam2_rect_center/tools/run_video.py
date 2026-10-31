@@ -4,7 +4,7 @@ The recording is a desktop capture: `--pane maixvision` crops the camera preview
 panel (the top-right "图像" pane) in relative coordinates, so it works for any
 recording size.  Use `--crop x0,y0,x1,y1` for arbitrary pixel rectangles.
 
-Outputs next to --out (default tools/video_report/<stem>/):
+Outputs next to --out (default ../reports/video/<stem>/):
     det.mp4       annotated video (green = full lock, yellow = partial lock)
     frames.json   per-frame result (valid/stage/u/v/partial/refined_edges/ms)
     contact.png   12-frame contact sheet
@@ -31,14 +31,19 @@ import cv2
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
+REPORTS = ROOT.parent / "reports"   # 产物落在应用目录外，避免 MaixVision 打包超 30MB
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from config import Config  # noqa: E402
 from vision.rectangle_center import RectangleCenterDetector, draw_result  # noqa: E402
 
-# relative (x0, y0, x1, y1) of the MaixVision camera pane in a 2560x1440 capture
-PANES = {"maixvision": (2070 / 2560, 280 / 1440, 2520 / 2560, 618 / 1440)}
+# 相对坐标 (x0, y0, x1, y1)：2560x1440 桌面录像里 MaixVision "图像" 面板的位置。
+# maixvision     = 只取相机画面本体（y 到 496 为止，下方是"直方图/LAB"工具条）
+# maixvision_ui  = 旧口径，连工具条一起裁进去（32% 面积是纯 UI 黑带，会伪造底部暗带证据，
+#                  历史数字用它跑出来，仅供对照，别再用它下结论）
+PANES = {"maixvision": (2058 / 2560, 280 / 1440, 2519 / 2560, 496 / 1440),
+         "maixvision_ui": (2070 / 2560, 280 / 1440, 2520 / 2560, 618 / 1440)}
 CONTACT_COLS, CONTACT_ROWS = 4, 3
 CONTACT_W, CONTACT_H = 320, 240
 
@@ -51,8 +56,28 @@ def parse_crop(text):
 
 
 def parse_size(text):
+    """WxH；H 写 0 表示按裁切框原比例推算（推荐，避免把画面拉变形）。"""
     w, h = text.lower().split("x")
     return int(w), int(h)
+
+
+def apply_overrides(cfg, pairs):
+    """--set KEY=VALUE：临时改 Config 上的标量，用来扫参数而不改文件。"""
+    for item in pairs or []:
+        key, _, raw = item.partition("=")
+        key = key.strip()
+        if not hasattr(cfg, key):
+            raise SystemExit("unknown config key: %s" % key)
+        cur = getattr(cfg, key)
+        if isinstance(cur, bool):
+            value = raw.strip().lower() in ("1", "true", "yes", "on")
+        elif isinstance(cur, int):
+            value = int(raw)
+        elif isinstance(cur, float):
+            value = float(raw)
+        else:
+            value = raw
+        setattr(cfg, key, value)
 
 
 def crop_rect(frame, args):
@@ -104,8 +129,10 @@ def main():
                         help="named crop preset (ignored when --crop is given)")
     parser.add_argument("--crop", type=parse_crop, default=None,
                         help="pixel crop in the source frame: x0,y0,x1,y1")
-    parser.add_argument("--size", type=parse_size, default=(640, 480),
-                        help="detector input size (default 640x480)")
+    parser.add_argument("--size", type=parse_size, default=(640, 0),
+                        help="detector input size WxH; H=0 按裁切框比例推算（默认 640x0）")
+    parser.add_argument("--set", action="append", metavar="KEY=VALUE",
+                        help="临时覆盖 Config 标量，可重复，用于参数扫描")
     parser.add_argument("--out", default=None, help="output directory")
     parser.add_argument("--stride", type=int, default=1, help="process every Nth frame")
     parser.add_argument("--start", type=float, default=0.0, help="start time in seconds")
@@ -120,7 +147,7 @@ def main():
     src = Path(args.video)
     if not src.is_file():
         raise SystemExit("video not found: %s" % src)
-    out_dir = Path(args.out) if args.out else ROOT / "tools" / "video_report" / src.stem
+    out_dir = Path(args.out) if args.out else REPORTS / "video" / src.stem
     out_dir.mkdir(parents=True, exist_ok=True)
 
     cap = cv2.VideoCapture(str(src))
@@ -136,6 +163,10 @@ def main():
     if not ok:
         raise SystemExit("cannot read the first frame")
     x0, y0, x1, y1 = crop_rect(probe, args)
+    if args.size[1] <= 0:
+        width = args.size[0]
+        args.size = (width, max(2, int(round(width * (y1 - y0) / float(x1 - x0)))))
+    apply_overrides(Config, args.set)
     if args.start > 0:
         cap.set(cv2.CAP_PROP_POS_MSEC, args.start * 1000.0)
     else:

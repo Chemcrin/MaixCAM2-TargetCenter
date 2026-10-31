@@ -29,7 +29,12 @@ class ContourLocator:
             if area > w*h*cfg.MAX_AREA_RATIO:
                 continue
             q = quad_from_contour(cnt, cfg.APPROX_EPSILON, getattr(cfg, "HULL_FILL_RATIO", .6))
-            if q is None or not quad_is_valid(q, mask.shape, min_edge=6):
+            # 出画容忍必须与 _verify 同口径：验证层早就能接受"最多 1 条边被画面裁掉"，
+            # 但这里若按 allow_clipped=False 处理，贴边/大靶的候选在提案阶段就被丢掉，
+            # 验证层的容忍永远用不上（实拍录像里这是最大的一类漏检）。
+            if q is None or not quad_is_valid(
+                    q, mask.shape, min_edge=6,
+                    allow_clipped=bool(getattr(cfg, "SEARCH_ALLOW_CLIPPED", True))):
                 continue
             # A glared/open ring has tiny contour area but a full-size convex hull.
             # Apply the target-size gate AFTER polygon recovery, never to ring ink.
