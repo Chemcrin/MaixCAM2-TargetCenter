@@ -181,7 +181,8 @@ def test_perf_log_branch_formatting():
     perf = [l for l in log.splitlines() if l.startswith("[perf]")]
     assert perf, "没命中 [perf] 日志分支"
     for field in ("capture=", "disp=", "detect_fps=", "read=", "draw=", "loop=",
-                  "show avg=", "drop(show)=", "drop(vision)="):
+                  "show avg=", "drop(show)=", "drop(vision)=",
+                  "det_stage=", "det_fail=", "det_props="):
         assert field in perf[0], "缺字段 %s：%s" % (field, perf[0])
     assert "[preview] async=" in log, "启动未打印显示线程模式"
     print("PASS: [perf] 日志分支可执行、字段齐全（%d 行）" % len(perf))

@@ -20,6 +20,11 @@ def format_perf_line(build_id, capture_fps, display_fps, display_low1, vision_fp
       "到底谁在吃时间"（这正是 1.5fps 归因的关键）。
     """
     det = result if detector_result is None else detector_result
+    # 失败帧才带 fail_stage / fail_reason：det_fail=track+roi+full/rejected
+    #   -> "这一帧试过追踪、ROI 重搜、全图重搜，候选都被拒"
+    #   -> track_refine = 只走了追踪、精修就失败了；no_proposal = 搜索层零提案
+    fail_stage = det.get("fail_stage")
+    fail_tag = "-" if not fail_stage else "%s/%s" % (fail_stage, det.get("fail_reason", "-"))
     return ("[perf] %s capture=%.1f disp=%.1f low1=%.1f detect_fps=%.1f "
             "valid=%s stage=%s | read=%.1f draw=%.1f loop=%.1f ms | "
             "show avg=%.1f p95=%.1f max=%.1fms n=%d | "
@@ -29,8 +34,9 @@ def format_perf_line(build_id, capture_fps, display_fps, display_low1, vision_fp
              read_avg, draw_avg, loop_avg,
              show_avg, show_p95, show_max, show_n,
              age_s * 1000, shown, drop_show, drop_vision)) + (
-            " det_valid=%s det_stage=%s det_ms=%.1f det_masks=%d" %
-            (det.get("valid", False), det.get("stage"), det.get("detector_ms", 0.), det.get("masks", 0)))
+            " det_valid=%s det_stage=%s det_ms=%.1f det_masks=%d det_fail=%s det_props=%d" %
+            (det.get("valid", False), det.get("stage"), det.get("detector_ms", 0.),
+             det.get("masks", 0), fail_tag, det.get("proposals", 0)))
 
 
 def format_slow_loop(loop_avg):

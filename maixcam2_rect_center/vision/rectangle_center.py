@@ -573,15 +573,23 @@ class RectangleCenterDetector:
             self._frame_shape = g.shape
         self._search_count = self._mask_count = self._proposals = 0
         candidate, stage = None, 'full_search'
+        # 本帧实际走过的层级（track / roi / full，按顺序）与**首次**失败原因。
+        # stage 对外语义不变（失败仍是 no_black_frame）；fail_* 只给日志/报表用，
+        # 用来回答"到底搜没搜、搜了几次、死在哪一层"。
+        attempted = []
+        fail_reason = 'unknown'
         if g.size == 0:
             self.reset()
-            return dict(valid=False, stage='empty_frame', masks=0, search_count=0, proposals=0,
+            return dict(valid=False, stage='empty_frame', fail_stage='none', fail_reason='empty',
+                        masks=0, search_count=0, proposals=0,
                         partial=False, refined_edges=0, clipped_edges=0, detector_ms=0.)
         delta = self._motion_delta(timestamp)
         if self._track is not None:
+            attempted.append('track')
             kind = self._track['kind']
             guesses = [self._track['quad']+delta] if delta is not None else []
             guesses.append(self._track['quad'])
+            fail_reason = 'track_refine'          # 精修没凑出 3 条实测边（两个猜测都没成）
             for guess in guesses:
                 # 追踪允许 3 边 + 先验边（partial）：贴边/局部反光时不再整帧丢失。
                 q = self._refine(g, guess, kind, self.cfg.TRACK_RADIUS, require_all=False)
@@ -589,7 +597,10 @@ class RectangleCenterDetector:
                     wide = getattr(self.cfg, 'REFINE_RADIUS_WIDE', 20)
                     if wide > self.cfg.TRACK_RADIUS:
                         q = self._refine(g, guess, kind, wide, require_all=False)
-                candidate = self._verify(g, q, kind, exempt_edges=self._fallback_edges) if q is not None else None
+                if q is None:
+                    continue
+                fail_reason = 'track_verify'      # 精修出框了，但四边暗带证据不过
+                candidate = self._verify(g, q, kind, exempt_edges=self._fallback_edges)
                 if candidate is not None:
                     candidate['refined_edges'] = int(self._refined_edges)
                     candidate['weak_edges'] = int(self._weak_edges)
@@ -603,16 +614,26 @@ class RectangleCenterDetector:
             lo = np.maximum(0, np.floor(lo-pad)).astype(int)
             hi = np.minimum([g.shape[1], g.shape[0]], np.ceil(hi+pad)).astype(int)
             self._roi_retry = False
+            attempted.append('roi')
+            props_before = self._proposals
             candidate = self._search(g, tuple(map(int, (*lo, *(hi-lo)))))
+            if candidate is None and len(attempted) == 1:
+                fail_reason = 'roi_no_proposal' if self._proposals == props_before else 'roi_rejected'
             stage = 'roi_search'
         # Never use elif: ROI failure must still attempt a complete full-frame search.
         if candidate is None:
+            props_before = self._proposals
+            attempted.append('full')
             candidate, stage = self._search(g), 'full_search'
+            if candidate is None and len(attempted) == 1:
+                fail_reason = 'no_proposal' if self._proposals == props_before else 'rejected'
         if candidate is None:
             self._smooth = self._prev_quad = self._prev_timestamp = None
             self._kalman.reset()
             self._lost += 1
             result = dict(valid=False, stage='no_black_frame',
+                          fail_stage='+'.join(attempted) or 'none',
+                          fail_reason=fail_reason,
                           partial=False, refined_edges=0, clipped_edges=0)
         else:
             previous = self._track

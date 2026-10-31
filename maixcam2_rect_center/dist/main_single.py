@@ -10,10 +10,10 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-01 00:00:57
+生成时间：2026-11-01 00:58:21
     config.py                    sha1=bc455a318961
-    main.py                      sha1=76b8e411a8cb
-    target_api.py                sha1=a597b3b90117
+    main.py                      sha1=8e1ff2049a37
+    target_api.py                sha1=6d56d258c8a9
     vision/__init__.py           sha1=abc847cb4264
     vision/aim_control.py        sha1=6dab67c57421
     vision/app_runtime.py        sha1=4fb552a5ce9e
@@ -30,16 +30,16 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
     vision/preview.py            sha1=bae51cd6c3a7
     vision/rate_meter.py         sha1=6f2a054c97a0
     vision/rect_geometry.py      sha1=c1ed45195e96
-    vision/rectangle_center.py   sha1=3b23a7308081
+    vision/rectangle_center.py   sha1=d23ebfc640ed
     vision/stepper_link.py       sha1=35bbfea2f5af
-    vision/telemetry.py          sha1=9a047c2372a2
+    vision/telemetry.py          sha1=a6627b2dc0a7
     vision/vision_worker.py      sha1=fcf416a9f29a
 """
 
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': 'bc455a31896145075d94c4c529c8b4903caffe41', 'vision/rate_meter.py': '6f2a054c97a00470409a59de9dea42b0bff9c6ba', 'vision/camera_source.py': 'b398fedefe6eaf931d372abe00ba267f7d9697b5', 'vision/vision_worker.py': 'fcf416a9f29ab849861c59c314dc318f070278eb', 'vision/telemetry.py': '9a047c2372a2ce7d2e91928574310095395144aa', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/preview.py': 'bae51cd6c3a7332bd2006b381efb68c258cf2b88', 'vision/rect_geometry.py': 'c1ed45195e9642710f9f2c8a64c675b85d14e2c7', 'vision/contour_locator.py': 'e88b9cebd06a0c46117be17aa0d691c247bab4ba', 'vision/kalman_filter.py': '9104ffbec3f72996407be9caca85324abeab19e8', 'vision/rectangle_center.py': '3b23a73080817b349f77b421781e2df299020fd4', 'vision/laser_spot.py': 'e15b62182b9d9a9c7ea694519ffebfd94ef46d0a', 'vision/stepper_link.py': '35bbfea2f5afeed77dd7fa22a853f17c3a3d6982', 'vision/imu_heading.py': 'a1193ada2173f113452781bcebc5a5e5b8745db3', 'vision/gimbal_self_test.py': '1094ca64bdc09f087f659b197c1085767a050952', 'vision/gimbal_aim.py': '543b2d46a1e86c861e0ff4c7f4e481950b8a8242', 'vision/gimbal_search.py': 'fc5c09964c192bd9c68e7e837dc3dc37b9bc4579', 'vision/aim_control.py': '6dab67c574216816d723822c82d4a37e4e7fb881', 'vision/gimbal_calibrate.py': 'c7db6a254e404cadea5c1ddd892afe7ae8834aa3', 'vision/app_runtime.py': '4fb552a5ce9e0f070f4be123815a0800b1c00ab7', 'vision/__init__.py': 'abc847cb4264bf79d47c0dae40f584bf4baba64f', 'target_api.py': 'a597b3b90117984974d6da8d04d1e4dc565dd027', 'main.py': '76b8e411a8cb6accee331c19992181d472adb5b8'}
+_SRC_SHA1 = {'config.py': 'bc455a31896145075d94c4c529c8b4903caffe41', 'vision/rate_meter.py': '6f2a054c97a00470409a59de9dea42b0bff9c6ba', 'vision/camera_source.py': 'b398fedefe6eaf931d372abe00ba267f7d9697b5', 'vision/vision_worker.py': 'fcf416a9f29ab849861c59c314dc318f070278eb', 'vision/telemetry.py': 'a6627b2dc0a741030c33ab8c5d41e80df84d4dc9', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/preview.py': 'bae51cd6c3a7332bd2006b381efb68c258cf2b88', 'vision/rect_geometry.py': 'c1ed45195e9642710f9f2c8a64c675b85d14e2c7', 'vision/contour_locator.py': 'e88b9cebd06a0c46117be17aa0d691c247bab4ba', 'vision/kalman_filter.py': '9104ffbec3f72996407be9caca85324abeab19e8', 'vision/rectangle_center.py': 'd23ebfc640ed5fc61fc8d6d67ca9f19bd1171e8f', 'vision/laser_spot.py': 'e15b62182b9d9a9c7ea694519ffebfd94ef46d0a', 'vision/stepper_link.py': '35bbfea2f5afeed77dd7fa22a853f17c3a3d6982', 'vision/imu_heading.py': 'a1193ada2173f113452781bcebc5a5e5b8745db3', 'vision/gimbal_self_test.py': '1094ca64bdc09f087f659b197c1085767a050952', 'vision/gimbal_aim.py': '543b2d46a1e86c861e0ff4c7f4e481950b8a8242', 'vision/gimbal_search.py': 'fc5c09964c192bd9c68e7e837dc3dc37b9bc4579', 'vision/aim_control.py': '6dab67c574216816d723822c82d4a37e4e7fb881', 'vision/gimbal_calibrate.py': 'c7db6a254e404cadea5c1ddd892afe7ae8834aa3', 'vision/app_runtime.py': '4fb552a5ce9e0f070f4be123815a0800b1c00ab7', 'vision/__init__.py': 'abc847cb4264bf79d47c0dae40f584bf4baba64f', 'target_api.py': '6d56d258c8a95e740c550181d22d4e110d356dd4', 'main.py': '8e1ff2049a3719ff0b815dce9ff263f7530469c3'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -552,6 +552,11 @@ def format_perf_line(build_id, capture_fps, display_fps, display_low1, vision_fp
       "到底谁在吃时间"（这正是 1.5fps 归因的关键）。
     """
     det = result if detector_result is None else detector_result
+    # 失败帧才带 fail_stage / fail_reason：det_fail=track+roi+full/rejected
+    #   -> "这一帧试过追踪、ROI 重搜、全图重搜，候选都被拒"
+    #   -> track_refine = 只走了追踪、精修就失败了；no_proposal = 搜索层零提案
+    fail_stage = det.get("fail_stage")
+    fail_tag = "-" if not fail_stage else "%s/%s" % (fail_stage, det.get("fail_reason", "-"))
     return ("[perf] %s capture=%.1f disp=%.1f low1=%.1f detect_fps=%.1f "
             "valid=%s stage=%s | read=%.1f draw=%.1f loop=%.1f ms | "
             "show avg=%.1f p95=%.1f max=%.1fms n=%d | "
@@ -561,8 +566,9 @@ def format_perf_line(build_id, capture_fps, display_fps, display_low1, vision_fp
              read_avg, draw_avg, loop_avg,
              show_avg, show_p95, show_max, show_n,
              age_s * 1000, shown, drop_show, drop_vision)) + (
-            " det_valid=%s det_stage=%s det_ms=%.1f det_masks=%d" %
-            (det.get("valid", False), det.get("stage"), det.get("detector_ms", 0.), det.get("masks", 0)))
+            " det_valid=%s det_stage=%s det_ms=%.1f det_masks=%d det_fail=%s det_props=%d" %
+            (det.get("valid", False), det.get("stage"), det.get("detector_ms", 0.),
+             det.get("masks", 0), fail_tag, det.get("proposals", 0)))
 
 
 def format_slow_loop(loop_avg):
@@ -2204,15 +2210,23 @@ class RectangleCenterDetector:
             self._frame_shape = g.shape
         self._search_count = self._mask_count = self._proposals = 0
         candidate, stage = None, 'full_search'
+        # 本帧实际走过的层级（track / roi / full，按顺序）与**首次**失败原因。
+        # stage 对外语义不变（失败仍是 no_black_frame）；fail_* 只给日志/报表用，
+        # 用来回答"到底搜没搜、搜了几次、死在哪一层"。
+        attempted = []
+        fail_reason = 'unknown'
         if g.size == 0:
             self.reset()
-            return dict(valid=False, stage='empty_frame', masks=0, search_count=0, proposals=0,
+            return dict(valid=False, stage='empty_frame', fail_stage='none', fail_reason='empty',
+                        masks=0, search_count=0, proposals=0,
                         partial=False, refined_edges=0, clipped_edges=0, detector_ms=0.)
         delta = self._motion_delta(timestamp)
         if self._track is not None:
+            attempted.append('track')
             kind = self._track['kind']
             guesses = [self._track['quad']+delta] if delta is not None else []
             guesses.append(self._track['quad'])
+            fail_reason = 'track_refine'          # 精修没凑出 3 条实测边（两个猜测都没成）
             for guess in guesses:
                 # 追踪允许 3 边 + 先验边（partial）：贴边/局部反光时不再整帧丢失。
                 q = self._refine(g, guess, kind, self.cfg.TRACK_RADIUS, require_all=False)
@@ -2220,7 +2234,10 @@ class RectangleCenterDetector:
                     wide = getattr(self.cfg, 'REFINE_RADIUS_WIDE', 20)
                     if wide > self.cfg.TRACK_RADIUS:
                         q = self._refine(g, guess, kind, wide, require_all=False)
-                candidate = self._verify(g, q, kind, exempt_edges=self._fallback_edges) if q is not None else None
+                if q is None:
+                    continue
+                fail_reason = 'track_verify'      # 精修出框了，但四边暗带证据不过
+                candidate = self._verify(g, q, kind, exempt_edges=self._fallback_edges)
                 if candidate is not None:
                     candidate['refined_edges'] = int(self._refined_edges)
                     candidate['weak_edges'] = int(self._weak_edges)
@@ -2234,16 +2251,26 @@ class RectangleCenterDetector:
             lo = np.maximum(0, np.floor(lo-pad)).astype(int)
             hi = np.minimum([g.shape[1], g.shape[0]], np.ceil(hi+pad)).astype(int)
             self._roi_retry = False
+            attempted.append('roi')
+            props_before = self._proposals
             candidate = self._search(g, tuple(map(int, (*lo, *(hi-lo)))))
+            if candidate is None and len(attempted) == 1:
+                fail_reason = 'roi_no_proposal' if self._proposals == props_before else 'roi_rejected'
             stage = 'roi_search'
         # Never use elif: ROI failure must still attempt a complete full-frame search.
         if candidate is None:
+            props_before = self._proposals
+            attempted.append('full')
             candidate, stage = self._search(g), 'full_search'
+            if candidate is None and len(attempted) == 1:
+                fail_reason = 'no_proposal' if self._proposals == props_before else 'rejected'
         if candidate is None:
             self._smooth = self._prev_quad = self._prev_timestamp = None
             self._kalman.reset()
             self._lost += 1
             result = dict(valid=False, stage='no_black_frame',
+                          fail_stage='+'.join(attempted) or 'none',
+                          fail_reason=fail_reason,
                           partial=False, refined_edges=0, clipped_edges=0)
         else:
             previous = self._track
@@ -4317,6 +4344,8 @@ _MOD_SRC['target_api'] = r'''
     quad       (4,2)   外框四角，顺序已规整（左上起逆时针）
     inner_quad (4,2)   内框四角（胶带内沿）
     stage      str     track / roi_search / full_search / no_black_frame
+    fail_stage str     仅 valid=False 时：本帧实际走过的层级，如 track+roi+full（调试用）
+    fail_reason str    仅 valid=False 时：track_refine / no_proposal / rejected
     ms         float   本帧检测耗时（毫秒）
     laser_u/v  float   光斑位置（仅 with_laser=True 且光斑有效时有意义）
     dx, dy     float   靶心 − 光斑（仅 with_laser=True 时；无效为 None）
@@ -4378,6 +4407,9 @@ class Result(dict):
 
     def __repr__(self):
         if not self.get("valid"):
+            if self.get("fail_stage"):
+                return "Result(invalid, stage=%s, fail=%s/%s)" % (
+                    self.get("stage"), self.get("fail_stage"), self.get("fail_reason", "-"))
             return "Result(invalid, stage=%s)" % self.get("stage")
         return "Result(u=%.1f, v=%.1f, stage=%s)" % (
             self.get("u", float("nan")), self.get("v", float("nan")), self.get("stage"))
@@ -4636,7 +4668,7 @@ from vision.preview import Preview, TouchButtons, display_result, apply_maixvisi
 from vision.aim_control import VisionControl, send_uart
 from vision.app_runtime import run
 
-BUILD_ID = "2026-10-31-clipped-proposals-v1.1.2"
+BUILD_ID = "2026-11-01-fail-stage-v1.1.3"
 
 # Compatibility aliases for existing PC tools and board integrations.
 _FrameRate, _LatestVision, _Preview, _Touch = FrameRate, LatestFrameWorker, Preview, TouchButtons

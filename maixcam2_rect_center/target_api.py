@@ -54,6 +54,8 @@
     quad       (4,2)   外框四角，顺序已规整（左上起逆时针）
     inner_quad (4,2)   内框四角（胶带内沿）
     stage      str     track / roi_search / full_search / no_black_frame
+    fail_stage str     仅 valid=False 时：本帧实际走过的层级，如 track+roi+full（调试用）
+    fail_reason str    仅 valid=False 时：track_refine / no_proposal / rejected
     ms         float   本帧检测耗时（毫秒）
     laser_u/v  float   光斑位置（仅 with_laser=True 且光斑有效时有意义）
     dx, dy     float   靶心 − 光斑（仅 with_laser=True 时；无效为 None）
@@ -115,6 +117,9 @@ class Result(dict):
 
     def __repr__(self):
         if not self.get("valid"):
+            if self.get("fail_stage"):
+                return "Result(invalid, stage=%s, fail=%s/%s)" % (
+                    self.get("stage"), self.get("fail_stage"), self.get("fail_reason", "-"))
             return "Result(invalid, stage=%s)" % self.get("stage")
         return "Result(u=%.1f, v=%.1f, stage=%s)" % (
             self.get("u", float("nan")), self.get("v", float("nan")), self.get("stage"))

@@ -82,9 +82,15 @@ def test_detect_rejects_blank():
     res = detect_black_frame(blank)
     check((not res.valid) and bool(res) is False and res.center is None,
           "空白画面正确拒绝", res.stage)
+    # 失败帧必须能说出"试过哪几层、为什么没锁上"，否则板端日志不可诊断
+    check(res.get("fail_stage") == "full", "空白画面只走了全图搜索", res.get("fail_stage"))
+    check(res.get("fail_reason") == "no_proposal", "空白画面归因为搜索层零提案",
+          res.get("fail_reason"))
     dark_box = np.full((480, 640), 175, np.uint8)
     cv2.rectangle(dark_box, (150, 70), (460, 400), 20, -1)
-    check(not detect_black_frame(dark_box).valid, "实心黑块不误检")
+    dark = detect_black_frame(dark_box)
+    check(not dark.valid, "实心黑块不误检")
+    check(dark.get("fail_reason") == "rejected", "实心黑块归因为候选被拒", dark.get("fail_reason"))
 
 
 def test_track_api():

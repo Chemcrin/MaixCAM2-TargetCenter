@@ -103,6 +103,9 @@ def annotate(result, gray, index, t, size):
         tag = "PARTIAL %d/4 edges" % result.get("refined_edges", 4) if partial else "LOCK"
     else:
         color, tag = (0, 0, 255), "NO LOCK"
+        if result.get("fail_stage"):
+            # 失败也区分层级：track_refine 与 full/rejected 是两种完全不同的病
+            tag += " %s/%s" % (result["fail_stage"], result.get("fail_reason", "-"))
     cv2.rectangle(canvas, (0, 0), (canvas.shape[1] - 1, canvas.shape[0] - 1), color, 2)
     cv2.putText(canvas, "#%04d t=%.1fs  %s  stage=%s  %s  %.1fms"
                 % (index, t, tag, result.get("stage", "?"),
@@ -191,6 +194,8 @@ def main():
     detector = None if args.no_track else RectangleCenterDetector(Config)
     records, samples = [], []
     stages = Counter()
+    fails = Counter()      # 失败帧走过了哪几层（track/roi/full 的组合）
+    whys = Counter()       # 失败原因短码（track_refine/no_proposal/rejected）
     processed = valid = partial = 0
     ms_values = []
     loss_run = longest_loss = 0
@@ -217,6 +222,9 @@ def main():
         result = detector.process(gray, timestamp=t)
         processed += 1
         stages[result.get("stage", "?")] += 1
+        if not result.get("valid"):
+            fails[result.get("fail_stage", "?")] += 1
+            whys[result.get("fail_reason", "?")] += 1
         ms_values.append(result.get("detector_ms", 0.0))
         if result.get("valid"):
             valid += 1
@@ -236,6 +244,8 @@ def main():
                             refined_edges=result.get("refined_edges", 0),
                             clipped_edges=result.get("clipped_edges", 0),
                             stage=result.get("stage"),
+                            fail=result.get("fail_stage"),
+                            why=result.get("fail_reason"),
                             u=result.get("u"), v=result.get("v"),
                             ms=round(result.get("detector_ms", 0.0), 2)))
         if writer is not None:
@@ -261,6 +271,8 @@ def main():
         valid=valid, valid_rate=round(valid / max(1, processed), 4),
         partial=partial,
         stages=dict(stages),
+        fail_stages=dict(fails),
+        fail_reasons=dict(whys),
         longest_loss_run=longest_loss,
         relock_runs=relock_frames[:50],
         first_valid_s=first_valid, last_valid_s=last_valid,
@@ -280,6 +292,11 @@ def main():
             buf.tofile(str(out_dir / "contact.png"))
         else:
             print("[video] WARN: failed to encode the contact sheet")
+    if fails:
+        print("[fail] 层级组合（试过哪些层）：%s"
+              % ", ".join("%s×%d" % kv for kv in fails.most_common()))
+        print("[fail] 原因：%s"
+              % ", ".join("%s×%d" % kv for kv in whys.most_common()))
     print(json.dumps(summary, ensure_ascii=False, indent=1))
     print("outputs -> %s" % out_dir)
     return 0

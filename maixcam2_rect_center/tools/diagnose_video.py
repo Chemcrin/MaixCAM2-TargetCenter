@@ -123,6 +123,7 @@ def main():
 
     det = RectangleCenterDetector(Config)
     reasons = Counter()
+    builtin = Counter()   # 检测器自己给的 fail_stage/fail_reason，板端日志同口径
     losses, run_start, run_len = [], None, 0
     samples, gate_rows = [], []
     frame = processed = valid = 0
@@ -150,6 +151,7 @@ def main():
         if run_start is None:
             run_start, run_len = t, 0
         run_len += 1
+        builtin['%s/%s' % (result.get('fail_stage'), result.get('fail_reason'))] += 1
         reason, info = postmortem(det, gray, result.get("detector_ms", 0.))
         if reason is None:
             reason = "cold_no_proposal" if cold else "cold_verify"
@@ -167,7 +169,10 @@ def main():
 
     print("帧数 %d  有效 %d (%.1f%%)  失败 %d"
           % (processed, valid, 100.0 * valid / max(1, processed), processed - valid))
-    print("\n失败归因：")
+    print("\n内置归因（result.fail_stage/fail_reason，与板端 [perf] det_fail 同口径）：")
+    for key, n in builtin.most_common():
+        print("  %-28s %5d" % (key, n))
+    print("\n尸检归因（再跑一次精修，带边级细节）：")
     for key, n in reasons.most_common():
         print("  %-20s %5d  (%5.1f%% of failures)" % (key, n, 100.0 * n / max(1, processed - valid)))
     if losses:
@@ -189,7 +194,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     (out / "diagnose.json").write_text(json.dumps(dict(
         video=str(src), processed=processed, valid=valid,
-        reasons=dict(reasons), losses=[dict(start=r[0], frames=r[1]) for r in losses],
+        reasons=dict(reasons), builtin=dict(builtin), losses=[dict(start=r[0], frames=r[1]) for r in losses],
         gates=gate_rows), ensure_ascii=False, indent=1), encoding="utf-8")
     print("\n明细 -> %s" % (out / "diagnose.json"))
     return 0
