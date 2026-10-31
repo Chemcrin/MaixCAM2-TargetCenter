@@ -234,7 +234,20 @@ class Config:
     REFINE_ITERATIONS = 2
     REFINE_RADIUS_WIDE = 20
     RECOVER_MIN_CONTRAST = 80
-    RECOVER_MAX_DARK = 100
+    RECOVER_MAX_DARK_ABS = 160.0   # 宽半径救援的暗带绝对上限（仅兜底，主判据是相对亮度）
+    RECOVER_MAX_DARK_RATIO = 0.60  # 暗带最亮采样 ≤ 0.60×图内亮面中位数
+    # ---- 部分可见 / 出画：修 _verify 与 _refine 口径冲突（2026-10-31）----
+    # _verify 允许"3 条边有证据 + 1 条弱边"（MIN_OBSERVED 只拒画面内完全无证据的边），
+    # 但 _refine 原先要求 4 条边全实测 → 真机帧/贴边帧永远出不来。
+    # 现在：refine 允许最多 1 条边用上一帧/输入边兜底，实测 ≥ PARTIAL_MIN_EDGES 即出版；
+    # 结果带 partial=True（屏幕黄色框），控制侧可据此降增益/降步长。
+    CLIP_MIN_EDGE_VALID = 0.5   # 一条边至少 50% 采样点在图内才算"可见"
+    MAX_CLIPPED_EDGES = 1       # 最多允许 1 条边被画面裁掉
+    PARTIAL_MIN_EDGES = 3       # partial 至少实测 3 条边（第 4 条用先验边）
+    # partial/复锁的连续性门：3 边补出来的中心只可信"还是同一张靶"。
+    # 完整 4 边 + 强证据的候选不受限（真换靶/大扫动也能锁）；其余候选按**面积比**
+    # 判同一张靶（丢失期间云台可能大幅扫动，位置不设硬门；尺度突变才是误锁特征）。
+    REACQUIRE_AREA_RATIO = 3.0
     PREDICT_MAX_GAP_S = 0.25
     KALMAN_ENABLE = True
     KALMAN_PROCESS_PX = 40.0

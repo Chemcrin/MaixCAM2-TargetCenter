@@ -18,7 +18,7 @@ from vision.preview import Preview, TouchButtons, display_result, apply_maixvisi
 from vision.aim_control import VisionControl, send_uart
 from vision.app_runtime import run
 
-BUILD_ID = "2026-10-18-relock-ackfix-v1.0.0"
+BUILD_ID = "2026-10-31-partial-relock-v1.1.0"
 
 # Compatibility aliases for existing PC tools and board integrations.
 _FrameRate, _LatestVision, _Preview, _Touch = FrameRate, LatestFrameWorker, Preview, TouchButtons

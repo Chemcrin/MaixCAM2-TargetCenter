@@ -114,12 +114,24 @@ def sample_batch(gray, points):
     return values.reshape(shape)
 
 
-def quad_is_valid(q, shape, margin=1, min_edge=12., min_sine=.20):
+def quad_is_valid(q, shape, margin=1, min_edge=12., min_sine=.20, allow_clipped=False):
+    """四角体检。allow_clipped=True 时允许部分角出画，只要求中心在图内。
+
+    出画判定必须按"整个四角都在图内"来做**冷启动**的身体检查；但追踪中靶纸被
+    画面边缘裁掉是常态，此时中心仍然可算（只要四角不全在画外）。因此精修后的
+    四角用 allow_clipped=True，由调用方用采样点覆盖率决定证据够不够。
+    """
     q = np.asarray(q, np.float32)
     if q.shape != (4, 2) or not np.isfinite(q).all():
         return False
     h, w = shape[:2]
-    if q[:,0].min() < margin or q[:,1].min() < margin or q[:,0].max() >= w-margin or q[:,1].max() >= h-margin:
+    if allow_clipped:
+        c = q.mean(axis=0)
+        if not (margin <= c[0] < w-margin and margin <= c[1] < h-margin):
+            return False
+        if q[:,0].max() <= 0 or q[:,0].min() >= w or q[:,1].max() <= 0 or q[:,1].min() >= h:
+            return False
+    elif q[:,0].min() < margin or q[:,1].min() < margin or q[:,0].max() >= w-margin or q[:,1].max() >= h-margin:
         return False
     if not cv2.isContourConvex(q.reshape(-1, 1, 2)):
         return False

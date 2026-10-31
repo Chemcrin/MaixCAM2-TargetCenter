@@ -29,25 +29,25 @@ class RealSceneTests(unittest.TestCase):
         self.assertLess(np.median(view[3,:]),50)
         self.assertGreater(np.median(view[view.shape[0]//2,:]),180)
 
-    # ⚠ KNOWN REGRESSION（v1.0.0 发布时确认，待修）：
-    #   v0.9.x 重写丢掉了 v0.8.0 的"缺边豁免"，同一张真机帧被判 no_black_frame：
-    #     ① `RectangleCenterDetector._verify` 的 `MIN_OBSERVED_EDGE_COVERAGE`（0.125）
-    #        要求每条边都留有证据，整条边 coverage=0 一律拒（本例正是这种）；
-    #     ② `_refine` 在 `refitted < 4` 时返回 None，而 v0.8.0 会「某条边无证据时沿用
-    #        输入四边形的边」。corner_gap 帧因此死在精修，board 帧死在 ①。
-    #   两条都是**放宽召回**的守卫，改它会牵动 U 形负样本的拒绝，故 v1.0.0 不改算法，
-    #   只把回归钉在测试里（修复后 unittest 会报 unexpected success，即是复查信号）。
+    # ⚠ KNOWN REGRESSION（v1.0.0 发布时确认）：
+    #   v0.9.x 重写丢掉了 v0.8.0 的"缺边豁免"，同一张真机帧被判 no_black_frame。
+    #   v1.1（2026-10-31）起 `_refine` 允许"3 边实测 + 1 边先验/输入边"（partial），
+    #   corner_gap 已恢复检出（见下）；board 帧的顶边在拼合图里**整条没有胶带证据**
+    #   （coverage=0，画面内缺边），按 U 形负样本口径仍然拒——这是刻意保留的召回边界。
     @unittest.expectedFailure
     def test_board_positive(self):
         path=ROOT/'tools'/'real_board_frame.png'
         if not path.exists(): self.skipTest('real_board_frame.png not supplied; cannot claim 0.04px board accuracy')
         self.assertTrue(RectangleCenterDetector(load_config()).process(read(path))['valid'])
 
-    @unittest.expectedFailure
     def test_corner_gap_positive(self):
         path=ROOT/'tools'/'real_scene_corner_gap.png'
         if not path.exists(): self.skipTest('real_scene_corner_gap.png not supplied; real corner-gap precision unverified')
-        self.assertTrue(RectangleCenterDetector(load_config()).process(read(path))['valid'])
+        result=RectangleCenterDetector(load_config()).process(read(path))
+        self.assertTrue(result['valid'])
+        self.assertTrue(result['partial'], 'corner gap should publish a partial (weak-edge) lock')
+        self.assertGreaterEqual(result['refined_edges'], 3)
+        self.assertGreaterEqual(result['weak_edges'], 1)
 
 
 if __name__ == '__main__': unittest.main()
