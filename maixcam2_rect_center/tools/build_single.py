@@ -58,9 +58,6 @@ MODULES = (
     ('vision.telemetry', 'vision/telemetry.py'),
     ('vision.maixvision_stream', 'vision/maixvision_stream.py'),
     ('vision.preview', 'vision/preview.py'),
-    ('vision.rect_geometry', 'vision/rect_geometry.py'),
-    ('vision.contour_locator', 'vision/contour_locator.py'),
-    ('vision.kalman_filter', 'vision/kalman_filter.py'),
     ('vision.rectangle_center', 'vision/rectangle_center.py'),
     ('vision.laser_spot', 'vision/laser_spot.py'),
     ('vision.stepper_link', 'vision/stepper_link.py'),
@@ -243,7 +240,7 @@ def smoke():
     bid_single = re.search(r"^BUILD_ID\s*=\s*[\"']([^\"']+)[\"']", text, re.M)
     checks.append(("BUILD_ID 与 main.py 一致",
                    bool(bid_main and bid_single and bid_main.group(1) == bid_single.group(1))))
-    checks.append(("config 参数可读", bool(getattr(Config, "BLACK_FRAME_MM", None))))
+    checks.append(("config 参数可读", bool(getattr(Config, "RECT_BLOCK_SIZE", None))))
     checks.append(("target_api 符号就位", callable(detect_black_frame) and callable(CenterTracker)))
     bad = [label for label, ok in checks if not ok]
     for label, ok in checks:

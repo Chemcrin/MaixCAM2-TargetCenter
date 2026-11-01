@@ -162,9 +162,9 @@ def deviation(laser, result, use_raw=False):
     约定取自需求文档 §7.2（dx = u靶心 − u光斑），与后续串口直控云台同一套符号：
     电机方向由各轴 DIR_SIGN 映射；像素误差为正不代表固定的电机方向。
 
-    use_raw：闭环必须用这一档（True）—— 取 result["raw_u"]/["raw_v"]（未平滑）。
-    result["u"]/["v"] 是经 CENTER_ALPHA 一阶低通的值，只适合显示；拿它闭环会附加
-    约 28ms 滞后（需求文档 §5.2），底盘运动时直接变成瞄准误差。
+    use_raw：闭环取这一档（True）—— 取 result["raw_u"]/["raw_v"]。
+    result["u"]/["v"] 是识别输出中心；新链路无滤波，两者当前恒等，
+    保留双口径是为了将来加平滑时调用方不必改（平滑值会给闭环带来相位滞后）。
     激光丢失或黑框无效时返回 None。
     """
     if not laser or not laser.get("found"):
@@ -174,7 +174,7 @@ def deviation(laser, result, use_raw=False):
     if use_raw and result.get("raw_u") is not None and result.get("raw_v") is not None:
         tx, ty = float(result["raw_u"]), float(result["raw_v"])   # 闭环档：未平滑中心
     else:
-        tx, ty = float(result["u"]), float(result["v"])           # 显示档：CENTER_ALPHA 平滑中心
+        tx, ty = float(result["u"]), float(result["v"])           # 显示档：识别输出中心
     lu, lv = float(laser['u']), float(laser['v'])
     if not all(map(math.isfinite,(tx,ty,lu,lv))):
         return None

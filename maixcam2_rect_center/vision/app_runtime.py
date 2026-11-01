@@ -172,7 +172,7 @@ def run(entry, build_id=None):
         if cfg.CALIBRATE_AXIS=='auto': controller._auto_axis='yaw'
         worker=state['worker']=entry.LatestFrameWorker(controller.process,controller.idle,cfg.VISION_ASYNC,clock=clock)
         _active.append(worker)
-        print('[rect-center] %s search_width=%d display_width=%d display_fps=%d' % (build_id or entry.BUILD_ID,cfg.SEARCH_WIDTH,preview.render_width,cfg.SHOW_FPS))
+        print('[rect-center] %s block=%d c=%.0f display_width=%d display_fps=%d' % (build_id or entry.BUILD_ID,cfg.RECT_BLOCK_SIZE,cfg.RECT_C,preview.render_width,cfg.SHOW_FPS))
         print('[preview] async=%s canvas=%dx%d' % (cfg.SHOW_ASYNC,preview.render_width,preview.render_height))
         print('[vision] latest-frame worker=%s max_result_age=%.0fms' % (cfg.VISION_ASYNC,cfg.RESULT_MAX_AGE_S*1000))
         print('[ui] 上电自检已改为屏幕按钮：SELF-TEST / SEARCH')

@@ -1,31 +1,75 @@
-"""Print per-side dark-band evidence; --front writes the independent front view."""
+"""逐层打印淘汰计数：定位"没检出"卡在面积/四边形/长宽比哪一层。
+
+用法：
+    diagnose_detect.py <图片> [--save <目录>]
+
+输出四段，对应流水线四步：
+    1. 二值化统计（白像素占比）——判断自适应阈值是否把胶带分成连通白环
+    2. 轮廓总数             ——判断噪点量
+    3. 三层淘汰计数         ——判断死在哪一层
+    4. 通过三层的候选清单   ——判断"选最大"是否会选错
+
+`--save` 会把 blur / binary / result 三张图写到目录，用来看二值图是否闭合。
+"""
 import argparse
 import json
 from pathlib import Path
-from run_pc import imread_unicode,imwrite_unicode,load_config
-from vision.rectangle_center import RectangleCenterDetector
+
+from run_pc import imread_unicode, imwrite_unicode, load_config
+from vision.rectangle_center import (RectangleCenterDetector, draw_result,
+                                     blur_frame, binarize_frame, find_quad_candidates)
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('image')
-    parser.add_argument('--front',type=Path)
-    args=parser.parse_args()
-    gray=imread_unicode(args.image)
-    if gray is None: raise SystemExit('Cannot read image: '+args.image)
-    detector=RectangleCenterDetector(load_config(FRONT_VIEW_SHORT_PX=512 if args.front else 0))
-    for level in (0,1):
-        proposals=detector.locator.locate(gray,level=level)
-        print('level=%d candidates=%d stats=%s'%(level,len(proposals),detector.locator.last_stats))
-        for i,(quad,kind) in enumerate(proposals):
-            candidate=detector._verify(gray,quad,kind,diagnostic=True)
-            print(json.dumps(dict(candidate=i,kind=kind,accepted=candidate is not None,
-                evidence=detector.last_diagnostic),ensure_ascii=False))
-    result=detector.process(gray)
-    print('result valid=%s stage=%s masks=%d ms=%.2f'%(result['valid'],result['stage'],result['masks'],result['detector_ms']))
-    if args.front and result.get('front_view') is not None:
-        imwrite_unicode(args.front,result['front_view'])
-        print('front independent center=%s error=%s consistent=%s'%(result.get('front_view_center'),result.get('front_view_error_px'),result.get('geometry_consistent')))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("image")
+    parser.add_argument("--save", type=Path, help="导出 blur/binary/result 到该目录")
+    parser.add_argument("--top", type=int, default=8, help="打印前 N 个候选")
+    args = parser.parse_args()
+
+    gray = imread_unicode(args.image)
+    if gray is None:
+        raise SystemExit("Cannot read image: " + args.image)
+
+    cfg = load_config(RECT_KEEP_STAGES=True)
+    detector = RectangleCenterDetector(cfg)
+    gray = gray if gray.ndim == 2 else gray[:, :, 0]
+
+    blur = blur_frame(gray, cfg.RECT_GAUSS_KERNEL)
+    binary = binarize_frame(blur, cfg.RECT_BLOCK_SIZE, cfg.RECT_C)
+    white = float((binary > 0).mean())
+    print("image %dx%d white_ratio=%.3f block=%d c=%.0f"
+          % (gray.shape[1], gray.shape[0], white, cfg.RECT_BLOCK_SIZE, cfg.RECT_C))
+
+    candidates, stats = find_quad_candidates(
+        binary, cfg.RECT_MIN_AREA, cfg.RECT_MAX_AREA_RATIO, cfg.RECT_APPROX_EPS,
+        cfg.RECT_MIN_ASPECT, cfg.RECT_MAX_ASPECT, cfg.RECT_MAX_CANDIDATES)
+    print("contours=%d  reject: area=%d quad=%d aspect=%d  passed=%d"
+          % (stats["contours"], stats["area"], stats["quad"], stats["aspect"],
+             stats["candidates"]))
+    for i, cand in enumerate(candidates[:max(0, args.top)]):
+        x, y, w, h = cand["bbox"]
+        print("  #%d area=%.0f bbox=(%d,%d,%d,%d) aspect=%.2f"
+              % (i, cand["area"], x, y, w, h, cand["aspect"]))
+
+    result = detector.process(gray)
+    print("result valid=%s stage=%s reason=%s ms=%.2f"
+          % (result["valid"], result["stage"], result.get("fail_reason", "-"),
+             result["detector_ms"]))
+    if result["valid"]:
+        print(json.dumps(dict(center=(round(result["u"], 1), round(result["v"], 1)),
+                              quad=[[int(round(v)) for v in p] for p in result["quad"]],
+                              area=int(result.get("area", 0)),
+                              aspect=round(float(result.get("aspect", 0.)), 3)),
+                         ensure_ascii=False))
+
+    if args.save:
+        imwrite_unicode(args.save / "01_blur.png", blur)
+        imwrite_unicode(args.save / "02_binary.png", binary)
+        imwrite_unicode(args.save / "03_result.png",
+                        draw_result(gray, result, gray.shape[1]))
+        print("saved ->", args.save)
 
 
-if __name__=='__main__': main()
+if __name__ == "__main__":
+    main()

@@ -21,10 +21,11 @@ from target_api import detect_black_frame, CenterTracker, track_center, reset, l
 
 def demo_frame(offset=(0, 0)):
     """合成一张 640x480 靶纸图（PC 演示用；板子上换成 cam.read()）。"""
-    q = np.float32([[180, 70], [445, 80], [475, 400], [150, 420]]) + np.float32(offset)
-    h = cv2.getPerspectiveTransform(np.float32([[0, 0], [210, 0], [210, 297], [0, 297]]), q)
-    target = np.full((298, 211), 20, np.uint8)
-    target[18:280, 18:193] = 220
+    # 横放、透视适中（宽高比约 1.35）。长宽比判据按正立外接框算，竖放会被拒。
+    q = np.float32([[155, 120], [485, 110], [475, 345], [165, 355]]) + np.float32(offset)
+    h = cv2.getPerspectiveTransform(np.float32([[0, 0], [297, 0], [297, 210], [0, 210]]), q)
+    target = np.full((211, 298), 20, np.uint8)
+    target[18:193, 18:280] = 220
     return cv2.warpPerspective(target, h, (640, 480), borderValue=175)
 
 
@@ -53,7 +54,10 @@ def example_track():
     # 函数式一行版（内部复用默认实例）
     reset()
     r = track_center(demo_frame())
-    print("  track_center() 一行版 -> (%.1f, %.1f)" % (r.u, r.v))
+    if r.valid:
+        print("  track_center() 一行版 -> (%.1f, %.1f)" % (r.u, r.v))
+    else:
+        print("  track_center() 一行版 -> 未识别（%s）" % r.stage)
 
 
 # ------------------------------------------------------------------ ③ 偏差 / 闭环
@@ -70,8 +74,8 @@ def example_aim():
     #   loop.step(cam.read())         # 每帧调用：追踪 -> 偏差 -> 发脉冲
     #   loop.stop()
     print("  （AimLoop 会驱动电机，示例里不实例化；仅演示如何用 load_config 临时改参）")
-    cfg = load_config(MIN_AREA_RATIO=0.05, SEARCH_WIDTH=256)
-    print("  load_config(MIN_AREA_RATIO=0.05, SEARCH_WIDTH=256) ->",
+    cfg = load_config(RECT_MIN_AREA=500, RECT_MAX_ASPECT=2.0)
+    print("  load_config(RECT_MIN_AREA=500, RECT_MAX_ASPECT=2.0) ->",
           detect_black_frame(demo_frame(), cfg).valid)
 
 

@@ -66,7 +66,7 @@ class Config:
     GIMBAL_GEAR_RATIO = 0.0       # 未知留 0：自检不猜齿轮比
 
     # ---- 闭环口径 ----
-    # True = 用 raw_u/raw_v 算 dx/dy：CENTER_ALPHA 只留给显示，闭环用平滑值会加 ≈28ms 滞后
+    # True = 用 raw_u/raw_v 算 dx/dy：新链路无滤波，两者恒等；保留该开关以兼容闭环代码
     AIM_USE_RAW = True
     JUMP_REJECT_PX = 400.0        # 离群拒收：先当误检丢掉
     JUMP_CONFIRM_FRAMES = 3       # 连续这么多帧才采信跳变
@@ -105,85 +105,20 @@ class Config:
     UART_PORT = "/dev/ttyS0"
     UART_BAUD = 115200
 
-    # ---- 搜索 ----
-    CANNY_LOW = 35
-    CANNY_HIGH = 120
-    SEARCH_WIDTH = 320            # 搜索在低分辨率做；精修回到原图
-    SEARCH_SPLIT_FRAMES = False   # 历史兼容项
-    SEARCH_MAX_PROPOSALS = 128    # 仅 SEARCH_EXHAUSTIVE=False 时生效
-    MAX_CANDIDATES = 8
-    EDGE_SAMPLES = 24             # 每条边的采样列数
-    REFINE_RADIUS = 6             # 窄带精修半径（原图 px）
-    TRACK_RADIUS = 12             # 追踪时的窄带半径
-    # 运动预测：用上两帧四角的逐角位移外推本帧位置，再在预测处窄带精修
-    ENABLE_MOTION_PREDICT = True
-    PREDICT_MAX_PX = 60.0         # 单帧预测位移上限，防噪点把预测甩飞
-    ROI_PADDING = 0.20
-    EDGE_CLOSE_PX = 3
-    SEARCH_MAX_CONTOURS = 16
-    SEARCH_EXHAUSTIVE = True
-    # 提案阶段允许"部分角出画"的四边形：与 _verify 的 MAX_CLIPPED_EDGES 同口径。
-    # 关掉它，贴边/大靶的候选在搜索层就被丢掉，验证层的出画容忍等于白写。
-    SEARCH_ALLOW_CLIPPED = True
-    DARK_THRESHOLDS = (25, 40, 55, 70, 85, 100, 120, 145)   # 仅供旧工具读取
-    SEARCH_BUDGET_MS = 25.0
-    MAX_CONTOURS = 128
-    ENABLE_LINE_RECOVERY = False
-    HULL_FILL_RATIO = 0.60
-    MIN_EDGE_LENGTH_PX = 12.0
-
-    # ---- 胶带证据判据 ----
-    MIN_EDGE_COVERAGE = 0.55      # 一条边"成立"所需的采样覆盖率
-    WEAK_EDGE_COVERAGE = 0.25     # 弱边下限（低于它必须有其它强边兜住）
-    MIN_OBSERVED_EDGE_COVERAGE = 0.125   # 画面内整边无证据 → 拒 U 形开口
-    STRONG_EDGE_COVERAGE = 0.85   # 强边：可放宽其它边
-    MAX_DARK_BRIGHT_RATIO = 0.72  # 暗带最亮 ≤ 0.72×亮面，排除"两侧都亮"的纸边
-    MIN_EDGE_CONTRAST = 20.0      # 暗/亮对比度下限（灰度）
-    MIN_LINE_COVERAGE = 0.55      # 拟合一条边所需内点比例
-    MAX_LINE_RESIDUAL_PX = 0.8    # 原图像素；拒绝用曲线拟合矩形边
-    MIN_AREA_RATIO = 0.008
-    MAX_AREA_RATIO = 0.92
-    APPROX_EPSILON = 0.025
-    MIN_ANGLE_DEG = 55.0
-    MIN_INNER_RATIO = 0.30
-    MAX_INNER_RATIO = 0.94
-    DARK_CENTER_MIN = 90.0
-    BLACK_FRAME_MM = 18.0
-    REFINE_ITERATIONS = 2
-    REFINE_RADIUS_WIDE = 20       # 窄带够不到真边时的宽半径精修
-    # 宽半径救援（仅兜底）：主判据是相对亮度，绝对上限防过曝误收
-    RECOVER_MIN_CONTRAST = 80
-    RECOVER_MAX_DARK_ABS = 160.0
-    RECOVER_MAX_DARK_RATIO = 0.60
-
-    # ---- 部分可见 / 出画 ----
-    # _verify 允许"3 条边有证据 + 第 4 条弱/被裁"，_refine 最多 1 条边用先验兜底；
-    # 实测 ≥ PARTIAL_MIN_EDGES 即出版，结果标 partial（黄框），控制侧可降增益。
-    CLIP_MIN_EDGE_VALID = 0.5     # 一条边至少 50% 采样点在图内才算"可见"
-    MAX_CLIPPED_EDGES = 1         # 最多允许 1 条边被画面裁掉
-    PARTIAL_MIN_EDGES = 3         # partial 至少实测 3 条边（第 4 条用先验边）
-    # 复锁尺度门：3 边补出来的中心只可信"还是同一张靶"，按面积比判；
-    # 完整 4 边 + 强证据不受限（真换靶/大扫动也能锁）。
-    REACQUIRE_AREA_RATIO = 3.0
-    PREDICT_MAX_GAP_S = 0.25
-
-    # ---- 中心滤波（显示口径）----
-    CENTER_ALPHA = 0.70           # 0 = 关闭
-    FILTER_RESET_PX = 25.0
-    KALMAN_ENABLE = True
-    KALMAN_PROCESS_PX = 40.0
-    KALMAN_MEASURE_PX = 0.9
-    KALMAN_RESET_PX = 25.0
-    KALMAN_MAX_PREDICT_S = 0.25
-    KALMAN_VELOCITY_LIMIT_PX_S = 6000
-    FRONT_VIEW_SHORT_PX = 0       # >0 才做正视面复核（当前关闭）
-    FRONT_VIEW_MAX_ERROR_PX = 5.0
-
-    # ---- 物理靶面 ----
-    TARGET_SHORT_MM = 210.0
-    TARGET_LONG_MM = 297.0
-    CIRCLE_SAMPLES = 72
-    CIRCLE_RADIUS_MM = 2.0
+    # ---- 识别（自适应反色二值化 + 三层过滤）----
+    # 调参顺序：先 RECT_BLOCK_SIZE / RECT_C 把二值图调闭合，再 RECT_MIN_AREA 去碎片，
+    # 再 RECT_APPROX_EPS 稳四边形，最后 RECT_MIN/MAX_ASPECT 收紧形状。
+    RECT_MIN_AREA = 300           # 最小轮廓面积（px2）；先小后大
+    RECT_MAX_AREA_RATIO = 0.92    # 面积上限（占整幅比例）：挡“锁到整面墙/门框”
+    RECT_APPROX_EPS = 0.02        # 多边形近似精度（占周长比例）
+    RECT_MIN_ASPECT = 1.10        # 正立外接框宽高比下限；前提是靶纸横放
+    RECT_MAX_ASPECT = 1.80        # 上限；目标约 1.414
+    RECT_GAUSS_KERNEL = (5, 5)    # 高斯核；(0, 0) = 跳过模糊
+    RECT_BLOCK_SIZE = 31          # 自适应阈值窗口，必须为 >=3 的奇数
+    RECT_C = 8.0                  # 自适应阈值常数：调小补断边，调大压噪点
+    RECT_MAX_CANDIDATES = 32      # 候选上限，防病态画面拖慢
+    RECT_KEEP_STAGES = False      # 真：把 blur/binary 留在 last_stages，供 --stage 导出
+    RECT_DEBUG_STAGE = "result"   # none / blur / binary / result
 
     # ---- 激光光斑读数（相机与激光固连，光斑位置近似固定）----
     # "fixed"：不检测，每帧只算"黑框中心 − 标定常量"，零开销（默认）

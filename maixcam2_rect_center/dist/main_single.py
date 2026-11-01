@@ -10,27 +10,24 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-01 00:58:21
-    config.py                    sha1=bc455a318961
-    main.py                      sha1=8e1ff2049a37
-    target_api.py                sha1=6d56d258c8a9
+生成时间：2026-11-02 00:16:57
+    config.py                    sha1=2c02b5f4ecf4
+    main.py                      sha1=4f54a58ec06e
+    target_api.py                sha1=c37f98868fe9
     vision/__init__.py           sha1=abc847cb4264
     vision/aim_control.py        sha1=6dab67c57421
-    vision/app_runtime.py        sha1=4fb552a5ce9e
+    vision/app_runtime.py        sha1=405c903a4834
     vision/camera_source.py      sha1=b398fedefe6e
-    vision/contour_locator.py    sha1=e88b9cebd06a
     vision/gimbal_aim.py         sha1=543b2d46a1e8
     vision/gimbal_calibrate.py   sha1=c7db6a254e40
     vision/gimbal_search.py      sha1=fc5c09964c19
     vision/gimbal_self_test.py   sha1=1094ca64bdc0
     vision/imu_heading.py        sha1=a1193ada2173
-    vision/kalman_filter.py      sha1=9104ffbec3f7
-    vision/laser_spot.py         sha1=e15b62182b9d
+    vision/laser_spot.py         sha1=a9ff385db303
     vision/maixvision_stream.py  sha1=c30d784f26a0
     vision/preview.py            sha1=bae51cd6c3a7
     vision/rate_meter.py         sha1=6f2a054c97a0
-    vision/rect_geometry.py      sha1=c1ed45195e96
-    vision/rectangle_center.py   sha1=d23ebfc640ed
+    vision/rectangle_center.py   sha1=e9161b44473e
     vision/stepper_link.py       sha1=35bbfea2f5af
     vision/telemetry.py          sha1=a6627b2dc0a7
     vision/vision_worker.py      sha1=fcf416a9f29a
@@ -39,7 +36,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': 'bc455a31896145075d94c4c529c8b4903caffe41', 'vision/rate_meter.py': '6f2a054c97a00470409a59de9dea42b0bff9c6ba', 'vision/camera_source.py': 'b398fedefe6eaf931d372abe00ba267f7d9697b5', 'vision/vision_worker.py': 'fcf416a9f29ab849861c59c314dc318f070278eb', 'vision/telemetry.py': 'a6627b2dc0a741030c33ab8c5d41e80df84d4dc9', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/preview.py': 'bae51cd6c3a7332bd2006b381efb68c258cf2b88', 'vision/rect_geometry.py': 'c1ed45195e9642710f9f2c8a64c675b85d14e2c7', 'vision/contour_locator.py': 'e88b9cebd06a0c46117be17aa0d691c247bab4ba', 'vision/kalman_filter.py': '9104ffbec3f72996407be9caca85324abeab19e8', 'vision/rectangle_center.py': 'd23ebfc640ed5fc61fc8d6d67ca9f19bd1171e8f', 'vision/laser_spot.py': 'e15b62182b9d9a9c7ea694519ffebfd94ef46d0a', 'vision/stepper_link.py': '35bbfea2f5afeed77dd7fa22a853f17c3a3d6982', 'vision/imu_heading.py': 'a1193ada2173f113452781bcebc5a5e5b8745db3', 'vision/gimbal_self_test.py': '1094ca64bdc09f087f659b197c1085767a050952', 'vision/gimbal_aim.py': '543b2d46a1e86c861e0ff4c7f4e481950b8a8242', 'vision/gimbal_search.py': 'fc5c09964c192bd9c68e7e837dc3dc37b9bc4579', 'vision/aim_control.py': '6dab67c574216816d723822c82d4a37e4e7fb881', 'vision/gimbal_calibrate.py': 'c7db6a254e404cadea5c1ddd892afe7ae8834aa3', 'vision/app_runtime.py': '4fb552a5ce9e0f070f4be123815a0800b1c00ab7', 'vision/__init__.py': 'abc847cb4264bf79d47c0dae40f584bf4baba64f', 'target_api.py': '6d56d258c8a95e740c550181d22d4e110d356dd4', 'main.py': '8e1ff2049a3719ff0b815dce9ff263f7530469c3'}
+_SRC_SHA1 = {'config.py': '2c02b5f4ecf4280a76fe8cc53a0415ad02ff495f', 'vision/rate_meter.py': '6f2a054c97a00470409a59de9dea42b0bff9c6ba', 'vision/camera_source.py': 'b398fedefe6eaf931d372abe00ba267f7d9697b5', 'vision/vision_worker.py': 'fcf416a9f29ab849861c59c314dc318f070278eb', 'vision/telemetry.py': 'a6627b2dc0a741030c33ab8c5d41e80df84d4dc9', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/preview.py': 'bae51cd6c3a7332bd2006b381efb68c258cf2b88', 'vision/rectangle_center.py': 'e9161b44473eed032163bec3c83d5092487eeb9c', 'vision/laser_spot.py': 'a9ff385db303d1699de76129bf036c508fe44702', 'vision/stepper_link.py': '35bbfea2f5afeed77dd7fa22a853f17c3a3d6982', 'vision/imu_heading.py': 'a1193ada2173f113452781bcebc5a5e5b8745db3', 'vision/gimbal_self_test.py': '1094ca64bdc09f087f659b197c1085767a050952', 'vision/gimbal_aim.py': '543b2d46a1e86c861e0ff4c7f4e481950b8a8242', 'vision/gimbal_search.py': 'fc5c09964c192bd9c68e7e837dc3dc37b9bc4579', 'vision/aim_control.py': '6dab67c574216816d723822c82d4a37e4e7fb881', 'vision/gimbal_calibrate.py': 'c7db6a254e404cadea5c1ddd892afe7ae8834aa3', 'vision/app_runtime.py': '405c903a483496880743275fae8c37d123c2459f', 'vision/__init__.py': 'abc847cb4264bf79d47c0dae40f584bf4baba64f', 'target_api.py': 'c37f98868fe9e96d2153587371aee8c2cd7b2bec', 'main.py': '4f54a58ec06e37a4a23304fa0b00e3e90ad6e6dc'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -116,7 +113,7 @@ class Config:
     GIMBAL_GEAR_RATIO = 0.0       # 未知留 0：自检不猜齿轮比
 
     # ---- 闭环口径 ----
-    # True = 用 raw_u/raw_v 算 dx/dy：CENTER_ALPHA 只留给显示，闭环用平滑值会加 ≈28ms 滞后
+    # True = 用 raw_u/raw_v 算 dx/dy：新链路无滤波，两者恒等；保留该开关以兼容闭环代码
     AIM_USE_RAW = True
     JUMP_REJECT_PX = 400.0        # 离群拒收：先当误检丢掉
     JUMP_CONFIRM_FRAMES = 3       # 连续这么多帧才采信跳变
@@ -155,85 +152,20 @@ class Config:
     UART_PORT = "/dev/ttyS0"
     UART_BAUD = 115200
 
-    # ---- 搜索 ----
-    CANNY_LOW = 35
-    CANNY_HIGH = 120
-    SEARCH_WIDTH = 320            # 搜索在低分辨率做；精修回到原图
-    SEARCH_SPLIT_FRAMES = False   # 历史兼容项
-    SEARCH_MAX_PROPOSALS = 128    # 仅 SEARCH_EXHAUSTIVE=False 时生效
-    MAX_CANDIDATES = 8
-    EDGE_SAMPLES = 24             # 每条边的采样列数
-    REFINE_RADIUS = 6             # 窄带精修半径（原图 px）
-    TRACK_RADIUS = 12             # 追踪时的窄带半径
-    # 运动预测：用上两帧四角的逐角位移外推本帧位置，再在预测处窄带精修
-    ENABLE_MOTION_PREDICT = True
-    PREDICT_MAX_PX = 60.0         # 单帧预测位移上限，防噪点把预测甩飞
-    ROI_PADDING = 0.20
-    EDGE_CLOSE_PX = 3
-    SEARCH_MAX_CONTOURS = 16
-    SEARCH_EXHAUSTIVE = True
-    # 提案阶段允许"部分角出画"的四边形：与 _verify 的 MAX_CLIPPED_EDGES 同口径。
-    # 关掉它，贴边/大靶的候选在搜索层就被丢掉，验证层的出画容忍等于白写。
-    SEARCH_ALLOW_CLIPPED = True
-    DARK_THRESHOLDS = (25, 40, 55, 70, 85, 100, 120, 145)   # 仅供旧工具读取
-    SEARCH_BUDGET_MS = 25.0
-    MAX_CONTOURS = 128
-    ENABLE_LINE_RECOVERY = False
-    HULL_FILL_RATIO = 0.60
-    MIN_EDGE_LENGTH_PX = 12.0
-
-    # ---- 胶带证据判据 ----
-    MIN_EDGE_COVERAGE = 0.55      # 一条边"成立"所需的采样覆盖率
-    WEAK_EDGE_COVERAGE = 0.25     # 弱边下限（低于它必须有其它强边兜住）
-    MIN_OBSERVED_EDGE_COVERAGE = 0.125   # 画面内整边无证据 → 拒 U 形开口
-    STRONG_EDGE_COVERAGE = 0.85   # 强边：可放宽其它边
-    MAX_DARK_BRIGHT_RATIO = 0.72  # 暗带最亮 ≤ 0.72×亮面，排除"两侧都亮"的纸边
-    MIN_EDGE_CONTRAST = 20.0      # 暗/亮对比度下限（灰度）
-    MIN_LINE_COVERAGE = 0.55      # 拟合一条边所需内点比例
-    MAX_LINE_RESIDUAL_PX = 0.8    # 原图像素；拒绝用曲线拟合矩形边
-    MIN_AREA_RATIO = 0.008
-    MAX_AREA_RATIO = 0.92
-    APPROX_EPSILON = 0.025
-    MIN_ANGLE_DEG = 55.0
-    MIN_INNER_RATIO = 0.30
-    MAX_INNER_RATIO = 0.94
-    DARK_CENTER_MIN = 90.0
-    BLACK_FRAME_MM = 18.0
-    REFINE_ITERATIONS = 2
-    REFINE_RADIUS_WIDE = 20       # 窄带够不到真边时的宽半径精修
-    # 宽半径救援（仅兜底）：主判据是相对亮度，绝对上限防过曝误收
-    RECOVER_MIN_CONTRAST = 80
-    RECOVER_MAX_DARK_ABS = 160.0
-    RECOVER_MAX_DARK_RATIO = 0.60
-
-    # ---- 部分可见 / 出画 ----
-    # _verify 允许"3 条边有证据 + 第 4 条弱/被裁"，_refine 最多 1 条边用先验兜底；
-    # 实测 ≥ PARTIAL_MIN_EDGES 即出版，结果标 partial（黄框），控制侧可降增益。
-    CLIP_MIN_EDGE_VALID = 0.5     # 一条边至少 50% 采样点在图内才算"可见"
-    MAX_CLIPPED_EDGES = 1         # 最多允许 1 条边被画面裁掉
-    PARTIAL_MIN_EDGES = 3         # partial 至少实测 3 条边（第 4 条用先验边）
-    # 复锁尺度门：3 边补出来的中心只可信"还是同一张靶"，按面积比判；
-    # 完整 4 边 + 强证据不受限（真换靶/大扫动也能锁）。
-    REACQUIRE_AREA_RATIO = 3.0
-    PREDICT_MAX_GAP_S = 0.25
-
-    # ---- 中心滤波（显示口径）----
-    CENTER_ALPHA = 0.70           # 0 = 关闭
-    FILTER_RESET_PX = 25.0
-    KALMAN_ENABLE = True
-    KALMAN_PROCESS_PX = 40.0
-    KALMAN_MEASURE_PX = 0.9
-    KALMAN_RESET_PX = 25.0
-    KALMAN_MAX_PREDICT_S = 0.25
-    KALMAN_VELOCITY_LIMIT_PX_S = 6000
-    FRONT_VIEW_SHORT_PX = 0       # >0 才做正视面复核（当前关闭）
-    FRONT_VIEW_MAX_ERROR_PX = 5.0
-
-    # ---- 物理靶面 ----
-    TARGET_SHORT_MM = 210.0
-    TARGET_LONG_MM = 297.0
-    CIRCLE_SAMPLES = 72
-    CIRCLE_RADIUS_MM = 2.0
+    # ---- 识别（自适应反色二值化 + 三层过滤）----
+    # 调参顺序：先 RECT_BLOCK_SIZE / RECT_C 把二值图调闭合，再 RECT_MIN_AREA 去碎片，
+    # 再 RECT_APPROX_EPS 稳四边形，最后 RECT_MIN/MAX_ASPECT 收紧形状。
+    RECT_MIN_AREA = 300           # 最小轮廓面积（px2）；先小后大
+    RECT_MAX_AREA_RATIO = 0.92    # 面积上限（占整幅比例）：挡“锁到整面墙/门框”
+    RECT_APPROX_EPS = 0.02        # 多边形近似精度（占周长比例）
+    RECT_MIN_ASPECT = 1.10        # 正立外接框宽高比下限；前提是靶纸横放
+    RECT_MAX_ASPECT = 1.80        # 上限；目标约 1.414
+    RECT_GAUSS_KERNEL = (5, 5)    # 高斯核；(0, 0) = 跳过模糊
+    RECT_BLOCK_SIZE = 31          # 自适应阈值窗口，必须为 >=3 的奇数
+    RECT_C = 8.0                  # 自适应阈值常数：调小补断边，调大压噪点
+    RECT_MAX_CANDIDATES = 32      # 候选上限，防病态画面拖慢
+    RECT_KEEP_STAGES = False      # 真：把 blur/binary 留在 last_stages，供 --stage 导出
+    RECT_DEBUG_STAGE = "result"   # none / blur / binary / result
 
     # ---- 激光光斑读数（相机与激光固连，光斑位置近似固定）----
     # "fixed"：不检测，每帧只算"黑框中心 − 标定常量"，零开销（默认）
@@ -1317,1034 +1249,305 @@ class TouchButtons:
         return None
 '''
 
-# ===== vision.rect_geometry  (vision/rect_geometry.py) =====
-_MOD_SRC['vision.rect_geometry'] = r'''
-"""Pure projective geometry; all homographies map physical mm to image pixels."""
+# ===== vision.rectangle_center  (vision/rectangle_center.py) =====
+_MOD_SRC['vision.rectangle_center'] = r'''
+"""OpenCV 黑框识别：自适应反色二值化 → 轮廓 → 三层过滤 → 四点对角线交点。
+
+组织方式：每个小功能都是**模块级函数**，输入输出只依赖参数，不读类状态；
+`RectangleCenterDetector` 只做两件事——保存参数、按顺序调用它们。
+这样任何一步都能单独跑、单独测（`diagnose_detect.py` 就是直接调下面这些函数）。
+
+    to_gray_frame      校验并去掉灰度哑轴
+    blur_frame         高斯模糊（可关）
+    binarize_frame     自适应反色，黑胶带 → 白环
+    find_quad_candidates  三层过滤，返回候选 + 各层淘汰计数
+    select_largest     在通过者里取面积最大
+    locate_result      候选 → 结果 dict（含失败归因）
+    quad_diagonal_center  四点 → 对角线交点
+    draw_result        结果 → BGR 画布
+
+三条刻意的设计约束：
+
+1. **无跨帧状态**：每帧独立全图搜索，同一张图必然得到同一结果。
+2. **判据只有三层**：面积 → 四边形近似 → 长宽比。不做胶带暗带证据、亚像素精修、
+   单应反算。画面里出现更大的深色矩形时会锁错，这是本方案的已知边界。
+3. **中心取四点的对角线交点**，不取正立外接矩形中心。
+
+分阶段调试：`RECT_KEEP_STAGES` 置真后，`process` 把中间结果留在 `last_stages`
+（`blur` / `binary`），供 `tools/run_pc.py --stage` 导出。
+"""
+import time
+
 import cv2
 import numpy as np
 
+STAGE_OK = "full_search"
+STAGE_NONE = "no_black_frame"
 
-def polygon_area(p):
-    """带符号面积的 2 倍（>0 = 逆时针 CCW，<0 = 顺时针 CW）。用于把四角规整成统一方向。"""
-    p = np.asarray(p)
-    return float(p[0,0]*(p[1,1]-p[3,1]) + p[1,0]*(p[2,1]-p[0,1]) +
-                 p[2,0]*(p[3,1]-p[1,1]) + p[3,0]*(p[0,1]-p[2,1]))
+
+# ------------------------------------------------------------------ 几何小工具
+def signed_area(p):
+    """带符号面积的 2 倍：>0 逆时针。用于把四角规整成统一方向。"""
+    p = np.asarray(p, np.float64)
+    return float(p[0, 0] * (p[1, 1] - p[3, 1]) + p[1, 0] * (p[2, 1] - p[0, 1]) +
+                 p[2, 0] * (p[3, 1] - p[1, 1]) + p[3, 0] * (p[0, 1] - p[2, 1]))
 
 
 def order_quad(points):
-    """把 4 个点规整为统一顺序：以质心为极点按极角排序 → 保证 CCW → 旋转到"左上角"开头。
+    """四角规整为 [左上, 右上, 右下, 左下]（逆时针）。
 
-    统一顺序是后续所有几何运算（边向量、对角线、单应四点对应）的前提。
-    返回顺序语义：**[左上, 右上, 右下, 左下]**（逆时针），与 side_lengths 的边 0/1/2/3 对应。
+    顺序固定是对角线配对的前提：只有这样 q0-q2 与 q1-q3 才是对角线而不是相邻边。
     """
     p = np.asarray(points, np.float32).reshape(4, 2)
     c = p.mean(axis=0)
-    p = p[np.argsort(np.arctan2(p[:, 1] - c[1], p[:, 0] - c[0]))]   # 按极角排序
-    if polygon_area(p) < 0:
-        p = p[::-1]                                                  # 反了则翻转成 CCW
-    # np.roll 到"x+y 最小"的点（即左上角）打头。
+    p = p[np.argsort(np.arctan2(p[:, 1] - c[1], p[:, 0] - c[0]))]
+    if signed_area(p) < 0:
+        p = p[::-1]
     i = int(np.argmin(p.sum(axis=1)))
     return np.concatenate((p[i:], p[:i]))
 
 
-def side_lengths(q):
-    """四边长度 [边0, 边1, 边2, 边3]，边 i = 从点 i 指向点 i+1（roll -1 取下一个点）。"""
-    return np.linalg.norm(np.roll(q, -1, axis=0) - q, axis=1)
-
-
-def gaussian_solve(a, b):
-    """在OpenCV原生代码中对双精度8×8方程做LU消元，避免每帧Python行循环。"""
-    ok, solution = cv2.solve(np.asarray(a, np.float64),
-                             np.asarray(b, np.float64).reshape(-1,1), flags=cv2.DECOMP_LU)
-    if not ok or not np.isfinite(solution).all():
-        raise ValueError("degenerate quadrilateral")
-    return solution.reshape(-1)
-
-
-def homography(src, dst):
-    """解 4 点对应的 3×3 单应 H（使 H·src ≡ dst）。
-
-    做法：先对 src/dst **归一化**（平移质心到原点、缩放到量级 1）再建 8×8 线性方程，
-    求得 H_n 后用 T_dst·H_n·T_src⁻¹ 还原 —— 归一化能显著提升大像素坐标下的数值稳定性。
-    退化情形（任一边集合尺度过小/共线）抛 ValueError。
-    """
-    src, dst = np.asarray(src, np.float64), np.asarray(dst, np.float64)
-    sc, dc = src.mean(axis=0), dst.mean(axis=0)
-    ss, ds = float(np.max(np.abs(src - sc))), float(np.max(np.abs(dst - dc)))
-    if min(ss, ds) < 1e-8:
-        raise ValueError("zero-size rectangle")
-    xy, uv = (src - sc) / ss, (dst - dc) / ds                 # 归一化坐标
-    a = np.zeros((8, 8), np.float64)
-    a[0::2, :3] = np.column_stack((xy, np.ones(4)))           # 偶数行：x 分量方程
-    a[1::2, 3:6] = a[0::2, :3]                                # 奇数行：y 分量方程
-    a[0::2, 6:] = -uv[:, :1] * xy                             # 第 3 列（透视项）
-    a[1::2, 6:] = -uv[:, 1:] * xy
-    v = gaussian_solve(a, uv.reshape(-1))
-    hn = np.append(v, 1.0).reshape(3, 3)                      # 归一化域下的 H
-    ts = np.array([[1 / ss, 0, -sc[0] / ss], [0, 1 / ss, -sc[1] / ss], [0, 0, 1]])
-    td_inv = np.array([[ds, 0, dc[0]], [0, ds, dc[1]], [0, 0, 1]])
-    h = td_inv @ hn @ ts                                      # 还原到原坐标域
-    return h / h[2, 2] if abs(h[2, 2]) > 1e-12 else h
-
-
-def homography_8x8(src_quad, width_mm, height_mm):
-    """把物理矩形 (0,0)-(w,h) 映射到图像四边形 src_quad 的单应（mm → px）。"""
-    return homography(rectangle_corners(width_mm, height_mm), src_quad)
-
-
-def project_points(matrix, points):
-    """齐次投影：把 (N,2) 点经 3×3 矩阵映射，做透视除法得 (N,2)。落无穷远点抛错。"""
-    p = np.asarray(points, np.float64).reshape(-1, 2)
-    z = np.column_stack((p, np.ones(len(p)))) @ np.asarray(matrix).T
-    if np.any(np.abs(z[:, 2]) < 1e-9):
-        raise ValueError("point at projective infinity")
-    return z[:, :2] / z[:, 2:]
-
-
-def inverse_map_points(h, points):
-    """单应逆映射（px → mm）；不做透视除法前的越界检查，由调用方负责。"""
-    return project_points(np.linalg.inv(h), points)
-
-
-def standard_circle(width_mm, height_mm, radius_mm, samples=72):
-    """正视面坐标下、以矩形中心为圆心、半径 radius_mm 的等分圆采样点（(samples,2)）。
-
-    用途：把该圆逆映射回原图，用于可视化/交叉校验中心；**圆心本身直接取矩形中心投影**，
-    不用圆周平均（见 process 内注释）。
-    """
-    a = np.arange(samples) * (2 * np.pi / samples)
-    return np.array([width_mm / 2, height_mm / 2]) + radius_mm * np.column_stack((np.cos(a), np.sin(a)))
-
-
-def rectangle_corners(w, h, inset=0.0):
-    """物理矩形四角（mm），inset>0 时向内缩进（用于取胶带内沿 = 内框）。顺序 LL→LR→UR→UL。"""
-    return np.array([[inset, inset], [w - inset, inset],
-                     [w - inset, h - inset], [inset, h - inset]], np.float64)
-
-
-def sample_batch(gray, points):
-    """一次 OpenCV remap 双线性采样整批点，越界由调用方拒绝。
-
-    相比逐点 Python 循环，remap 一次调用即可采样成百上千个点（四边验证/精修的关键提速）。
-    borderMode=REPLICATE 保证边缘点也能返回数值（越界判据在调用方单独做）。
-    """
-    shape = points.shape[:-1]
-    p = points.reshape(-1, 2).astype(np.float32)
-    values = cv2.remap(gray, p[:, 0].reshape(1, -1), p[:, 1].reshape(1, -1),
-                       cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
-    return values.reshape(shape)
-
-
-def quad_is_valid(q, shape, margin=1, min_edge=12., min_sine=.20, allow_clipped=False):
-    """四角体检。allow_clipped=True 时允许部分角出画，只要求中心在图内。
-
-    出画判定必须按"整个四角都在图内"来做**冷启动**的身体检查；但追踪中靶纸被
-    画面边缘裁掉是常态，此时中心仍然可算（只要四角不全在画外）。因此精修后的
-    四角用 allow_clipped=True，由调用方用采样点覆盖率决定证据够不够。
-    """
-    q = np.asarray(q, np.float32)
-    if q.shape != (4, 2) or not np.isfinite(q).all():
-        return False
-    h, w = shape[:2]
-    if allow_clipped:
-        c = q.mean(axis=0)
-        if not (margin <= c[0] < w-margin and margin <= c[1] < h-margin):
-            return False
-        if q[:,0].max() <= 0 or q[:,0].min() >= w or q[:,1].max() <= 0 or q[:,1].min() >= h:
-            return False
-    elif q[:,0].min() < margin or q[:,1].min() < margin or q[:,0].max() >= w-margin or q[:,1].max() >= h-margin:
-        return False
-    if not cv2.isContourConvex(q.reshape(-1, 1, 2)):
-        return False
-    e = np.concatenate((q[1:], q[:1])) - q
-    lengths = np.linalg.norm(e, axis=1)
-    if lengths.min() < min_edge:
-        return False
-    nxt = np.concatenate((e[1:], e[:1]))
-    sine = np.abs(e[:,0]*nxt[:,1]-e[:,1]*nxt[:,0]) / (lengths*np.r_[lengths[1:], lengths[:1]])
-    return bool(sine.min() >= min_sine)
-
-
-def quad_from_contour(cnt, eps_ratio, hull_fill_ratio, factors=(1., 1.6, 2.4, 3.5, 5.)):
-    def fit(contour):
-        perimeter = cv2.arcLength(contour, True)
-        for factor in factors:
-            ap = cv2.approxPolyDP(contour, eps_ratio*factor*perimeter, True)
-            if len(ap) == 4 and cv2.isContourConvex(ap):
-                return order_quad(ap)
+def line_cross(a, b, c, d):
+    """线段 ab 与 cd 所在直线的交点；平行或退化返回 None。"""
+    ax, ay = float(a[0]), float(a[1])
+    bx, by = float(b[0]), float(b[1])
+    cx, cy = float(c[0]), float(c[1])
+    dx, dy = float(d[0]), float(d[1])
+    den = (ax - bx) * (cy - dy) - (ay - by) * (cx - dx)
+    if abs(den) < 1e-9:
         return None
-    q = fit(cnt)
-    if q is not None:
-        return q
-    hull = cv2.convexHull(cnt)
-    # A thin broken ring can be repaired; all hull proposals still need dark-band evidence.
-    if abs(cv2.contourArea(cnt)) < hull_fill_ratio*abs(cv2.contourArea(hull)):
-        return fit(hull)
-    return None
+    t = ((ax - cx) * (cy - dy) - (ay - cy) * (cx - dx)) / den
+    return ax + t * (bx - ax), ay + t * (by - ay)
 
 
-def front_view_size(w, h, short_px):
-    scale = float(short_px) / min(w, h)
-    return max(2, round(w*scale)), max(2, round(h*scale))
+def quad_diagonal_center(quad):
+    """对角线交点 = 透视下的矩形中心。退化时返回 None，由调用方判失败。"""
+    q = np.asarray(quad, np.float32)
+    p = line_cross(q[0], q[2], q[1], q[3])
+    if p is None or not np.isfinite(p).all():
+        return None
+    return p
 
 
-def warp_front_view(gray, rect_to_image, w, h, short_px):
-    fw, fh = front_view_size(w, h, short_px)
-    mm_to_front = np.diag([(fw-1)/w, (fh-1)/h, 1.])
-    # OpenCV takes src -> dst; reversing this matrix silently warps background.
-    return cv2.warpPerspective(gray, mm_to_front @ np.linalg.inv(rect_to_image), (fw, fh))
-'''
+# ------------------------------------------------------------------ 预处理
+def to_gray_frame(gray):
+    """校验输入并去掉 (H,W,1) 哑轴。返回 (H,W) uint8。
 
-# ===== vision.contour_locator  (vision/contour_locator.py) =====
-_MOD_SRC['vision.contour_locator'] = r'''
-"""Bounded low-resolution proposals: one Canny mask, one Otsu fallback."""
-import time
-import cv2
-import numpy as np
-from .rect_geometry import order_quad, quad_from_contour, quad_is_valid
-
-LEVEL_EDGE, LEVEL_MASK = 0, 1
-
-
-class ContourLocator:
-    LEVEL_EDGE, LEVEL_MASK = LEVEL_EDGE, LEVEL_MASK
-
-    def __init__(self, cfg):
-        self.cfg = cfg
-        self.last_stats = {}
-        size = max(1, int(getattr(cfg, "EDGE_CLOSE_PX", 3)))
-        self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (size, size))
-
-    def _quads_from_mask(self, mask):
-        contours = cv2.findContours(mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[-2]
-        self.last_stats["contours"] = len(contours)
-        h, w = mask.shape
-        cfg, quads = self.cfg, []
-        for cnt in sorted(contours, key=lambda c: abs(cv2.contourArea(c)), reverse=True)[:getattr(cfg, "SEARCH_MAX_CONTOURS", 16)]:
-            _, _, cw, ch = cv2.boundingRect(cnt)
-            if min(cw, ch) < max(8, .04*min(w, h)):
-                continue
-            area = abs(cv2.contourArea(cnt))
-            if area > w*h*cfg.MAX_AREA_RATIO:
-                continue
-            q = quad_from_contour(cnt, cfg.APPROX_EPSILON, getattr(cfg, "HULL_FILL_RATIO", .6))
-            # 出画容忍必须与 _verify 同口径：验证层早就能接受"最多 1 条边被画面裁掉"，
-            # 但这里若按 allow_clipped=False 处理，贴边/大靶的候选在提案阶段就被丢掉，
-            # 验证层的容忍永远用不上（实拍录像里这是最大的一类漏检）。
-            if q is None or not quad_is_valid(
-                    q, mask.shape, min_edge=6,
-                    allow_clipped=bool(getattr(cfg, "SEARCH_ALLOW_CLIPPED", True))):
-                continue
-            # A glared/open ring has tiny contour area but a full-size convex hull.
-            # Apply the target-size gate AFTER polygon recovery, never to ring ink.
-            if not w*h*cfg.MIN_AREA_RATIO <= abs(cv2.contourArea(q)) <= w*h*cfg.MAX_AREA_RATIO:
-                continue
-            if any(np.max(np.linalg.norm(q-old, axis=1)) < 2 for old in quads):
-                continue
-            quads.append(q)
-            if len(quads) >= cfg.MAX_CANDIDATES:
-                break  # Bound expensive polygon fitting, not accepted-candidate stability.
-        return quads
-
-    def locate(self, gray, roi=None, level=LEVEL_EDGE):
-        started = time.perf_counter()
-        x, y, w, h = roi or (0, 0, gray.shape[1], gray.shape[0])
-        self.last_stats = dict(masks=0, contours=0, quads=0, ms=0., level=level)
-        if w <= 0 or h <= 0:
-            return []
-        scale = min(1., self.cfg.SEARCH_WIDTH / float(w))
-        sw, sh = max(1, round(w*scale)), max(1, round(h*scale))
-        crop = gray[y:y+h, x:x+w]
-        small = cv2.resize(crop, (sw, sh), interpolation=cv2.INTER_AREA) if scale < 1 else crop
-        if level == LEVEL_EDGE:
-            mask = cv2.Canny(small, self.cfg.CANNY_LOW, self.cfg.CANNY_HIGH)
-        elif level == LEVEL_MASK:
-            mask = cv2.threshold(small, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)[1]
-        else:
-            raise ValueError("unknown proposal level")
-        if self.kernel.shape[0] > 1:
-            mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.kernel)
-        self.last_stats["masks"] = 1
-        quads = self._quads_from_mask(mask)
-        self.last_stats.update(quads=len(quads), ms=(time.perf_counter()-started)*1000)
-        mapped = [(q*np.array([w/sw, h/sh], np.float32)+[x, y]).astype(np.float32) for q in quads]
-        return [(q, kind) for q in mapped for kind in ("inner", "outer")]
-'''
-
-# ===== vision.kalman_filter  (vision/kalman_filter.py) =====
-_MOD_SRC['vision.kalman_filter'] = r'''
-"""Constant-velocity center filter. Raw observations remain the control input."""
-import numpy as np
-
-
-class ConstantVelocityKalman2D:
-    def __init__(self, process_px=40., measure_px=.9, reset_px=25.,
-                 max_predict_s=.25, velocity_limit_px_s=6000.):
-        self.q, self.r = float(process_px), float(measure_px)
-        self.reset_px, self.max_gap = float(reset_px), float(max_predict_s)
-        self.velocity_limit = float(velocity_limit_px_s)
-        if not np.isfinite([self.q, self.r, self.reset_px, self.max_gap, self.velocity_limit]).all() or min(self.r, self.max_gap, self.velocity_limit) <= 0 or self.q < 0:
-            raise ValueError("invalid Kalman parameters")
-        self.reset()
-
-    def reset(self):
-        self.x = self.p = self.timestamp = self.last_measurement = None
-
-    def seed(self, position, timestamp):
-        z = np.asarray(position, dtype=float).reshape(2)
-        if not np.isfinite(z).all() or not np.isfinite(timestamp):
-            raise ValueError("non-finite observation")
-        self.x = np.r_[z, 0., 0.]
-        self.p = np.diag([self.r**2]*2 + [(self.r*30)**2]*2)
-        self.timestamp, self.last_measurement = float(timestamp), z.copy()
-        return z.copy()
-
-    def update(self, position, timestamp):
-        z = np.asarray(position, dtype=float).reshape(2)
-        if not np.isfinite(z).all() or not np.isfinite(timestamp):
-            raise ValueError("non-finite observation")
-        dt = 0 if self.timestamp is None else timestamp - self.timestamp
-        if self.x is None or not 0 < dt <= self.max_gap or np.linalg.norm(z-self.last_measurement) > self.reset_px:
-            return self.seed(z, timestamp)
-        f = np.eye(4)
-        f[0, 2] = f[1, 3] = dt
-        a = np.array([[dt*dt/2, 0], [0, dt*dt/2], [dt, 0], [0, dt]])
-        x = f @ self.x
-        p = f @ self.p @ f.T + self.q**2 * (a @ a.T)
-        k = np.linalg.solve(p[:2, :2] + np.eye(2)*self.r**2, p[:, :2].T).T
-        self.x = x + k @ (z-x[:2])
-        # Joseph form keeps the covariance positive even after long runs.
-        ikh = np.eye(4)
-        ikh[:, :2] -= k
-        p = ikh @ p @ ikh.T + self.r**2*(k @ k.T)
-        self.p = .5*(p+p.T)
-        speed = np.linalg.norm(self.x[2:])
-        if speed > self.velocity_limit:
-            self.x[2:] *= self.velocity_limit/speed
-        self.timestamp, self.last_measurement = float(timestamp), z.copy()
-        return self.x[:2].copy()
-
-    def predict(self, timestamp):
-        if self.x is None or not np.isfinite(timestamp):
-            return None
-        dt = timestamp-self.timestamp
-        if not 0 <= dt <= self.max_gap:
-            return None
-        return self.x[:2] + self.x[2:]*dt
-'''
-
-# ===== vision.rectangle_center  (vision/rectangle_center.py) =====
-_MOD_SRC['vision.rectangle_center'] = r'''
-"""Canny proposals -> dark-band verification -> subpixel lines -> projective center.
-
-Tracking samples only four narrow strips. Searches always finish in the same frame;
-ROI failure never consumes the right to attempt a full-frame reacquisition.
-"""
-import time
-import cv2
-import numpy as np
-from .rect_geometry import (polygon_area as _polygon_area, order_quad as _order_quad,
-    side_lengths as _side_lengths, gaussian_solve as _gaussian_solve,
-    homography as _homography, rectangle_corners as _rectangle,
-    sample_batch as _sample, homography_8x8, project_points, inverse_map_points,
-    standard_circle, quad_is_valid, warp_front_view)
-from .contour_locator import ContourLocator
-from .kalman_filter import ConstantVelocityKalman2D
-
-
-class RectangleCenterDetector:
-    """有状态检测器：跨帧记住锁定框(_track)与平滑中心(_smooth)，稳态只做窄带精修。
-
-    状态字段：
-        _track       上一帧验证通过的外框（dict 候选）；None = 未锁定
-        _prev_quad   再上一帧的候选四角（运动预测用）；失锁时清空
-        _lost        连续未检出帧数（>0 = 刚失锁，禁用预测，避免用旧速度外推）
-        _smooth      上一帧输出中心，用于 CENTER_ALPHA 一阶平滑（仅显示口径）
-        _locked_th   上次成功的二值化阈值（下次优先复用，减少阈值轮换）
-        _roi_retry   失锁后是否还允许一次"ROI 搜索"（用一次即置 False，防反复局部搜）
-        _search_jobs 每 ROI 的阈值轮换进度（持续失败时跨帧轮换候选）
-    每帧重置的临时量：_search_count / _threshold_count / _proposals / _deadline（时间预算）。
+    只做格式规整，不做任何增强——真正的灰度转换在 camera_source.to_gray。
     """
+    g = np.asarray(gray)
+    if g.ndim == 3 and g.shape[2] == 1:
+        g = g[:, :, 0]
+    if g.ndim != 2 or g.dtype != np.uint8:
+        raise ValueError("process expects a uint8 grayscale image")
+    return g
+
+
+def blur_frame(gray, kernel):
+    """高斯模糊。kernel 为 None 或任一分量为 0/负数时原样返回（关闭模糊）。"""
+    k = kernel
+    if not k or k[0] <= 0 or k[1] <= 0:
+        return gray
+    return cv2.GaussianBlur(gray, tuple(k), 0)
+
+
+def binarize_frame(blur, block_size, c_const):
+    """自适应反色：比局部均值暗 c_const 以上的像素变白，黑胶带因此成为白色环带。
+
+    block_size 必须是 >=3 的奇数，否则 OpenCV 直接抛错——在这里先拦，报错更明确。
+    """
+    if block_size < 3 or block_size % 2 == 0:
+        raise ValueError("RECT_BLOCK_SIZE must be an odd integer >= 3")
+    return cv2.adaptiveThreshold(
+        blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV,
+        int(block_size), float(c_const))
+
+
+# ------------------------------------------------------------------ 三层过滤
+def find_quad_candidates(binary, min_area, max_area_ratio, eps_ratio,
+                         min_aspect, max_aspect, max_candidates=32):
+    """面积 / 四边形 / 长宽比三层过滤。返回 (候选列表, 各层淘汰计数)。
+
+    只负责"合不合格"，不负责"选哪个"——择优在 select_largest。
+    每个淘汰分支先记账再 continue，于是有一条可自检的等式：
+        contours = area + quad + aspect + candidates
+    """
+    h, w = binary.shape[:2]
+    total = float(h * w)
+    contours = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[-2]
+    stats = dict(contours=len(contours), area=0, quad=0, aspect=0, candidates=0)
+    out = []
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area < min_area or area > total * max_area_ratio:
+            stats["area"] += 1
+            continue
+        peri = cv2.arcLength(cnt, True)
+        if peri <= 0:
+            stats["quad"] += 1
+            continue
+        approx = cv2.approxPolyDP(cnt, eps_ratio * peri, True)
+        if len(approx) != 4:
+            stats["quad"] += 1
+            continue
+        x, y, bw, bh = cv2.boundingRect(approx)
+        if bh <= 0 or bw <= 0:
+            stats["quad"] += 1
+            continue
+        # 正立外接框的宽高比。前提是靶纸横放：竖放会落到 1/1.414 附近被这里拒掉，
+        # 大角度旋转也会让比值趋近 1。现场若出现这两种情况，改判据而不是抬参数。
+        aspect = bw / float(bh)
+        if aspect < min_aspect or aspect > max_aspect:
+            stats["aspect"] += 1
+            continue
+        out.append(dict(area=float(area), bbox=(x, y, bw, bh), aspect=float(aspect),
+                        approx=approx.reshape(4, 2)))
+        stats["candidates"] += 1
+        if len(out) >= max_candidates:
+            break
+    return out, stats
+
+
+def select_largest(candidates):
+    """在通过三层的候选里取面积最大者；空列表返回 None。"""
+    return max(candidates, key=lambda c: c["area"]) if candidates else None
+
+
+# ------------------------------------------------------------------ 结果组装
+def fail_result(stage, fail_stage, reason):
+    """统一的失败结果。`fail_stage` 是走过的层，`reason` 是首次失败原因。"""
+    return dict(valid=False, stage=stage, fail_stage=fail_stage, fail_reason=reason)
+
+
+def success_result(best):
+    """胜出候选 → 成功结果。四点共线（对角线无交点）时退化为失败，不拿外接框中心凑数。"""
+    quad = order_quad(best["approx"])
+    center = quad_diagonal_center(quad)
+    if center is None:
+        return fail_result(STAGE_NONE, "full", "degenerate")
+    return dict(valid=True, stage=STAGE_OK,
+                u=float(center[0]), v=float(center[1]),
+                raw_u=float(center[0]), raw_v=float(center[1]),
+                quad=quad,
+                # 新链路只认一个框，不区分胶带内外沿；给 None 让绘图层跳过。
+                inner_quad=None, detected_quad=quad, outer_inferred=False,
+                area=best["area"], aspect=best["aspect"], bbox=best["bbox"],
+                partial=False, refined_edges=4, weak_edges=0, clipped_edges=0,
+                rect_to_image=None, circle_points=None,
+                width_mm=None, height_mm=None)
+
+
+def locate_result(best, stats):
+    """候选与统计 → 结果 dict。失败原因按淘汰层归因，供 [perf] 直接读出。"""
+    if best is not None:
+        return success_result(best)
+    if stats["contours"] == 0:
+        reason = "no_proposal"
+    elif stats["area"] == stats["contours"]:
+        reason = "all_area"
+    else:
+        reason = "all_filtered"
+    return fail_result(STAGE_NONE, "full", reason)
+
+
+def finish_result(result, timestamp, image_size, started):
+    """补齐时间戳、图像尺寸、耗时。"""
+    result.update(captured_at=timestamp, image_size=image_size,
+                  detector_ms=(time.perf_counter() - started) * 1000.0)
+    return result
+
+
+# ------------------------------------------------------------------ 编排
+class RectangleCenterDetector:
+    """只保存参数并编排上面那些函数；本身不做像素运算。"""
 
     def __init__(self, config):
         self.cfg = config
         self.last = None
-        self._smooth = None
-        self._track = None
-        self._prev_quad = None                                 # 上上帧的候选四角（运动预测用）
-        self._lost = 0                                         # 连续未检出帧数（>0 时不预测）
-        self._locked_th = None
-        self._frame = 0
-        self._kernel = np.ones((3, 3), np.uint8)               # 二值化后闭运算核
-        # 四边上均匀分布的参数 t ∈ (0.12, 0.88)：避开四角（角点附近因透视最易模糊）。
-        self._t = np.linspace(0.12, 0.88, config.EDGE_SAMPLES, dtype=np.float32)
-        self._circle_cache = {}                                # 正视面圆周采样点缓存（按尺存）
-        self._layout_cache = {}
-        self._physical_cache = {}
-        self._offset_cache = {}
-        self._search_count = 0
-        self._threshold_count = 0
-        self._mask_count = 0                                   # process 每帧清零；初始化防直接调 _search 崩
-        self._search_jobs = {}
-        self._proposals = 0
-        self._refined_edges = 0                                 # 最近一次 _refine 实测到的边数（4=全测）
-        self._weak_edges = 0                                    # 其中内点偏少、按 partial 计的边数
-        self._fallback_edges = []                               # 本次精修用先验/输入边兜底的边号
-        self._partial_refine = False                            # 本次精修是否有边用了兜底/弱证据
-        self.last_refine = None                                 # 最近一次 _refine 的边级诊断（只读）
-        self._deadline = float("inf")
-        self._roi_retry = True
-        self.locator = ContourLocator(config)
-        self._prev_timestamp = self._timestamp = self._frame_shape = None
-        self._kalman = ConstantVelocityKalman2D(
-            getattr(config, "KALMAN_PROCESS_PX", 40.), getattr(config, "KALMAN_MEASURE_PX", .9),
-            getattr(config, "KALMAN_RESET_PX", 25.), getattr(config, "KALMAN_MAX_PREDICT_S", .25),
-            getattr(config, "KALMAN_VELOCITY_LIMIT_PX_S", 6000.))
+        self.last_stages = {}
+        self.last_stats = {}
+        # 参数全部允许缺省，config 未同步时也不至于抛 AttributeError。
+        self.min_area = float(getattr(config, "RECT_MIN_AREA", 300))
+        self.max_area_ratio = float(getattr(config, "RECT_MAX_AREA_RATIO", 0.92))
+        self.eps_ratio = float(getattr(config, "RECT_APPROX_EPS", 0.02))
+        self.min_aspect = float(getattr(config, "RECT_MIN_ASPECT", 1.1))
+        self.max_aspect = float(getattr(config, "RECT_MAX_ASPECT", 1.8))
+        self.block_size = int(getattr(config, "RECT_BLOCK_SIZE", 31))
+        self.c_const = float(getattr(config, "RECT_C", 8.0))
+        self.kernel = tuple(getattr(config, "RECT_GAUSS_KERNEL", (5, 5)))
+        self.max_candidates = int(getattr(config, "RECT_MAX_CANDIDATES", 32))
+        self.keep_stages = bool(getattr(config, "RECT_KEEP_STAGES", False))
 
     def reset(self):
-        self.last = self._smooth = self._track = self._prev_quad = None
-        self._prev_timestamp = self._timestamp = self._frame_shape = None
-        self._lost = 0
-        self._roi_retry = True
-        self._kalman.reset()
-
-    def _valid_quad(self, q, shape, margin=1, allow_clipped=False):
-        return quad_is_valid(q, shape, margin, getattr(self.cfg, "MIN_EDGE_LENGTH_PX", 12.),
-                             allow_clipped=allow_clipped)
-
-    def _layout(self, q, kind):
-        """由四边形朝向推断物理长宽比，并给出该 kind 对应的物理矩形四角。
-
-        horizontal：两条"横向边长之和" > 两条"纵向边长之和" → 长边水平 → w=长边(mm)。
-        kind=="inner" 时物理矩形向内缩进一个胶带宽度 BLACK_FRAME_MM（对应内框角点）。
-        """
-        lengths = _side_lengths(q)
-        horizontal = lengths[0] + lengths[2] > lengths[1] + lengths[3]
-        w, h = ((self.cfg.TARGET_LONG_MM, self.cfg.TARGET_SHORT_MM) if horizontal
-                else (self.cfg.TARGET_SHORT_MM, self.cfg.TARGET_LONG_MM))
-        inset = self.cfg.BLACK_FRAME_MM if kind == "inner" else 0.0
-        return w, h, self._physical_rectangle(w,h,inset)
-
-    def _physical_rectangle(self, w, h, inset=0.):
-        key = (w,h,inset)
-        if key not in self._physical_cache:
-            self._physical_cache[key] = _rectangle(w,h,inset)
-        return self._physical_cache[key]
-
-    def _verify(self, gray, q, kind, diagnostic=False, exempt_edges=None):
-        """在正视面选取四边稀疏采样点并投影，不生成整幅 warp 图。
-
-        每条边检查胶带厚度方向的暗带覆盖率与内侧亮区对比，允许局部反光；
-        背景可以是黑色，不再强制外侧为白色。普通纸边及实心黑块会失败。
-
-        ★ 出画不再"任一点越界即整帧拒"：逐 t 判该处 5 个采样点是否都在图内，
-        覆盖率只用图内采样算，最多允许一条边被画面裁掉。胶带采样是**向内**取点，
-        所以轻微贴边（四角出画、胶带带面仍可见）仍能四边全测；只有裁得更深、
-        整条边的采样点都出画时才退化为 partial（3 边 + 先验边）。
-
-        exempt_edges：_refine 明确"这条边只能沿用先验/输入边"或"只有弱证据"的边号。
-        这些边的真实胶带可能在画面外（贴边）或被遮挡，不能再按"画面内缺证据"拒；
-        其余 3 边仍须强。
-        """
-        if diagnostic:
-            self.last_diagnostic = {"reason": "invalid_geometry"}
-        if not self._valid_quad(q, gray.shape, allow_clipped=True):
-            return None
-        w, h, physical_quad = self._layout(q, kind)
-        tape = float(self.cfg.BLACK_FRAME_MM)
-        if tape <= 0 or 2 * tape >= min(w, h):
-            raise ValueError("BLACK_FRAME_MM must be between 0 and half the short side")
-        try:
-            # 求 mm → px 单应：把物理矩形映射到图像候选四边形 q。
-            rect_to_image = _homography(physical_quad, q)
-            t = self._t
-            # 沿每条边的法向采 5 个偏移：0.20/0.40/0.60×胶带宽 = 黑带内部三点（应为暗），
-            # 1.22/1.45×胶带宽 = 越过内沿的亮面两点（应为亮）。暗亮对比即边证据。
-            key = (w, h, tape)
-            if key not in self._layout_cache:
-                offsets = tape * np.array([0.20, 0.40, 0.60, 1.22, 1.45])
-                p = np.empty((4, len(t), 5, 2), np.float64)
-                p[0, :, :, 0] = (tape + t * (w - 2 * tape))[:, None]
-                p[0, :, :, 1] = offsets
-                p[1, :, :, 0] = w - offsets
-                p[1, :, :, 1] = (tape + t * (h - 2 * tape))[:, None]
-                p[2, :, :, 0] = (tape + (1 - t) * (w - 2 * tape))[:, None]
-                p[2, :, :, 1] = h - offsets
-                p[3, :, :, 0] = offsets
-                p[3, :, :, 1] = (tape + (1 - t) * (h - 2 * tape))[:, None]
-                self._layout_cache[key] = p
-            p = self._layout_cache[key]
-            mapped = project_points(rect_to_image, p.reshape(-1, 2)).reshape(p.shape)
-        except (ValueError, np.linalg.LinAlgError):
-            return None
-        gh, gw = gray.shape
-        # 逐 t 判 5 个采样点是否全在图内；越界点只丢该 t，不再整帧作废。
-        inside = ((mapped[..., 0] >= 0) & (mapped[..., 0] < gw - 1) &
-                  (mapped[..., 1] >= 0) & (mapped[..., 1] < gh - 1))
-        ok_t = inside.all(axis=2)                                  # (4, T)
-        valid_t = ok_t.sum(axis=1)
-        need_t = max(3, int(np.ceil(len(t) * getattr(self.cfg, "CLIP_MIN_EDGE_VALID", .5))))
-        in_frame = valid_t >= need_t                               # 该边在图内有足够采样
-        exempt_mask = np.zeros(4, bool)
-        if exempt_edges:
-            exempt_mask[list(exempt_edges)] = True
-        if not in_frame.any():
-            return None
-        if int(np.count_nonzero(~in_frame)) > int(getattr(self.cfg, "MAX_CLIPPED_EDGES", 1)):
-            return None
-        samples = _sample(gray, mapped).astype(np.float32)
-        # 每条边、每个 t：暗带取三点最大值（黑带里最亮的那个仍应暗），亮面取两点中位数。
-        dark = np.max(samples[:, :, :3], axis=2)
-        bright = (samples[:, :, 3] + samples[:, :, 4]) * .5
-        delta = bright - dark
-        # "该证据成立" = 对比度达标 且 暗带确实比亮面暗（比值约束，排除两侧都亮的纸边）。
-        evidence = ((delta >= self.cfg.MIN_EDGE_CONTRAST) &
-                    (dark <= bright * self.cfg.MAX_DARK_BRIGHT_RATIO) & ok_t)
-        denom = np.maximum(1, valid_t)
-        coverage = evidence.sum(axis=1) / denom
-        # 只对"可判"的边取对比度：被裁边是 BORDER_REPLICATE 复制值，兜底边的胶带
-        # 可能根本不在画面里——两者都不参与对比度中位数。
-        usable = in_frame & ~exempt_mask
-        if not usable.any():
-            return None
-        edge_contrast = np.array([
-            float(np.median(delta[i][ok_t[i]])) if ok_t[i].any() else 0.0 for i in range(4)])
-        contrast = float(np.median(edge_contrast[usable]))
-        if diagnostic:
-            self.last_diagnostic = dict(reason="dark_band_gates", coverage=coverage.tolist(),
-                contrast=edge_contrast.tolist(), dark=np.median(dark,axis=1).tolist(),
-                inside=np.median(bright,axis=1).tolist(), in_frame=in_frame.tolist(),
-                exempt=exempt_mask.tolist(), valid_t=valid_t.tolist())
-        # 至少三边的大部分采样成立，第四边也必须有证据，不接受凭亮中心猜框。
-        if (np.count_nonzero(in_frame & (coverage >= self.cfg.MIN_EDGE_COVERAGE)) < 3 or
-                contrast < self.cfg.MIN_EDGE_CONTRAST):
-            return None
-        # Missing-edge exemption needs three strong sides, never a lone bright stripe.
-        cov_in = coverage[usable]
-        if cov_in.min() < self.cfg.WEAK_EDGE_COVERAGE:
-            if cov_in.size < 2 or np.sort(cov_in)[1] < getattr(self.cfg, "STRONG_EDGE_COVERAGE", .85):
-                return None
-        # 画面内却完全没有胶带证据 → U 形/窗框，仍然拒；
-        # 被画面裁掉的边、或 _refine 明确只能沿用先验的边，不算"画面内缺证据"。
-        if np.any(usable & (coverage < getattr(self.cfg, 'MIN_OBSERVED_EDGE_COVERAGE', .125))):
-            return None
-        med_dark, med_bright = np.median(np.stack((dark, bright)), axis=2)
-        rows = [dict(dark=float(med_dark[i]), inside=float(med_bright[i]),
-                     contrast=float(edge_contrast[i]), coverage=float(coverage[i]),
-                     clipped=bool(not in_frame[i]), fallback=bool(exempt_mask[i]),
-                     samples=int(valid_t[i])) for i in range(4)]
-        outer = q.copy() if kind=='outer' else project_points(rect_to_image, self._physical_rectangle(w,h)).astype(np.float32)
-        if kind!='outer' and not self._valid_quad(outer, gray.shape, allow_clipped=True):
-            return None
-        # 返回候选：外框(图像)、内框(胶带内沿)、mm→px 单应、四边剖面、质量分。
-        # 打分只统计可判边（被裁/兜底边不拉低覆盖率），并对它们扣固定分。
-        visible_cov = coverage[usable]
-        cov_mean = float(visible_cov.mean()) if visible_cov.size else 0.0
-        cov_min = float(visible_cov.min()) if visible_cov.size else 0.0
-        clip_penalty = 0.20 * int(np.count_nonzero(~in_frame)) + 0.15 * int(np.count_nonzero(exempt_mask))
-        return dict(quad=q, outer_quad=outer,
-                    inner_quad=q.copy() if kind=='inner' else project_points(rect_to_image, self._physical_rectangle(w,h,tape)).astype(np.float32),
-                    kind=kind, rect_to_image=rect_to_image, width_mm=w, height_mm=h,
-                    edge_profile=rows, contrast=contrast,
-                    min_contrast=float(edge_contrast[usable].min()),
-                    coverage=coverage, visible_edges=int(usable.sum()),
-                    clipped_edges=int(np.count_nonzero(~in_frame)),
-                    fallback_edges=int(np.count_nonzero(exempt_mask)),
-                    score=float(contrast + 60 * (cov_mean - clip_penalty)),
-                    rank=float(contrast + 60 * (cov_mean - clip_penalty) + 40 * cov_min))
-
-    def _refine(self, gray, q, kind, radius, require_all=True, prior=None):
-        """当前帧四条灰度窄带 → 有方向的边缘跳变 → fitLine → 四角交点。
-
-        与 _verify 的区别：_verify 只判"像不像"，_refine 才真正**重新定位**每条边。
-        步骤：沿四边已有点 (base) 的法向 ±radius 采样灰度 → 求有向梯度 → 每列取
-        "最近预测位置"的跳变（offset 越小越优先，防止误锁到内侧印刷圆或另一侧胶带边）
-        → 用 fitLine 拟合四条直线 → 相邻直线两两求交 = 亚像素四角。
-
-        ★ 与 _verify 的口径统一：
-          · require_all=True  —— 冷启动/救援，四条边都必须实测且内点够多，保持原精度；
-          · require_all=False —— 追踪/复锁，允许最多一条边用 prior（上一帧四角）或输入
-            边兜底，只要 ≥ PARTIAL_MIN_EDGES 条边真实测到就出版，并置 _refined_edges。
-        精修结果偏离原 q 超过 radius*2.8（partial 放宽到 *4）或四角体检不过 → None。
-        """
-        self._refined_edges = 0
-        self._weak_edges = 0
-        self._fallback_edges = []
-        self._partial_refine = False
-        q = np.asarray(q, np.float32)
-        fallback = q if prior is None else np.asarray(prior, np.float32)
-        if fallback.shape != q.shape:
-            fallback = q
-        nxt = np.roll(q, -1, axis=0)
-        e = nxt - q
-        lengths = np.linalg.norm(e, axis=1)
-        if lengths.min() < 10:
-            return None
-        normal = np.column_stack((-e[:, 1], e[:, 0])) / lengths[:, None]   # 各边外/内法向
-        base = q[:, None, :] * (1 - self._t[None, :, None]) + nxt[:, None, :] * self._t[None, :, None]
-        radius = int(radius)
-        if radius not in self._offset_cache:
-            offsets = np.arange(-radius, radius + 1, dtype=np.float32)
-            self._offset_cache[radius] = (offsets, np.abs(offsets[1:-1])[None, None, :] * .45)
-        offsets, penalty = self._offset_cache[radius]
-        # 每条边、每个 t、每个法向偏移 → 采样点网格 (4, len(t), 2r+1, 2)。
-        points = base[:, :, None, :] + normal[:, None, None, :] * offsets[None, None, :, None]
-        gh, gw = gray.shape
-        # ★ 逐探测点判越界，**不能**用 .all(axis=2) 把整条 t 采样一律作废。
-        #   半径 12 时采样窗会伸出图像边界（大靶、靶贴边都是常态），整条边被
-        #   误判成"无有效采样" → _refine 返回 None → 每帧退回 ROI/全图搜索。
-        #   2026-10-18 板端实锤：TRACK_RADIUS=12、靶顶边 y≈10 时 track 永远失败，
-        #   det_stage 长期停在 roi_search/full_search（300~1400ms/帧）。
-        probe_ok = ((points[..., 0] >= 1) & (points[..., 0] < gw - 1) &
-                    (points[..., 1] >= 1) & (points[..., 1] < gh - 1))
-        values = _sample(gray, points).astype(np.float32)
-        gradient = values[:, :, 2:] - values[:, :, :-2]                    # 中心差分近似梯度
-        if kind == "outer":
-            gradient *= -1                                                 # 外框要求暗→亮方向相反
-        # 中心差分的两个抽头都在图内，该列的跳变才可信。
-        edge_ok = probe_ok[:, :, :-2] & probe_ok[:, :, 2:]
-        # 近预测边缘优先，避免捕获靶纸内部印刷圆或另一侧的胶带边缘。
-        indices = np.argmax(np.where(edge_ok, gradient - penalty, -np.inf), axis=2)
-        strength = np.take_along_axis(gradient, indices[..., None], axis=2)[..., 0]
-        # Interpolate the UNPENALISED gradient peak; the distance prior must not
-        # pull the measured edge toward last frame (that creates tracking lag).
-        left_i = np.maximum(indices - 1, 0)
-        right_i = np.minimum(indices + 1, gradient.shape[2] - 1)
-        left = np.take_along_axis(gradient, left_i[..., None], axis=2)[..., 0]
-        right = np.take_along_axis(gradient, right_i[..., None], axis=2)[..., 0]
-        # 邻点越界时令其等于峰值：曲率必为负、修正量为 0（退回整数偏移），
-        # 既不用边界复制出来的假值去插值，也不因此丢掉整条采样。
-        left = np.where(np.take_along_axis(edge_ok, left_i[..., None], axis=2)[..., 0], left, strength)
-        right = np.where(np.take_along_axis(edge_ok, right_i[..., None], axis=2)[..., 0], right, strength)
-        curvature = left - 2*strength + right
-        sub = np.zeros_like(strength)
-        usable = (indices>0) & (indices<gradient.shape[2]-1) & (curvature < -1e-3)
-        np.divide(.5*(left-right),curvature,out=sub,where=usable)
-        selected = offsets[indices + 1] + np.clip(sub,-.5,.5)
-        good_edges = edge_ok.any(axis=2) & (strength >= self.cfg.MIN_EDGE_CONTRAST*.7)
-        # The common all-visible case reduces eight small NumPy median calls to
-        # two batched calls; partial/glared edges retain the masked robust path.
-        if good_edges.all():
-            medians = np.median(selected,axis=1)
-            deviations = np.median(np.abs(selected-medians[:,None]),axis=1)
-        else:
-            medians = deviations = None
-        lines = []
-        measured = 0
-        strong_need = max(5, len(self._t)*getattr(self.cfg, 'MIN_LINE_COVERAGE', .55))
-        partial_need = max(5, len(self._t)*self.cfg.WEAK_EDGE_COVERAGE)
-        fallback_nxt = np.roll(fallback, -1, axis=0)
-        for i in range(4):
-            # 兜底边：优先上一帧同号边（prior），没有 prior 时用输入候选的边。
-            placeholder = np.cross(np.r_[fallback[i], 1.], np.r_[fallback_nxt[i], 1.])
-            good = good_edges[i].copy()
-            if good.sum() < partial_need:
-                self._partial_refine = True
-                self._fallback_edges.append(i)
-                lines.append(placeholder)
-                continue
-            shifts = selected[i, good]
-            med = float(medians[i]) if medians is not None else float(np.median(shifts))
-            mad = float(deviations[i]) if deviations is not None else float(np.median(np.abs(shifts-med)))
-            # 去掉偏离中位数过大的离群跳变（反光/杂物），再确认仍够点。
-            good &= np.abs(selected[i] - med) <= max(2.5, mad * 3)
-            if good.sum() < 5:
-                self._partial_refine = True
-                self._fallback_edges.append(i)
-                lines.append(placeholder)
-                continue
-            samples = base[i, good] + selected[i, good, None] * normal[i]
-            # 用鲁棒 Huber 回归拟合该边直线；fitLine 返回 (vx, vy, x0, y0)。
-            vx, vy, x, y = cv2.fitLine(samples, cv2.DIST_HUBER, 0, 0.01, 0.01).reshape(4)
-            residual = np.abs((samples[:,0]-x)*vy-(samples[:,1]-y)*vx)
-            collinear = residual <= getattr(self.cfg, 'MAX_LINE_RESIDUAL_PX', .8)
-            # 5 个内点即可信任该边（v1.0.1 的教训）；require_all 时仍要求
-            # 24×0.55 个内点，保持冷启动对椭圆/曲线的拒绝力。
-            if collinear.sum() < 5:
-                self._partial_refine = True
-                self._fallback_edges.append(i)
-                lines.append(placeholder)
-                continue
-            if collinear.sum() < strong_need:
-                if require_all:
-                    return None
-                # partial：内点偏少但仍可用，用内点重拟合；该边计入实测，但标为弱边，
-                # 并从"画面内缺证据"硬门里豁免（其余 3 边仍须强）。
-                self._weak_edges += 1
-                self._partial_refine = True
-                self._fallback_edges.append(i)
-                vx, vy, x, y = cv2.fitLine(samples[collinear],cv2.DIST_HUBER,0,.01,.01).reshape(4)
-                lines.append(np.array([-vy, vx, vy * x - vx * y], np.float64))
-                measured += 1
-                continue
-            if not collinear.all():
-                vx, vy, x, y = cv2.fitLine(samples[collinear],cv2.DIST_HUBER,0,.01,.01).reshape(4)
-            # 直线 ax+by+c=0。
-            lines.append(np.array([-vy, vx, vy * x - vx * y], np.float64))
-            measured += 1
-        min_measured = 4 if require_all else int(getattr(self.cfg, 'PARTIAL_MIN_EDGES', 3))
-        # 边级尸检：每条边有多少列找到可用跳变、最终实测几条、哪几条用了兜底边。
-        # 只写诊断字段，不参与任何判据 —— 板端 [perf] 与 PC 录像回放靠它定位"卡在哪一层"。
-        self.last_refine = dict(good=[int(v) for v in good_edges.sum(axis=1)],
-                                measured=int(measured), fallback=list(self._fallback_edges),
-                                radius=int(radius), require_all=bool(require_all))
-        if measured < min_measured:
-            return None
-        self._refined_edges = measured
-        lines = np.asarray(lines)
-        # 相邻两条直线（roll 1 使其错位一位）叉积求交点：交点齐次坐标 = 两直线系数叉积。
-        crosses = np.cross(np.roll(lines, 1, axis=0), lines)
-        if np.any(np.abs(crosses[:, 2]) < 1e-8):
-            return None                                                    # 有平行边 → 退化
-        refined = (crosses[:, :2] / crosses[:, 2:]).astype(np.float32)
-        limit = radius * (2.8 if require_all else 4.0)
-        if (np.linalg.norm(refined - q, axis=1).max() > limit or
-                not self._valid_quad(refined, gray.shape, allow_clipped=True)):
-            return None                                                    # 跑太远或形状不合法
-        return refined
-
-    @staticmethod
-    def _align_quad(prior, q):
-        """把上一帧四角的起点旋转到与 q 对应，避免 90° 错位时兜底边用错。"""
-        p, q = np.asarray(prior, np.float32), np.asarray(q, np.float32)
-        if p.shape != (4, 2) or q.shape != (4, 2):
-            return None
-        return min((np.roll(p, i, axis=0) for i in range(4)),
-                   key=lambda cand: float(np.sum((cand - q) ** 2)))
-
-    def _reacquire_consistent(self, candidate):
-        """复锁候选的尺度连续性门：必须仍是上一帧那张靶（面积不能突变）。
-
-        完整 4 边 + 强证据（四边 coverage ≥ STRONG、无裁边、非 partial）的候选不受限：
-        真的换靶/大扫动也能锁。其余候选按**面积比**判：丢失期间云台可能大幅扫动，
-        位置不设硬门；但面积突变（视频实测右侧小方框只有靶纸的 4%）就是误锁特征。
-        """
-        if self._track is None:
-            return True
-        cov = candidate.get('coverage')
-        if (not candidate.get('partial') and candidate.get('clipped_edges', 0) == 0 and
-                cov is not None and len(cov) == 4 and
-                float(np.min(cov)) >= getattr(self.cfg, 'STRONG_EDGE_COVERAGE', .85)):
-            return True
-        prev, cur = self._track['quad'], candidate['quad']
-        prev_area, cur_area = abs(_polygon_area(prev)), abs(_polygon_area(cur))
-        if prev_area <= 1 or cur_area <= 1:
-            return False
-        ratio = cur_area / prev_area
-        limit = float(getattr(self.cfg, 'REACQUIRE_AREA_RATIO', 3.0))
-        return 1.0 / limit <= ratio <= limit
-
-    def _four_edges_complete(self, candidate):
-        return (candidate.get('clipped_edges', 0) == 0 and
-                min(candidate['coverage']) >= self.cfg.MIN_EDGE_COVERAGE and
-                candidate['contrast'] >= self.cfg.MIN_EDGE_CONTRAST)
-
-    def _rescue(self, gray, q, kind, prior=None):
-        radius = getattr(self.cfg, 'REFINE_RADIUS_WIDE', 20)
-        if radius <= self.cfg.REFINE_RADIUS:
-            return None
-        q = self._refine(gray, q, kind, radius)
-        candidate = self._verify(gray, q, kind, exempt_edges=self._fallback_edges) if q is not None else None
-        if candidate is None:
-            return None
-        # 暗带确证用**相对亮度**而不是绝对灰度：现场加曝光后真胶带的最亮采样
-        # 可能到 118（v1.0.0 的 RECOVER_MAX_DARK=100 会误拒）。v1.0.1 的修法：
-        # 0.60×图内亮面中位数 + 160 绝对兜底；被画面裁掉的边不参与。
-        rows = [r for r in candidate['edge_profile'] if not r.get('clipped')]
-        bright = float(np.median([r['inside'] for r in rows])) if rows else 0.0
-        dark_max = max((r['dark'] for r in rows), default=0.0)
-        limit = min(getattr(self.cfg, 'RECOVER_MAX_DARK_ABS', 160.),
-                    getattr(self.cfg, 'RECOVER_MAX_DARK_RATIO', .60) * bright)
-        if (candidate['contrast'] >= getattr(self.cfg, 'RECOVER_MIN_CONTRAST', 80) and
-                dark_max <= limit):
-            candidate['recovered'] = True
-            return candidate
-        return None
-
-    def _accept(self, gray, q, kind):
-        return self._verify(gray, q, kind) or self._rescue(gray, q, kind)
-
-    def _finalize(self, gray, candidate, iterations, require_all=True, prior=None):
-        wide = getattr(self.cfg, 'REFINE_RADIUS_WIDE', 20)
-        for iteration in range(max(1, iterations)):
-            q = self._refine(gray, candidate['quad'], candidate['kind'], self.cfg.REFINE_RADIUS,
-                             require_all=require_all, prior=prior)
-            if q is None and wide > self.cfg.REFINE_RADIUS:
-                # 候选只差 6~20px 时（遮挡/运动模糊/搜索候选偏），窄带精修够不到真边；
-                # 宽半径精修把它拉回，再由 _verify 四边证据决定采信，别整帧丢掉。
-                q = self._refine(gray, candidate['quad'], candidate['kind'], wide,
-                                 require_all=require_all, prior=prior)
-            if q is None and require_all:
-                # 四边全实测不成 → 退一档 partial（3 边 + 先验边），而不是整帧作废。
-                q = self._refine(gray, candidate['quad'], candidate['kind'], self.cfg.REFINE_RADIUS,
-                                 require_all=False, prior=prior)
-                if q is None and wide > self.cfg.REFINE_RADIUS:
-                    q = self._refine(gray, candidate['quad'], candidate['kind'], wide,
-                                     require_all=False, prior=prior)
-                if q is not None:
-                    require_all = False
-            precise = self._verify(gray, q, candidate['kind'], exempt_edges=self._fallback_edges) if q is not None else None
-            if precise is None:
-                if iteration == 0:
-                    return None  # Never publish an unrefined coarse proposal as precise.
-                break
-            precise['refined_edges'] = int(self._refined_edges)
-            precise['weak_edges'] = int(self._weak_edges)
-            precise['partial'] = bool(self._partial_refine or self._refined_edges < 4)
-            shift = np.linalg.norm(q-candidate['quad'], axis=1).max()
-            candidate = precise
-            if shift < .2:
-                break
-        return candidate
-
-    def _search(self, gray, roi=None):
-        self._search_count += 1
-        cap = None if getattr(self.cfg, 'SEARCH_EXHAUSTIVE', True) else self.cfg.SEARCH_MAX_PROPOSALS
-        # A local cap cannot veto the required full search. Counters still accumulate.
-        proposals_at_start = self._proposals
-        best = None
-        for level in (0, 1):
-            candidates = self.locator.locate(gray, roi, level)
-            self._mask_count += self.locator.last_stats['masks']
-            for q, kind in candidates:
-                if cap is not None and self._proposals-proposals_at_start >= cap:
-                    break
-                self._proposals += 1
-                prior = self._align_quad(self._track['quad'], q) if self._track is not None else None
-                candidate = self._accept(gray, q, kind)
-                if candidate is None:
-                    continue
-                if self._four_edges_complete(candidate) and not candidate.get('recovered'):
-                    precise = self._finalize(gray, candidate, getattr(self.cfg, 'REFINE_ITERATIONS', 2),
-                                             require_all=True, prior=prior)
-                    if precise is None:
-                        precise = self._finalize(gray, candidate, getattr(self.cfg, 'REFINE_ITERATIONS', 2),
-                                                 require_all=False, prior=prior)
-                    if precise is not None and self._reacquire_consistent(precise):
-                        return precise
-                    continue
-                if best is None or candidate['rank'] > best['rank']:
-                    best = candidate
-        if best is None:
-            return None
-        prior = self._align_quad(self._track['quad'], best['quad']) if self._track is not None else None
-        precise = self._finalize(gray, best, getattr(self.cfg, 'REFINE_ITERATIONS', 2),
-                                 require_all=False, prior=prior)
-        return precise if precise is not None and self._reacquire_consistent(precise) else None
-
-    def _continuous_time(self, newer, older):
-        return older is not None and np.isfinite([newer, older]).all() and 0 < newer-older <= getattr(self.cfg, 'PREDICT_MAX_GAP_S', .25)
-
-    def _motion_delta(self, timestamp=None):
-        timestamp = time.perf_counter() if timestamp is None else timestamp
-        if not getattr(self.cfg, 'ENABLE_MOTION_PREDICT', True) or self._prev_quad is None or self._track is None or self._lost:
-            return None
-        if not self._continuous_time(timestamp, self._timestamp) or not self._continuous_time(self._timestamp, self._prev_timestamp):
-            return None
-        delta = (self._track['quad']-self._prev_quad)*(timestamp-self._timestamp)/(self._timestamp-self._prev_timestamp)
-        step, cap = np.linalg.norm(delta, axis=1).max(), getattr(self.cfg, 'PREDICT_MAX_PX', 60.)
-        if cap > 0 and step > cap:
-            delta *= cap/step
-        return delta
-
-    def _filter_center(self, raw, timestamp):
-        if getattr(self.cfg, 'KALMAN_ENABLE', True):
-            self._smooth = self._kalman.update(raw, timestamp)
-        else:
-            alpha = self.cfg.CENTER_ALPHA
-            if self._smooth is None or alpha <= 0 or np.linalg.norm(raw-self._smooth) > self.cfg.FILTER_RESET_PX or not self._continuous_time(timestamp, self._timestamp):
-                self._smooth = raw.copy()
-            else:
-                self._smooth += alpha*(raw-self._smooth)
-        return self._smooth
-
-    @staticmethod
-    def _midline_mm(profile, extent_mm):
-        profile = np.asarray(profile, float)
-        low, high = np.percentile(profile, [10, 65])
-        if high-low < 5:
-            raise ValueError('front view lacks dark-band contrast')
-        threshold = (low+high)/2
-        n = len(profile)
-        # Only the first/last third can contain the tape inner edges, not printed rings.
-        def crossing(indices, rising):
-            for i in indices:
-                a, b = profile[i:i+2]
-                if (a <= threshold < b) if rising else (a >= threshold > b):
-                    return i+(threshold-a)/(b-a)
-            raise ValueError('front-view edge missing')
-        left = crossing(range(n//3), True)
-        right = crossing(range(n-2, 2*n//3, -1), False)
-        return (left+right)*.5*extent_mm/(n-1)
-
-    def _center(self, gray, candidate):
-        w, h, matrix = candidate['width_mm'], candidate['height_mm'], candidate['rect_to_image']
-        raw = project_points(matrix, [[w/2, h/2]])[0]
-        front = int(getattr(self.cfg, 'FRONT_VIEW_SHORT_PX', 0))
-        if front > 0:
-            view = warp_front_view(gray, matrix, w, h, front)
-            candidate['front_view'] = view
-            try:
-                center_mm = [self._midline_mm(np.median(view[view.shape[0]//3:2*view.shape[0]//3], axis=0), w),
-                             self._midline_mm(np.median(view[:, view.shape[1]//3:2*view.shape[1]//3], axis=1), h)]
-                center = project_points(matrix, [center_mm])[0]
-                error = float(np.linalg.norm(center-raw))
-                candidate.update(front_view_center=center, front_view_error_px=error,
-                                 geometry_consistent=error <= getattr(self.cfg, 'FRONT_VIEW_MAX_ERROR_PX', 5.))
-            except ValueError:
-                candidate.update(front_view_center=None, geometry_consistent=False)
-        return raw
+        """接口兼容用。本检测器无跨帧状态，清空只影响调试缓存。"""
+        self.last = None
+        self.last_stages = {}
+        self.last_stats = {}
 
     def process(self, gray, timestamp=None):
         started = time.perf_counter()
-        timestamp = started if timestamp is None else float(timestamp)
-        g = np.asarray(gray)
-        if g.ndim == 3 and g.shape[2] == 1:
-            g = g[:, :, 0]
-        if g.ndim != 2 or g.dtype != np.uint8:
-            raise ValueError('process expects a uint8 grayscale image')
-        if not np.isfinite(timestamp):
-            raise ValueError('non-finite timestamp')
-        if self._frame_shape != g.shape:
-            self.reset()
-            self._frame_shape = g.shape
-        self._search_count = self._mask_count = self._proposals = 0
-        candidate, stage = None, 'full_search'
-        # 本帧实际走过的层级（track / roi / full，按顺序）与**首次**失败原因。
-        # stage 对外语义不变（失败仍是 no_black_frame）；fail_* 只给日志/报表用，
-        # 用来回答"到底搜没搜、搜了几次、死在哪一层"。
-        attempted = []
-        fail_reason = 'unknown'
+        ts = started if timestamp is None else float(timestamp)
+        if not np.isfinite(ts):
+            raise ValueError("non-finite timestamp")
+
+        g = to_gray_frame(gray)
         if g.size == 0:
-            self.reset()
-            return dict(valid=False, stage='empty_frame', fail_stage='none', fail_reason='empty',
-                        masks=0, search_count=0, proposals=0,
-                        partial=False, refined_edges=0, clipped_edges=0, detector_ms=0.)
-        delta = self._motion_delta(timestamp)
-        if self._track is not None:
-            attempted.append('track')
-            kind = self._track['kind']
-            guesses = [self._track['quad']+delta] if delta is not None else []
-            guesses.append(self._track['quad'])
-            fail_reason = 'track_refine'          # 精修没凑出 3 条实测边（两个猜测都没成）
-            for guess in guesses:
-                # 追踪允许 3 边 + 先验边（partial）：贴边/局部反光时不再整帧丢失。
-                q = self._refine(g, guess, kind, self.cfg.TRACK_RADIUS, require_all=False)
-                if q is None:
-                    wide = getattr(self.cfg, 'REFINE_RADIUS_WIDE', 20)
-                    if wide > self.cfg.TRACK_RADIUS:
-                        q = self._refine(g, guess, kind, wide, require_all=False)
-                if q is None:
-                    continue
-                fail_reason = 'track_verify'      # 精修出框了，但四边暗带证据不过
-                candidate = self._verify(g, q, kind, exempt_edges=self._fallback_edges)
-                if candidate is not None:
-                    candidate['refined_edges'] = int(self._refined_edges)
-                    candidate['weak_edges'] = int(self._weak_edges)
-                    candidate['partial'] = bool(self._partial_refine or self._refined_edges < 4)
-                    stage = 'track'
-                    break
-        if candidate is None and self._track is not None and self._roi_retry:
-            q = self._track['outer_quad'] + (delta if delta is not None else 0)
-            lo, hi = q.min(axis=0), q.max(axis=0)
-            pad = np.maximum((hi-lo)*self.cfg.ROI_PADDING, 24)
-            lo = np.maximum(0, np.floor(lo-pad)).astype(int)
-            hi = np.minimum([g.shape[1], g.shape[0]], np.ceil(hi+pad)).astype(int)
-            self._roi_retry = False
-            attempted.append('roi')
-            props_before = self._proposals
-            candidate = self._search(g, tuple(map(int, (*lo, *(hi-lo)))))
-            if candidate is None and len(attempted) == 1:
-                fail_reason = 'roi_no_proposal' if self._proposals == props_before else 'roi_rejected'
-            stage = 'roi_search'
-        # Never use elif: ROI failure must still attempt a complete full-frame search.
-        if candidate is None:
-            props_before = self._proposals
-            attempted.append('full')
-            candidate, stage = self._search(g), 'full_search'
-            if candidate is None and len(attempted) == 1:
-                fail_reason = 'no_proposal' if self._proposals == props_before else 'rejected'
-        if candidate is None:
-            self._smooth = self._prev_quad = self._prev_timestamp = None
-            self._kalman.reset()
-            self._lost += 1
-            result = dict(valid=False, stage='no_black_frame',
-                          fail_stage='+'.join(attempted) or 'none',
-                          fail_reason=fail_reason,
-                          partial=False, refined_edges=0, clipped_edges=0)
+            result = fail_result("empty_frame", "none", "empty")
+            stats = dict(contours=0, area=0, quad=0, aspect=0, candidates=0)
         else:
-            previous = self._track
-            raw = self._center(g, candidate)
-            center = self._filter_center(raw, timestamp)
-            self._prev_quad = self._prev_timestamp = None
-            if previous is not None and not self._lost and previous['kind'] == candidate['kind'] and self._continuous_time(timestamp, self._timestamp):
-                q = self._align_quad(previous['quad'], candidate['quad'])
-                self._prev_quad, self._prev_timestamp = q.copy(), self._timestamp
-            self._track, self._timestamp, self._lost, self._roi_retry = candidate, timestamp, 0, True
-            key = (candidate['width_mm'], candidate['height_mm'], self.cfg.CIRCLE_RADIUS_MM, self.cfg.CIRCLE_SAMPLES)
-            if key not in self._circle_cache:
-                self._circle_cache[key] = standard_circle(*key)
-            result = dict(candidate)
-            result.update(valid=True, stage=stage, u=float(center[0]), v=float(center[1]),
-                          raw_u=float(raw[0]), raw_v=float(raw[1]), quad=candidate['outer_quad'],
-                          detected_quad=candidate['quad'], outer_inferred=candidate['kind']=='inner',
-                          partial=bool(candidate.get('partial')),
-                          refined_edges=int(candidate.get('refined_edges', 4)),
-                          weak_edges=int(candidate.get('weak_edges', 0)),
-                          clipped_edges=int(candidate.get('clipped_edges', 0)),
-                          circle_points=project_points(candidate['rect_to_image'], self._circle_cache[key]))
-        result.update(captured_at=timestamp, image_size=(g.shape[1],g.shape[0]),
-                      threshold=None, search_count=self._search_count, masks=self._mask_count,
-                      thresholds=self._mask_count, proposals=self._proposals,
-                      detector_ms=(time.perf_counter()-started)*1000)
-        self.last = result
-        return result
+            blur = blur_frame(g, self.kernel)
+            binary = binarize_frame(blur, self.block_size, self.c_const)
+            candidates, stats = find_quad_candidates(
+                binary, self.min_area, self.max_area_ratio, self.eps_ratio,
+                self.min_aspect, self.max_aspect, self.max_candidates)
+            result = locate_result(select_largest(candidates), stats)
+            if self.keep_stages:
+                self.last_stages = dict(blur=blur, binary=binary)
+
+        result.update(masks=1, proposals=stats["contours"], search_count=1,
+                      reject=dict(stats), threshold=None)
+        self.last_stats = stats
+        self.last = finish_result(result, ts, (int(g.shape[1]), int(g.shape[0]))
+                                  if g.size else (0, 0), started)
+        return self.last
 
 
+# ------------------------------------------------------------------ 绘制
 def draw_result(gray, result, show_width=480, top_offset=0):
-    """缩小后再转 BGR 和描边，输出坐标仍为相机原图坐标。
+    """把一帧结果画成 BGR 画布。坐标一律按 scale 换算，文字仍报原图坐标。
 
-    top_offset：屏幕上方的文字整体下移量（像素）。激光读数面板占用左上角时由
-    main.py 传 vision.laser_spot.PANEL_H，避免两处文字叠在一起。
-
-    绘制元素（均按 scale 换算到缩小图坐标，避免在原始分辨率上画）：
-        · 绿色外框 quad、青色内框 inner_quad
-        · 洋红四角圆点 + "P1..P4 (x,y)" 标签（原图坐标）
-        · 蓝色靶心十字 + "(u,v) stage 耗时" 文字
-    返回 BGR 画布，交由 _Preview.render 再 letterbox 到屏幕画布。
+    只画三个元素：绿色四边形、黄色外接框、蓝色靶心十字。外接框保留是为了
+    直观看"框选得对不对"；长宽比按正立外接框算。
     """
     g = np.asarray(gray).squeeze()
-    scale = min(1.0, float(show_width) / g.shape[1])        # 原图 → 缩小图 的比例
+    scale = min(1.0, float(show_width) / max(1, g.shape[1]))
     if scale < 1:
         g = cv2.resize(g, (int(round(g.shape[1] * scale)), int(round(g.shape[0] * scale))))
     canvas = cv2.cvtColor(g, cv2.COLOR_GRAY2BGR)
+
     if not result.get("valid"):
-        # 无效：只提示一行红字，不画任何框（过期结果已在 main._display_result 降级）。
-        cv2.putText(canvas, "NO BLACK RECTANGLE", (8, 24 + top_offset), cv2.FONT_HERSHEY_SIMPLEX, .55, (0, 0, 255), 1)
+        cv2.putText(canvas, "NO BLACK RECTANGLE", (8, 24 + top_offset),
+                    cv2.FONT_HERSHEY_SIMPLEX, .55, (0, 0, 255), 1)
         return canvas
-    q = np.rint(result["quad"] * scale).astype(np.int32)          # 外框（缩小图坐标）
-    iq = np.rint(result["inner_quad"] * scale).astype(np.int32)   # 内框（缩小图坐标）
-    partial = bool(result.get("partial"))
-    outer_color = (0, 220, 255) if partial else (0, 255, 0)       # 黄=partial / 绿=full
-    cv2.polylines(canvas, [q], True, outer_color, 2, cv2.LINE_AA)
-    cv2.polylines(canvas, [iq], True, (0, 170, 200) if partial else (0, 220, 220), 1)
-    for i, (x, y) in enumerate(result["quad"]):
-        p = tuple(q[i])
-        cv2.circle(canvas, p, 4, (255, 0, 255), -1)               # 洋红实心点
-        # 标签用**原图坐标**（x,y），便于与日志/回算对照；位置做边界夹取防出画。
-        label = "P%d (%d,%d)" % (i + 1, round(float(x)), round(float(y)))
-        tw = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, .36, 1)[0][0]
-        pos = (max(0, min(int(p[0]) + 5, canvas.shape[1] - tw - 1)),
-               max(12, min(int(p[1]) - 7, canvas.shape[0] - 5)))
-        cv2.putText(canvas, label, pos, cv2.FONT_HERSHEY_SIMPLEX, .36, (255, 255, 0), 1, cv2.LINE_AA)
-    c = tuple(np.rint(np.array([result["u"], result["v"]]) * scale).astype(int))
-    cv2.drawMarker(canvas, c, (255, 0, 0), cv2.MARKER_CROSS, 14, 2)   # 蓝色靶心十字
-    tag = " %s" % result["stage"]
-    if partial:
-        tag += " PARTIAL %d/4" % int(result.get("refined_edges", 3))
-    cv2.putText(canvas, "(%d,%d)%s %.1fms" % (round(result["u"]), round(result["v"]),
-                tag, result["detector_ms"]), (8, 22 + top_offset), cv2.FONT_HERSHEY_SIMPLEX, .45,
-                (0, 200, 255) if partial else (255, 220, 0), 1)
+
+    q = np.rint(np.asarray(result["quad"], np.float32) * scale).astype(np.int32)
+    cv2.polylines(canvas, [q], True, (0, 255, 0), 2, cv2.LINE_AA)
+    for x, y in q:
+        cv2.circle(canvas, (int(x), int(y)), 3, (255, 0, 255), -1)
+
+    bbox = result.get("bbox")
+    if bbox:
+        x, y, bw, bh = bbox
+        cv2.rectangle(canvas, (int(round(x * scale)), int(round(y * scale))),
+                      (int(round((x + bw) * scale)), int(round((y + bh) * scale))),
+                      (0, 220, 255), 1)
+
+    c = (int(round(result["u"] * scale)), int(round(result["v"] * scale)))
+    cv2.drawMarker(canvas, c, (255, 0, 0), cv2.MARKER_CROSS, 14, 2)
+    cv2.putText(canvas, "(%d,%d) area=%d aspect=%.2f %.1fms" %
+                (round(result["u"]), round(result["v"]), int(result.get("area", 0)),
+                 float(result.get("aspect", 0.)), result.get("detector_ms", 0.)),
+                (8, 22 + top_offset), cv2.FONT_HERSHEY_SIMPLEX, .45, (255, 220, 0), 1)
     return canvas
 '''
 
@@ -2514,9 +1717,9 @@ def deviation(laser, result, use_raw=False):
     约定取自需求文档 §7.2（dx = u靶心 − u光斑），与后续串口直控云台同一套符号：
     电机方向由各轴 DIR_SIGN 映射；像素误差为正不代表固定的电机方向。
 
-    use_raw：闭环必须用这一档（True）—— 取 result["raw_u"]/["raw_v"]（未平滑）。
-    result["u"]/["v"] 是经 CENTER_ALPHA 一阶低通的值，只适合显示；拿它闭环会附加
-    约 28ms 滞后（需求文档 §5.2），底盘运动时直接变成瞄准误差。
+    use_raw：闭环取这一档（True）—— 取 result["raw_u"]/["raw_v"]。
+    result["u"]/["v"] 是识别输出中心；新链路无滤波，两者当前恒等，
+    保留双口径是为了将来加平滑时调用方不必改（平滑值会给闭环带来相位滞后）。
     激光丢失或黑框无效时返回 None。
     """
     if not laser or not laser.get("found"):
@@ -2526,7 +1729,7 @@ def deviation(laser, result, use_raw=False):
     if use_raw and result.get("raw_u") is not None and result.get("raw_v") is not None:
         tx, ty = float(result["raw_u"]), float(result["raw_v"])   # 闭环档：未平滑中心
     else:
-        tx, ty = float(result["u"]), float(result["v"])           # 显示档：CENTER_ALPHA 平滑中心
+        tx, ty = float(result["u"]), float(result["v"])           # 显示档：识别输出中心
     lu, lv = float(laser['u']), float(laser['v'])
     if not all(map(math.isfinite,(tx,ty,lu,lv))):
         return None
@@ -4263,7 +3466,7 @@ def run(entry, build_id=None):
         if cfg.CALIBRATE_AXIS=='auto': controller._auto_axis='yaw'
         worker=state['worker']=entry.LatestFrameWorker(controller.process,controller.idle,cfg.VISION_ASYNC,clock=clock)
         _active.append(worker)
-        print('[rect-center] %s search_width=%d display_width=%d display_fps=%d' % (build_id or entry.BUILD_ID,cfg.SEARCH_WIDTH,preview.render_width,cfg.SHOW_FPS))
+        print('[rect-center] %s block=%d c=%.0f display_width=%d display_fps=%d' % (build_id or entry.BUILD_ID,cfg.RECT_BLOCK_SIZE,cfg.RECT_C,preview.render_width,cfg.SHOW_FPS))
         print('[preview] async=%s canvas=%dx%d' % (cfg.SHOW_ASYNC,preview.render_width,preview.render_height))
         print('[vision] latest-frame worker=%s max_result_age=%.0fms' % (cfg.VISION_ASYNC,cfg.RESULT_MAX_AGE_S*1000))
         print('[ui] 上电自检已改为屏幕按钮：SELF-TEST / SEARCH')
@@ -4363,7 +3566,7 @@ _MOD_SRC['target_api'] = r'''
 
 不想改 ``config.py`` 时用 ``load_config(...)`` 造一份覆盖::
 
-    cfg = load_config(MIN_AREA_RATIO=0.02, SEARCH_WIDTH=240)
+    cfg = load_config(RECT_MIN_AREA=500, RECT_MAX_ASPECT=2.0)
     tracker = CenterTracker(cfg)
 """
 
@@ -4418,7 +3621,7 @@ class Result(dict):
 def load_config(**overrides):
     """返回 config.Config（可带覆盖项，不改磁盘上的 config.py）。
 
-    ``load_config(MIN_AREA_RATIO=0.02)`` → 派生一个只改了该字段的配置类。
+    ``load_config(RECT_MIN_AREA=500)`` → 派生一个只改了该字段的配置类。
     """
     from config import Config
     if not overrides:
@@ -4668,7 +3871,7 @@ from vision.preview import Preview, TouchButtons, display_result, apply_maixvisi
 from vision.aim_control import VisionControl, send_uart
 from vision.app_runtime import run
 
-BUILD_ID = "2026-11-01-fail-stage-v1.1.3"
+BUILD_ID = "2026-11-01-simple-rect-v1.2.0"
 
 # Compatibility aliases for existing PC tools and board integrations.
 _FrameRate, _LatestVision, _Preview, _Touch = FrameRate, LatestFrameWorker, Preview, TouchButtons
@@ -4689,9 +3892,9 @@ if __name__ == "__main__":
         print("MaixPy SDK unavailable. PC: python -B tools/check_pc.py")
 '''
 
-_MOD_ORDER = ('config', 'vision.rate_meter', 'vision.camera_source', 'vision.vision_worker', 'vision.telemetry', 'vision.maixvision_stream', 'vision.preview', 'vision.rect_geometry', 'vision.contour_locator', 'vision.kalman_filter', 'vision.rectangle_center', 'vision.laser_spot', 'vision.stepper_link', 'vision.imu_heading', 'vision.gimbal_self_test', 'vision.gimbal_aim', 'vision.gimbal_search', 'vision.aim_control', 'vision.gimbal_calibrate', 'vision.app_runtime', 'vision', 'target_api')
+_MOD_ORDER = ('config', 'vision.rate_meter', 'vision.camera_source', 'vision.vision_worker', 'vision.telemetry', 'vision.maixvision_stream', 'vision.preview', 'vision.rectangle_center', 'vision.laser_spot', 'vision.stepper_link', 'vision.imu_heading', 'vision.gimbal_self_test', 'vision.gimbal_aim', 'vision.gimbal_search', 'vision.aim_control', 'vision.gimbal_calibrate', 'vision.app_runtime', 'vision', 'target_api')
 
-_REL_OF = {'config': 'config.py', 'vision.rate_meter': 'vision/rate_meter.py', 'vision.camera_source': 'vision/camera_source.py', 'vision.vision_worker': 'vision/vision_worker.py', 'vision.telemetry': 'vision/telemetry.py', 'vision.maixvision_stream': 'vision/maixvision_stream.py', 'vision.preview': 'vision/preview.py', 'vision.rect_geometry': 'vision/rect_geometry.py', 'vision.contour_locator': 'vision/contour_locator.py', 'vision.kalman_filter': 'vision/kalman_filter.py', 'vision.rectangle_center': 'vision/rectangle_center.py', 'vision.laser_spot': 'vision/laser_spot.py', 'vision.stepper_link': 'vision/stepper_link.py', 'vision.imu_heading': 'vision/imu_heading.py', 'vision.gimbal_self_test': 'vision/gimbal_self_test.py', 'vision.gimbal_aim': 'vision/gimbal_aim.py', 'vision.gimbal_search': 'vision/gimbal_search.py', 'vision.aim_control': 'vision/aim_control.py', 'vision.gimbal_calibrate': 'vision/gimbal_calibrate.py', 'vision.app_runtime': 'vision/app_runtime.py', 'vision': 'vision/__init__.py', 'target_api': 'target_api.py'}
+_REL_OF = {'config': 'config.py', 'vision.rate_meter': 'vision/rate_meter.py', 'vision.camera_source': 'vision/camera_source.py', 'vision.vision_worker': 'vision/vision_worker.py', 'vision.telemetry': 'vision/telemetry.py', 'vision.maixvision_stream': 'vision/maixvision_stream.py', 'vision.preview': 'vision/preview.py', 'vision.rectangle_center': 'vision/rectangle_center.py', 'vision.laser_spot': 'vision/laser_spot.py', 'vision.stepper_link': 'vision/stepper_link.py', 'vision.imu_heading': 'vision/imu_heading.py', 'vision.gimbal_self_test': 'vision/gimbal_self_test.py', 'vision.gimbal_aim': 'vision/gimbal_aim.py', 'vision.gimbal_search': 'vision/gimbal_search.py', 'vision.aim_control': 'vision/aim_control.py', 'vision.gimbal_calibrate': 'vision/gimbal_calibrate.py', 'vision.app_runtime': 'vision/app_runtime.py', 'vision': 'vision/__init__.py', 'target_api': 'target_api.py'}
 
 _pkg = _types.ModuleType("vision")          # 造出虚拟包 vision
 _pkg.__path__ = []

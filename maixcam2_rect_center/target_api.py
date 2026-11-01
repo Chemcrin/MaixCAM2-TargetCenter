@@ -73,7 +73,7 @@
 
 不想改 ``config.py`` 时用 ``load_config(...)`` 造一份覆盖::
 
-    cfg = load_config(MIN_AREA_RATIO=0.02, SEARCH_WIDTH=240)
+    cfg = load_config(RECT_MIN_AREA=500, RECT_MAX_ASPECT=2.0)
     tracker = CenterTracker(cfg)
 """
 
@@ -128,7 +128,7 @@ class Result(dict):
 def load_config(**overrides):
     """返回 config.Config（可带覆盖项，不改磁盘上的 config.py）。
 
-    ``load_config(MIN_AREA_RATIO=0.02)`` → 派生一个只改了该字段的配置类。
+    ``load_config(RECT_MIN_AREA=500)`` → 派生一个只改了该字段的配置类。
     """
     from config import Config
     if not overrides:
