@@ -105,18 +105,43 @@ class Config:
     UART_PORT = "/dev/ttyS0"
     UART_BAUD = 115200
 
-    # ---- 识别（自适应反色二值化 + 三层过滤）----
-    # 调参顺序：先 RECT_BLOCK_SIZE / RECT_C 把二值图调闭合，再 RECT_MIN_AREA 去碎片，
-    # 再 RECT_APPROX_EPS 稳四边形，最后 RECT_MIN/MAX_ASPECT 收紧形状。
+    # ---- 识别（自适应反色二值化 → 四层过滤）----
+    # 调参顺序：先 RECT_BLOCK_SIZE / RECT_C 让纸面成块、胶带成环，再 RECT_MIN_AREA 去碎片，
+    # 再 RECT_APPROX_EPS 稳四边形，再 RECT_MIN/MAX_ASPECT 收紧形状，最后 RECT_MIN_BAND_SCORE
+    # 压误检（它挡窗框/屏幕/桌沿）；全部调完再看 RECT_PRIOR_* 的复锁行为。
     RECT_MIN_AREA = 300           # 最小轮廓面积（px2）；先小后大
     RECT_MAX_AREA_RATIO = 0.92    # 面积上限（占整幅比例）：挡“锁到整面墙/门框”
     RECT_APPROX_EPS = 0.02        # 多边形近似精度（占周长比例）
-    RECT_MIN_ASPECT = 1.10        # 正立外接框宽高比下限；前提是靶纸横放
-    RECT_MAX_ASPECT = 1.80        # 上限；目标约 1.414
+    RECT_MIN_ASPECT = 1.05        # 四边形对边长度比下限；与横竖放、旋转无关
+    RECT_MAX_ASPECT = 1.95        # 上限；目标约 1.414，透视会把比值推开
     RECT_GAUSS_KERNEL = (5, 5)    # 高斯核；(0, 0) = 跳过模糊
-    RECT_BLOCK_SIZE = 31          # 自适应阈值窗口，必须为 >=3 的奇数
+    RECT_BLOCK_SIZE = 41          # 自适应阈值窗口，必须为 >=3 的奇数
     RECT_C = 8.0                  # 自适应阈值常数：调小补断边，调大压噪点
     RECT_MAX_CANDIDATES = 32      # 候选上限，防病态画面拖慢
+    # 第四层：胶带暗带证据。边界外侧要比内侧暗这么多才算一条边成立。
+    RECT_MIN_BAND_SCORE = 0.55    # 成立边的占比下限；0 = 关闭该层
+    RECT_BAND_OFFSET_PX = 7.0     # 内外采样点离边界的距离；应小于胶带可见厚度
+    RECT_BAND_CONTRAST = 10.0     # 灰度差门限；现场偏暗时先降它再降占比门
+    RECT_MIN_BAND_RATIO = 0.02    # 暗带厚度 / 边长 下限：胶带约 0.08，显示器边框约 0.01
+    RECT_BAND_MIN_UNIFORM = 0.40  # 四边厚度 min/max 下限：同一卷胶带同宽，显示器边框差几倍
+    RECT_MIN_INNER_MEAN = 85.0    # 框内平均灰度下限：挡“暗设备面板/屏幕黑窗口”这类暗框
+    RECT_MIN_EDGE_SCORE = 0.60    # 至少三条边的暗带占比要达到这个值（第四条可被遮挡）
+    RECT_BAND_DARK_RATIO = 0.72   # 判"暗带"用的相对灰度：低于内测灰度这个比例算暗
+    RECT_BAND_PROBE_RATIO = 0.15  # 向外最多探测短边的这个比例
+    # 角点精修：沿边拟合直线再求交，抑制顶点逐帧跳动
+    RECT_EDGE_REFINE = True
+    RECT_EDGE_BAND_PX = 3.0       # 参与拟合的轮廓点到边线的最大距离
+    RECT_EDGE_MIN_POINTS = 8      # 每条边至少要这么多点，否则放弃精修
+    RECT_EDGE_MAX_SHIFT_PX = 4.0  # 精修位移上限，超过就退回粗角点
+    # 跨帧先验：只影响择优与复锁，不改单帧判据
+    RECT_PRIOR_FRAMES = 15        # 丢失超过这么多帧就放弃位置先验
+    RECT_PRIOR_RADIUS_PX = 140.0  # 先验半径；候选中心落在圈内才优先
+    # 锁定后的窄带精修：沿四条边的法向搜索灰阶跃变，比全图重搜便宜且端点连续
+    RECT_TRACK_RADIUS_PX = 12.0   # 每条边向内外各搜这么多像素
+    RECT_TRACK_SAMPLES = 16       # 每条边的采样点数（够拟合一条直线）
+    RECT_TRACK_MIN_STEP = 6.0     # 单步灰度下降门限；偏暗场景先降它
+    RECT_TRACK_MAX_SHIFT_PX = 14.0 # 精修位移上限，超过就判这一帧跟踪失败（应 >= 帧间最大位移）
+    RECT_TRACK_MAX_FRAMES = 40    # 连续跟踪这么多帧后强制回一次全图，防漂移
     RECT_KEEP_STAGES = False      # 真：把 blur/binary 留在 last_stages，供 --stage 导出
     RECT_DEBUG_STAGE = "result"   # none / blur / binary / result
 

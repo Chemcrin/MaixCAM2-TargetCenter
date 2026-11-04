@@ -17,7 +17,8 @@ from pathlib import Path
 
 from run_pc import imread_unicode, imwrite_unicode, load_config
 from vision.rectangle_center import (RectangleCenterDetector, draw_result,
-                                     blur_frame, binarize_frame, find_quad_candidates)
+                                     blur_frame, binarize_frame, find_quad_candidates,
+                                     filter_band)
 
 
 def main():
@@ -49,8 +50,14 @@ def main():
              stats["candidates"]))
     for i, cand in enumerate(candidates[:max(0, args.top)]):
         x, y, w, h = cand["bbox"]
-        print("  #%d area=%.0f bbox=(%d,%d,%d,%d) aspect=%.2f"
-              % (i, cand["area"], x, y, w, h, cand["aspect"]))
+        score = filter_band(gray, [cand], cfg.RECT_MIN_BAND_SCORE,
+                            cfg.RECT_BAND_OFFSET_PX, cfg.RECT_BAND_CONTRAST,
+                            cfg.RECT_MIN_BAND_RATIO, cfg.RECT_BAND_DARK_RATIO,
+                            cfg.RECT_BAND_PROBE_RATIO)[0]
+        print("  #%d area=%.0f bbox=(%d,%d,%d,%d) aspect=%.2f band=%s"
+              % (i, cand["area"], x, y, w, h, cand["aspect"],
+                 "%.2f ratio=%.3f" % (score[0]["band"], score[0].get("band_ratio", 0.0))
+                 if score else "-"))
 
     result = detector.process(gray)
     print("result valid=%s stage=%s reason=%s ms=%.2f"
