@@ -349,22 +349,34 @@ def inner_mean(gray, quad):
 
 def filter_band(gray, candidates, min_score, offset, min_contrast,
                 min_ratio=0.0, dark_ratio=0.72, probe_ratio=0.15, min_uniform=0.0,
-                min_inner=0.0, min_edge=0.0, dark_max=70.0):
+                min_inner=0.0, min_edge=0.0, dark_max=70.0, limit=0):
     """按暗带得分、暗带厚度与四边厚度一致性筛候选，就地写入 band 相关字段。
 
-    三项：得分证明"外侧确实更暗"；厚度证明"暗得够宽，是胶带不是边框"；
-    一致性证明"四边同宽"——显示器上、左、右、下四条边框常常差几倍。
-    `min_ratio <= 0` 时只看得分（用于只要方向证据的调试场景）。
+    四项：得分证明"外侧确实更暗"；第三条边也成立说明四周都有胶带；
+    厚度证明"暗得够宽，是胶带不是边框"；一致性证明"四边同宽"——
+    显示器上、左、右、下四条边框常常差几倍。
+
+    `limit > 0` 时只对面积最大的那些候选做证据计算：每一项都要沿边采样，
+    候选多时是整帧耗时的大头，而真正的靶纸几乎总在面积前列。
     """
+    pool = candidates
+    if limit > 0 and len(pool) > limit:
+        pool = sorted(pool, key=lambda c: c["area"], reverse=True)[:limit]
+    dropped = len(candidates) - len(pool)
     kept = []
-    for cand in candidates:
+    for cand in pool:
         quad = cand["quad"]
-        score = band_score(gray, quad, offset, min_contrast)
+        edges = [x for x in band_edges(gray, quad, offset, min_contrast) if x is not None]
+        if not edges:
+            continue
+        score = float(sum(edges) / len(edges))
         if score < min_score:
             continue
+        if min_edge > 0.0:
+            top = sorted(edges, reverse=True)
+            if len(top) < 3 or top[2] < min_edge:
+                continue
         if min_inner > 0.0 and inner_mean(gray, quad) < min_inner:
-            continue
-        if min_edge > 0.0 and band_edge_floor(gray, quad, offset, min_contrast) < min_edge:
             continue
         if min_ratio > 0.0:
             median, low, high = band_thickness(gray, quad, dark_ratio, probe_ratio,
@@ -378,7 +390,7 @@ def filter_band(gray, candidates, min_score, offset, min_contrast,
             cand["band_uniform"] = float(uniform)
         cand["band"] = float(score)
         kept.append(cand)
-    return kept, len(candidates) - len(kept)
+    return kept, len(candidates) - len(kept) + dropped
 
 
 # ------------------------------------------------------------------ 择优
@@ -606,6 +618,7 @@ class RectangleCenterDetector:
         self.band_dark_ratio = float(getattr(config, "RECT_BAND_DARK_RATIO", 0.72))
         self.band_probe_ratio = float(getattr(config, "RECT_BAND_PROBE_RATIO", 0.15))
         self.band_dark_max = float(getattr(config, "RECT_BAND_DARK_MAX", 70.0))
+        self.band_limit = int(getattr(config, "RECT_BAND_CANDIDATES", 12))
         self.band_offset = float(getattr(config, "RECT_BAND_OFFSET_PX", 7.0))
         self.band_contrast = float(getattr(config, "RECT_BAND_CONTRAST", 10.0))
         self.refine_edges = bool(getattr(config, "RECT_EDGE_REFINE", True))
@@ -693,7 +706,7 @@ class RectangleCenterDetector:
                     g, candidates, self.min_band, self.band_offset, self.band_contrast,
                     self.min_band_ratio, self.band_dark_ratio, self.band_probe_ratio,
                     self.min_band_uniform, self.min_inner_mean,
-                    self.min_edge_score, self.band_dark_max)
+                    self.min_edge_score, self.band_dark_max, self.band_limit)
                 prior = self._prior()
                 best = select_best(candidates, *(prior if prior else (None, 0.0)))
                 if best is not None and self.refine_edges:

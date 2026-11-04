@@ -129,6 +129,7 @@ class Config:
     RECT_BAND_DARK_RATIO = 0.72   # 判"暗带"用的相对灰度：低于内测灰度这个比例算暗
     RECT_BAND_PROBE_RATIO = 0.15  # 向外最多探测短边的这个比例
     RECT_BAND_DARK_MAX = 70.0     # 暗带的绝对灰度上限：胶带比这还暗，灰背景不算
+    RECT_BAND_CANDIDATES = 12     # 只对面积最大的这些候选做暗带证据（整帧耗时大头）
 
     # 角点精修：沿边拟合直线再求交，抑制顶点逐帧跳动
     RECT_EDGE_REFINE = True

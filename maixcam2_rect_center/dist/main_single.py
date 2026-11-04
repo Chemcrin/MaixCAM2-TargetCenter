@@ -10,8 +10,8 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-04 11:54:58
-    config.py                    sha1=ea82828e3c3f
+生成时间：2026-11-04 12:00:01
+    config.py                    sha1=c25bbcf0c016
     main.py                      sha1=b721ab45b07a
     target_api.py                sha1=c37f98868fe9
     vision/__init__.py           sha1=abc847cb4264
@@ -27,7 +27,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
     vision/maixvision_stream.py  sha1=c30d784f26a0
     vision/preview.py            sha1=bae51cd6c3a7
     vision/rate_meter.py         sha1=6f2a054c97a0
-    vision/rectangle_center.py   sha1=eb62c0de8348
+    vision/rectangle_center.py   sha1=1996220e6162
     vision/stepper_link.py       sha1=35bbfea2f5af
     vision/telemetry.py          sha1=a6627b2dc0a7
     vision/vision_worker.py      sha1=fcf416a9f29a
@@ -36,7 +36,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': 'ea82828e3c3faaaebbe857c5eb1334829c904295', 'vision/rate_meter.py': '6f2a054c97a00470409a59de9dea42b0bff9c6ba', 'vision/camera_source.py': 'b398fedefe6eaf931d372abe00ba267f7d9697b5', 'vision/vision_worker.py': 'fcf416a9f29ab849861c59c314dc318f070278eb', 'vision/telemetry.py': 'a6627b2dc0a741030c33ab8c5d41e80df84d4dc9', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/preview.py': 'bae51cd6c3a7332bd2006b381efb68c258cf2b88', 'vision/rectangle_center.py': 'eb62c0de83480bd2fc1ccec0292660228a071591', 'vision/laser_spot.py': 'a9ff385db303d1699de76129bf036c508fe44702', 'vision/stepper_link.py': '35bbfea2f5afeed77dd7fa22a853f17c3a3d6982', 'vision/imu_heading.py': 'a1193ada2173f113452781bcebc5a5e5b8745db3', 'vision/gimbal_self_test.py': '1094ca64bdc09f087f659b197c1085767a050952', 'vision/gimbal_aim.py': '543b2d46a1e86c861e0ff4c7f4e481950b8a8242', 'vision/gimbal_search.py': 'fc5c09964c192bd9c68e7e837dc3dc37b9bc4579', 'vision/aim_control.py': '6dab67c574216816d723822c82d4a37e4e7fb881', 'vision/gimbal_calibrate.py': 'c7db6a254e404cadea5c1ddd892afe7ae8834aa3', 'vision/app_runtime.py': '405c903a483496880743275fae8c37d123c2459f', 'vision/__init__.py': 'abc847cb4264bf79d47c0dae40f584bf4baba64f', 'target_api.py': 'c37f98868fe9e96d2153587371aee8c2cd7b2bec', 'main.py': 'b721ab45b07a2ec5c8b0ab8c8ded3a5c4aef3545'}
+_SRC_SHA1 = {'config.py': 'c25bbcf0c016a1ed6fceeb6ea65c7729896590cb', 'vision/rate_meter.py': '6f2a054c97a00470409a59de9dea42b0bff9c6ba', 'vision/camera_source.py': 'b398fedefe6eaf931d372abe00ba267f7d9697b5', 'vision/vision_worker.py': 'fcf416a9f29ab849861c59c314dc318f070278eb', 'vision/telemetry.py': 'a6627b2dc0a741030c33ab8c5d41e80df84d4dc9', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/preview.py': 'bae51cd6c3a7332bd2006b381efb68c258cf2b88', 'vision/rectangle_center.py': '1996220e61628449c781df5bcd57db79b8693d2d', 'vision/laser_spot.py': 'a9ff385db303d1699de76129bf036c508fe44702', 'vision/stepper_link.py': '35bbfea2f5afeed77dd7fa22a853f17c3a3d6982', 'vision/imu_heading.py': 'a1193ada2173f113452781bcebc5a5e5b8745db3', 'vision/gimbal_self_test.py': '1094ca64bdc09f087f659b197c1085767a050952', 'vision/gimbal_aim.py': '543b2d46a1e86c861e0ff4c7f4e481950b8a8242', 'vision/gimbal_search.py': 'fc5c09964c192bd9c68e7e837dc3dc37b9bc4579', 'vision/aim_control.py': '6dab67c574216816d723822c82d4a37e4e7fb881', 'vision/gimbal_calibrate.py': 'c7db6a254e404cadea5c1ddd892afe7ae8834aa3', 'vision/app_runtime.py': '405c903a483496880743275fae8c37d123c2459f', 'vision/__init__.py': 'abc847cb4264bf79d47c0dae40f584bf4baba64f', 'target_api.py': 'c37f98868fe9e96d2153587371aee8c2cd7b2bec', 'main.py': 'b721ab45b07a2ec5c8b0ab8c8ded3a5c4aef3545'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -176,6 +176,7 @@ class Config:
     RECT_BAND_DARK_RATIO = 0.72   # 判"暗带"用的相对灰度：低于内测灰度这个比例算暗
     RECT_BAND_PROBE_RATIO = 0.15  # 向外最多探测短边的这个比例
     RECT_BAND_DARK_MAX = 70.0     # 暗带的绝对灰度上限：胶带比这还暗，灰背景不算
+    RECT_BAND_CANDIDATES = 12     # 只对面积最大的这些候选做暗带证据（整帧耗时大头）
 
     # 角点精修：沿边拟合直线再求交，抑制顶点逐帧跳动
     RECT_EDGE_REFINE = True
@@ -1629,22 +1630,34 @@ def inner_mean(gray, quad):
 
 def filter_band(gray, candidates, min_score, offset, min_contrast,
                 min_ratio=0.0, dark_ratio=0.72, probe_ratio=0.15, min_uniform=0.0,
-                min_inner=0.0, min_edge=0.0, dark_max=70.0):
+                min_inner=0.0, min_edge=0.0, dark_max=70.0, limit=0):
     """按暗带得分、暗带厚度与四边厚度一致性筛候选，就地写入 band 相关字段。
 
-    三项：得分证明"外侧确实更暗"；厚度证明"暗得够宽，是胶带不是边框"；
-    一致性证明"四边同宽"——显示器上、左、右、下四条边框常常差几倍。
-    `min_ratio <= 0` 时只看得分（用于只要方向证据的调试场景）。
+    四项：得分证明"外侧确实更暗"；第三条边也成立说明四周都有胶带；
+    厚度证明"暗得够宽，是胶带不是边框"；一致性证明"四边同宽"——
+    显示器上、左、右、下四条边框常常差几倍。
+
+    `limit > 0` 时只对面积最大的那些候选做证据计算：每一项都要沿边采样，
+    候选多时是整帧耗时的大头，而真正的靶纸几乎总在面积前列。
     """
+    pool = candidates
+    if limit > 0 and len(pool) > limit:
+        pool = sorted(pool, key=lambda c: c["area"], reverse=True)[:limit]
+    dropped = len(candidates) - len(pool)
     kept = []
-    for cand in candidates:
+    for cand in pool:
         quad = cand["quad"]
-        score = band_score(gray, quad, offset, min_contrast)
+        edges = [x for x in band_edges(gray, quad, offset, min_contrast) if x is not None]
+        if not edges:
+            continue
+        score = float(sum(edges) / len(edges))
         if score < min_score:
             continue
+        if min_edge > 0.0:
+            top = sorted(edges, reverse=True)
+            if len(top) < 3 or top[2] < min_edge:
+                continue
         if min_inner > 0.0 and inner_mean(gray, quad) < min_inner:
-            continue
-        if min_edge > 0.0 and band_edge_floor(gray, quad, offset, min_contrast) < min_edge:
             continue
         if min_ratio > 0.0:
             median, low, high = band_thickness(gray, quad, dark_ratio, probe_ratio,
@@ -1658,7 +1671,7 @@ def filter_band(gray, candidates, min_score, offset, min_contrast,
             cand["band_uniform"] = float(uniform)
         cand["band"] = float(score)
         kept.append(cand)
-    return kept, len(candidates) - len(kept)
+    return kept, len(candidates) - len(kept) + dropped
 
 
 # ------------------------------------------------------------------ 择优
@@ -1886,6 +1899,7 @@ class RectangleCenterDetector:
         self.band_dark_ratio = float(getattr(config, "RECT_BAND_DARK_RATIO", 0.72))
         self.band_probe_ratio = float(getattr(config, "RECT_BAND_PROBE_RATIO", 0.15))
         self.band_dark_max = float(getattr(config, "RECT_BAND_DARK_MAX", 70.0))
+        self.band_limit = int(getattr(config, "RECT_BAND_CANDIDATES", 12))
         self.band_offset = float(getattr(config, "RECT_BAND_OFFSET_PX", 7.0))
         self.band_contrast = float(getattr(config, "RECT_BAND_CONTRAST", 10.0))
         self.refine_edges = bool(getattr(config, "RECT_EDGE_REFINE", True))
@@ -1973,7 +1987,7 @@ class RectangleCenterDetector:
                     g, candidates, self.min_band, self.band_offset, self.band_contrast,
                     self.min_band_ratio, self.band_dark_ratio, self.band_probe_ratio,
                     self.min_band_uniform, self.min_inner_mean,
-                    self.min_edge_score, self.band_dark_max)
+                    self.min_edge_score, self.band_dark_max, self.band_limit)
                 prior = self._prior()
                 best = select_best(candidates, *(prior if prior else (None, 0.0)))
                 if best is not None and self.refine_edges:
