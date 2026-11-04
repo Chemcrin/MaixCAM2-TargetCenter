@@ -10,9 +10,9 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-04 12:00:01
-    config.py                    sha1=c25bbcf0c016
-    main.py                      sha1=b721ab45b07a
+生成时间：2026-11-04 12:23:27
+    config.py                    sha1=c6ffc424c54a
+    main.py                      sha1=1f359a58abc8
     target_api.py                sha1=c37f98868fe9
     vision/__init__.py           sha1=abc847cb4264
     vision/aim_control.py        sha1=6dab67c57421
@@ -27,7 +27,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
     vision/maixvision_stream.py  sha1=c30d784f26a0
     vision/preview.py            sha1=bae51cd6c3a7
     vision/rate_meter.py         sha1=6f2a054c97a0
-    vision/rectangle_center.py   sha1=1996220e6162
+    vision/rectangle_center.py   sha1=09f8c5551270
     vision/stepper_link.py       sha1=35bbfea2f5af
     vision/telemetry.py          sha1=a6627b2dc0a7
     vision/vision_worker.py      sha1=fcf416a9f29a
@@ -36,7 +36,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': 'c25bbcf0c016a1ed6fceeb6ea65c7729896590cb', 'vision/rate_meter.py': '6f2a054c97a00470409a59de9dea42b0bff9c6ba', 'vision/camera_source.py': 'b398fedefe6eaf931d372abe00ba267f7d9697b5', 'vision/vision_worker.py': 'fcf416a9f29ab849861c59c314dc318f070278eb', 'vision/telemetry.py': 'a6627b2dc0a741030c33ab8c5d41e80df84d4dc9', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/preview.py': 'bae51cd6c3a7332bd2006b381efb68c258cf2b88', 'vision/rectangle_center.py': '1996220e61628449c781df5bcd57db79b8693d2d', 'vision/laser_spot.py': 'a9ff385db303d1699de76129bf036c508fe44702', 'vision/stepper_link.py': '35bbfea2f5afeed77dd7fa22a853f17c3a3d6982', 'vision/imu_heading.py': 'a1193ada2173f113452781bcebc5a5e5b8745db3', 'vision/gimbal_self_test.py': '1094ca64bdc09f087f659b197c1085767a050952', 'vision/gimbal_aim.py': '543b2d46a1e86c861e0ff4c7f4e481950b8a8242', 'vision/gimbal_search.py': 'fc5c09964c192bd9c68e7e837dc3dc37b9bc4579', 'vision/aim_control.py': '6dab67c574216816d723822c82d4a37e4e7fb881', 'vision/gimbal_calibrate.py': 'c7db6a254e404cadea5c1ddd892afe7ae8834aa3', 'vision/app_runtime.py': '405c903a483496880743275fae8c37d123c2459f', 'vision/__init__.py': 'abc847cb4264bf79d47c0dae40f584bf4baba64f', 'target_api.py': 'c37f98868fe9e96d2153587371aee8c2cd7b2bec', 'main.py': 'b721ab45b07a2ec5c8b0ab8c8ded3a5c4aef3545'}
+_SRC_SHA1 = {'config.py': 'c6ffc424c54a7d37f48577fd173689de96c66b88', 'vision/rate_meter.py': '6f2a054c97a00470409a59de9dea42b0bff9c6ba', 'vision/camera_source.py': 'b398fedefe6eaf931d372abe00ba267f7d9697b5', 'vision/vision_worker.py': 'fcf416a9f29ab849861c59c314dc318f070278eb', 'vision/telemetry.py': 'a6627b2dc0a741030c33ab8c5d41e80df84d4dc9', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/preview.py': 'bae51cd6c3a7332bd2006b381efb68c258cf2b88', 'vision/rectangle_center.py': '09f8c5551270685632435bbc7ab44fd51912e6b1', 'vision/laser_spot.py': 'a9ff385db303d1699de76129bf036c508fe44702', 'vision/stepper_link.py': '35bbfea2f5afeed77dd7fa22a853f17c3a3d6982', 'vision/imu_heading.py': 'a1193ada2173f113452781bcebc5a5e5b8745db3', 'vision/gimbal_self_test.py': '1094ca64bdc09f087f659b197c1085767a050952', 'vision/gimbal_aim.py': '543b2d46a1e86c861e0ff4c7f4e481950b8a8242', 'vision/gimbal_search.py': 'fc5c09964c192bd9c68e7e837dc3dc37b9bc4579', 'vision/aim_control.py': '6dab67c574216816d723822c82d4a37e4e7fb881', 'vision/gimbal_calibrate.py': 'c7db6a254e404cadea5c1ddd892afe7ae8834aa3', 'vision/app_runtime.py': '405c903a483496880743275fae8c37d123c2459f', 'vision/__init__.py': 'abc847cb4264bf79d47c0dae40f584bf4baba64f', 'target_api.py': 'c37f98868fe9e96d2153587371aee8c2cd7b2bec', 'main.py': '1f359a58abc837a6abbd8d5f59a4fab2325b818c'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -170,13 +170,14 @@ class Config:
     RECT_BAND_OFFSET_PX = 7.0     # 内外采样点离边界的距离；应小于胶带可见厚度
     RECT_BAND_CONTRAST = 10.0     # 灰度差门限；现场偏暗时先降它再降占比门
     RECT_MIN_BAND_RATIO = 0.045   # 暗带厚度 / 边长 下限：胶带约 0.08~0.09，显示器边框约 0.01~0.02
-    RECT_BAND_MIN_UNIFORM = 0.40  # 四边厚度 min/max 下限：同一卷胶带同宽，显示器边框差几倍
-    RECT_MIN_INNER_MEAN = 85.0    # 框内平均灰度下限：挡“暗设备面板/屏幕黑窗口”这类暗框
+    RECT_BAND_MIN_UNIFORM = 0.40  # 四边厚度 min/max 下限（≥3 条边有效才判）
+    RECT_MIN_INNER_RATIO = 0.60   # 框内均值 / 全图均值 的下限：挡“暗设备面板/黑窗口”这类暗框
+    RECT_MIN_INNER_FLOOR = 45.0   # 上面那个比例判据的绝对兜底，防止全图极暗时门限过低
     RECT_MIN_EDGE_SCORE = 0.60    # 至少三条边的暗带占比要达到这个值（第四条可被遮挡）
-    RECT_BAND_DARK_RATIO = 0.72   # 判"暗带"用的相对灰度：低于内测灰度这个比例算暗
+    RECT_BAND_RISE_STEP = 18.0    # 暗带外沿的灰度回升门限：相邻像素涨这么多就算出了胶带
     RECT_BAND_PROBE_RATIO = 0.15  # 向外最多探测短边的这个比例
-    RECT_BAND_DARK_MAX = 70.0     # 暗带的绝对灰度上限：胶带比这还暗，灰背景不算
     RECT_BAND_CANDIDATES = 12     # 只对面积最大的这些候选做暗带证据（整帧耗时大头）
+    RECT_DEBUG_BAND = False       # 真：失败帧的 det_fail 里附候选判据读数（板端定位用）
 
     # 角点精修：沿边拟合直线再求交，抑制顶点逐帧跳动
     RECT_EDGE_REFINE = True
@@ -1312,6 +1313,7 @@ _MOD_SRC['vision.rectangle_center'] = r'''
 （`blur` / `binary`），供 `tools/run_pc.py --stage` 导出。
 """
 import time
+import traceback
 
 import cv2
 import numpy as np
@@ -1547,24 +1549,27 @@ def band_edge_floor(gray, quad, offset=7.0, min_contrast=10.0, per_edge=9):
     return float(per[2])
 
 
-def band_thickness(gray, quad, dark_ratio=0.72, probe_ratio=0.15, samples=3,
-                   dark_max=70.0):
-    """边界外侧那条暗带有多厚，按边长归一。返回 (中位数, 最小, 最大)。
+def band_thickness(gray, quad, probe_ratio=0.15, samples=3, rise_step=18.0):
+    """边界外侧那条暗带有多厚，按边长归一。返回 (中位数, 最小, 最大, 有效边数)。
 
     18mm 胶带贴在 210mm 宽的纸上，厚度占边长约 8%；显示器边框、窗框、桌沿的
     边框厚度占比通常只有 1%~2%。`band_score` 只能证明"外侧比内侧暗"，
     笔记本屏幕同样满足；这一项才把"胶带"和"细边框"分开。
 
-    返回最小/最大值是为了第三项判据：同一卷胶带贴出来的四条边宽度接近，
-    而显示器上、左、右、下四条边框的宽度常常相差几倍。
+    **边界用灰度回升界定，不用绝对灰度阈值**：从四边形边线向外取灰度剖面，
+    先找最暗处，再从那里往外找第一次显著回升，回升点就是暗带外沿。
+    这样量出的是"从纸边到胶带外沿"的物理宽度，与整幅画面的曝光无关——
+    上一版用绝对灰度上限，画面一亮胶带灰度越线，四条边同时量不出厚度，整帧判负。
 
-    内侧本来就暗（灰度 < 20）的采样点判不了，直接跳过；有效样本不足 2 条返回 0。
+    返回最小/最大值是为了"四边同宽"判据：同一卷胶带贴出来的四条边宽度接近，
+    而显示器上、左、右、下四条边框的宽度常常相差几倍。有效边数不足 3 时
+    调用方不应使用一致性判据（一条边被遮挡是常态）。
     """
     q = np.asarray(quad, np.float64).reshape(4, 2)
     h, w = gray.shape[:2]
     centre = q.mean(axis=0)
     short_side = min(quad_side_lengths(q))
-    max_probe = max(6, int(probe_ratio * short_side))
+    max_probe = max(10, int(probe_ratio * short_side))
     ratios = []
     for i in range(4):
         p, r = q[i], q[(i + 1) % 4]
@@ -1579,36 +1584,48 @@ def band_thickness(gray, quad, dark_ratio=0.72, probe_ratio=0.15, samples=3,
         per_edge = []
         for t in np.linspace(0.3, 0.7, samples):
             base = p + t * e
+            profile = []
+            for k in range(0, max_probe + 1):
+                pt = base + n * k
+                if not (0.0 <= pt[0] < w - 1 and 0.0 <= pt[1] < h - 1):
+                    break
+                profile.append(float(gray[int(pt[1]), int(pt[0])]))
+            if len(profile) < 5:
+                continue
+            # 内侧参考：边线往里 2px，用来判断这条边外侧是不是真的更暗
             inner = base - n * 2.0
             if not (0.0 <= inner[0] < w - 1 and 0.0 <= inner[1] < h - 1):
                 continue
             ref = float(gray[int(inner[1]), int(inner[0])])
             if ref < 20.0:
                 continue
-            # 绝对上限：胶带是画面里最暗的一圈。只按"比内侧暗 28%"判的话，
-            # 灰背景（90 上下）也会算成暗带，厚度会一路量到探测窗口尽头。
-            thr = min(dark_ratio * ref, dark_max)
-            run = 0
-            gap = 0
-            for k in range(3, max_probe + 1):
-                pt = base + n * k
-                if not (0.0 <= pt[0] < w - 1 and 0.0 <= pt[1] < h - 1):
+            kmin = int(np.argmin(profile[1:])) + 1
+            vmin = profile[kmin]
+            # 最暗处必须在探测窗口靠边界的那一段，且明显低于内侧，
+            # 否则说明这条边外面根本没有暗带。上限按窗口比例给，胶带宽时
+            # 最暗点本来就会落在窗口深处，卡太死会把近距靶纸判成无效边。
+            if kmin > max(3, max_probe * 4 // 5):
+                continue
+            if vmin > ref - 8.0:
+                continue
+            end = None
+            for k in range(kmin + 1, len(profile)):
+                if profile[k] - profile[k - 1] >= rise_step:
+                    end = k
                     break
-                if float(gray[int(pt[1]), int(pt[0])]) <= thr:
-                    run = k
-                    gap = 0
-                else:
-                    gap += 1
-                    if run > 0 or gap >= 3:
-                        break
-            if run > 0:
-                per_edge.append(run / length)
+            if end is None:
+                # 没有回升：外侧一直是暗的（贴墙/贴暗背景）。这时暗带宽度
+                # 无法界定，按探测上限算——只要它够宽，后面的比值门仍能过。
+                end = len(profile)
+            if end - 1 < 2:
+                continue
+            per_edge.append((end - 1) / length)
         if per_edge:
             ratios.append(float(np.median(per_edge)))
-    if len(ratios) < 2:
-        return 0.0, 0.0, 0.0
-    return (float(np.median(ratios)), float(np.min(ratios)), float(np.max(ratios)))
-
+    if not ratios:
+        return 0.0, 0.0, 0.0, 0
+    return (float(np.median(ratios)), float(np.min(ratios)),
+            float(np.max(ratios)), len(ratios))
 
 
 def inner_mean(gray, quad):
@@ -1629,8 +1646,8 @@ def inner_mean(gray, quad):
 
 
 def filter_band(gray, candidates, min_score, offset, min_contrast,
-                min_ratio=0.0, dark_ratio=0.72, probe_ratio=0.15, min_uniform=0.0,
-                min_inner=0.0, min_edge=0.0, dark_max=70.0, limit=0):
+                min_ratio=0.0, probe_ratio=0.15, min_uniform=0.0,
+                min_inner=0.0, min_edge=0.0, rise_step=18.0, limit=0, debug=False):
     """按暗带得分、暗带厚度与四边厚度一致性筛候选，就地写入 band 相关字段。
 
     四项：得分证明"外侧确实更暗"；第三条边也成立说明四周都有胶带；
@@ -1645,12 +1662,14 @@ def filter_band(gray, candidates, min_score, offset, min_contrast,
         pool = sorted(pool, key=lambda c: c["area"], reverse=True)[:limit]
     dropped = len(candidates) - len(pool)
     kept = []
+    diag = []
     for cand in pool:
         quad = cand["quad"]
         edges = [x for x in band_edges(gray, quad, offset, min_contrast) if x is not None]
         if not edges:
             continue
         score = float(sum(edges) / len(edges))
+        cand["band"] = float(score)
         if score < min_score:
             continue
         if min_edge > 0.0:
@@ -1660,18 +1679,25 @@ def filter_band(gray, candidates, min_score, offset, min_contrast,
         if min_inner > 0.0 and inner_mean(gray, quad) < min_inner:
             continue
         if min_ratio > 0.0:
-            median, low, high = band_thickness(gray, quad, dark_ratio, probe_ratio,
-                                               dark_max=dark_max)
+            median, low, high, edges = band_thickness(gray, quad, probe_ratio,
+                                                      rise_step=rise_step)
             if median < min_ratio:
                 continue
-            uniform = (low / high) if high > 0.0 else 0.0
-            if min_uniform > 0.0 and uniform < min_uniform:
-                continue
+            # 一致性只在三条边以上才判：一条边被手或画面边缘遮住是常态，
+            # 拿两条边的比值去要求"四边同宽"只会把正常帧判死。
+            if edges >= 3 and min_uniform > 0.0 and high > 0.0:
+                if low / high < min_uniform:
+                    continue
             cand["band_ratio"] = float(median)
-            cand["band_uniform"] = float(uniform)
-        cand["band"] = float(score)
+            cand["band_edges"] = int(edges)
         kept.append(cand)
-    return kept, len(candidates) - len(kept) + dropped
+    if debug:
+        for cand in pool:
+            diag.append("a=%d asp=%.2f s=%.2f r=%.3f e=%s i=%.0f" % (
+                cand["area"], cand["aspect"], cand.get("band", 0.0),
+                cand.get("band_ratio", 0.0), cand.get("band_edges", "-"),
+                inner_mean(gray, cand["quad"])))
+    return kept, len(candidates) - len(kept) + dropped, diag
 
 
 # ------------------------------------------------------------------ 择优
@@ -1894,12 +1920,13 @@ class RectangleCenterDetector:
         self.min_band = float(getattr(config, "RECT_MIN_BAND_SCORE", 0.55))
         self.min_band_ratio = float(getattr(config, "RECT_MIN_BAND_RATIO", 0.02))
         self.min_band_uniform = float(getattr(config, "RECT_BAND_MIN_UNIFORM", 0.40))
-        self.min_inner_mean = float(getattr(config, "RECT_MIN_INNER_MEAN", 85.0))
+        self.min_inner_ratio = float(getattr(config, "RECT_MIN_INNER_RATIO", 0.60))
+        self.inner_floor = float(getattr(config, "RECT_MIN_INNER_FLOOR", 45.0))
         self.min_edge_score = float(getattr(config, "RECT_MIN_EDGE_SCORE", 0.60))
-        self.band_dark_ratio = float(getattr(config, "RECT_BAND_DARK_RATIO", 0.72))
         self.band_probe_ratio = float(getattr(config, "RECT_BAND_PROBE_RATIO", 0.15))
-        self.band_dark_max = float(getattr(config, "RECT_BAND_DARK_MAX", 70.0))
+        self.band_rise_step = float(getattr(config, "RECT_BAND_RISE_STEP", 18.0))
         self.band_limit = int(getattr(config, "RECT_BAND_CANDIDATES", 12))
+        self.debug_band = bool(getattr(config, "RECT_DEBUG_BAND", False))
         self.band_offset = float(getattr(config, "RECT_BAND_OFFSET_PX", 7.0))
         self.band_contrast = float(getattr(config, "RECT_BAND_CONTRAST", 10.0))
         self.refine_edges = bool(getattr(config, "RECT_EDGE_REFINE", True))
@@ -1917,6 +1944,7 @@ class RectangleCenterDetector:
         self._prior_lost = 0
         self._last_quad = None
         self._track_frames = 0
+        self._fault_logged = False
 
     def reset(self):
         """清空跨帧状态。换靶/换场景时调用，避免拿旧位置去择优或精修。"""
@@ -1948,13 +1976,58 @@ class RectangleCenterDetector:
         offset = band_offset_for(quad, 0.03, 3.0, max(3.0, self.band_offset))
         if band_score(gray, quad, offset, self.band_contrast) < self.min_band:
             return None
-        median, low, high = band_thickness(gray, quad, self.band_dark_ratio,
-                                           self.band_probe_ratio, dark_max=self.band_dark_max)
+        median, low, high, edges = band_thickness(gray, quad, self.band_probe_ratio,
+                                                  rise_step=self.band_rise_step)
         if median < self.min_band_ratio:
             return None
-        if high > 0.0 and low / high < self.min_band_uniform:
+        if edges >= 3 and high > 0.0 and low / high < self.min_band_uniform:
             return None
         return quad
+
+    def _process_frame(self, g):
+        """跑一帧：先窄带精修，失败再全图搜索。返回 (结果, 统计)。"""
+        stats = dict(contours=0, area=0, quad=0, aspect=0, band=0, candidates=0)
+        tracked = self._try_track(g)
+        if tracked is not None:
+            score = band_score(g, tracked, band_offset_for(tracked, 0.03, 3.0,
+                                                           max(3.0, self.band_offset)),
+                               self.band_contrast)
+            result = success_result(quad_payload(tracked, score), STAGE_TRACK)
+            self._track_frames += 1
+            stats["track"] = 1
+            return result, stats
+
+        blur = blur_frame(g, self.kernel)
+        binary = binarize_frame(blur, self.block_size, self.c_const)
+        candidates, stats = find_quad_candidates(
+            binary, self.min_area, self.max_area_ratio, self.eps_ratio,
+            self.min_aspect, self.max_aspect, self.max_candidates)
+        # 框内亮度门按"全图均值"的相对比例给：现场偏暗时整幅一起暗，
+        # 固定绝对灰度会把正常靶纸判死；只有明显暗于画面整体才可能是暗面板。
+        inner_floor = max(self.inner_floor, self.min_inner_ratio * float(g.mean()))
+        candidates, stats["band"], diag = filter_band(
+            g, candidates, self.min_band, self.band_offset, self.band_contrast,
+            self.min_band_ratio, self.band_probe_ratio,
+            self.min_band_uniform, inner_floor,
+            self.min_edge_score, self.band_rise_step, self.band_limit,
+            self.debug_band)
+        prior = self._prior()
+        best = select_best(candidates, *(prior if prior else (None, 0.0)))
+        if best is not None and self.refine_edges:
+            best = dict(best)
+            best["quad"] = refine_quad(best["quad"], best["contour"],
+                                       self.edge_band, self.edge_min_points,
+                                       self.edge_max_shift)
+        result = locate_result(best, stats)
+        if result.get("valid"):
+            self._track_frames = 0
+        elif self.debug_band and diag:
+            # 只在失败帧里带：给板端 [perf] 的 det_fail 附上前几个候选的判据读数，
+            # 一眼能看出是"外侧不暗"还是"暗带太窄"还是"框内太黑"。
+            result["fail_reason"] = "%s|%s" % (result.get("fail_reason", "-"), " ".join(diag[:2]))
+        if self.keep_stages:
+            self.last_stages = dict(blur=blur, binary=binary)
+        return result, stats
 
     def process(self, gray, timestamp=None):
         started = time.perf_counter()
@@ -1967,39 +2040,18 @@ class RectangleCenterDetector:
             result = fail_result("empty_frame", "none", "empty")
             stats = dict(contours=0, area=0, quad=0, aspect=0, band=0, candidates=0)
         else:
-            result = None
-            tracked = self._try_track(g)
-            if tracked is not None:
-                score = band_score(g, tracked, band_offset_for(tracked, 0.03, 3.0,
-                                                               max(3.0, self.band_offset)),
-                                   self.band_contrast)
-                result = success_result(quad_payload(tracked, score), STAGE_TRACK)
-                self._track_frames += 1
+            try:
+                result, stats = self._process_frame(g)
+            except Exception as exc:
+                # 板上任何一个 OpenCV 调用不支持、形状不匹配，都会让识别线程直接退出，
+                # 上层只看到"一直识别不到"而没有任何线索。这里降级成失败结果、
+                # 把异常类型留在 fail_reason 里（[perf] 的 det_fail 能直接读出来），
+                # 并只打印一次完整栈，避免每帧刷屏。
+                if not self._fault_logged:
+                    self._fault_logged = True
+                    traceback.print_exc()
+                result = fail_result(STAGE_NONE, "exception", type(exc).__name__)
                 stats = dict(contours=0, area=0, quad=0, aspect=0, band=0, candidates=0)
-                stats["track"] = 1
-            else:
-                blur = blur_frame(g, self.kernel)
-                binary = binarize_frame(blur, self.block_size, self.c_const)
-                candidates, stats = find_quad_candidates(
-                    binary, self.min_area, self.max_area_ratio, self.eps_ratio,
-                    self.min_aspect, self.max_aspect, self.max_candidates)
-                candidates, stats["band"] = filter_band(
-                    g, candidates, self.min_band, self.band_offset, self.band_contrast,
-                    self.min_band_ratio, self.band_dark_ratio, self.band_probe_ratio,
-                    self.min_band_uniform, self.min_inner_mean,
-                    self.min_edge_score, self.band_dark_max, self.band_limit)
-                prior = self._prior()
-                best = select_best(candidates, *(prior if prior else (None, 0.0)))
-                if best is not None and self.refine_edges:
-                    best = dict(best)
-                    best["quad"] = refine_quad(best["quad"], best["contour"],
-                                               self.edge_band, self.edge_min_points,
-                                               self.edge_max_shift)
-                result = locate_result(best, stats)
-                if result.get("valid"):
-                    self._track_frames = 0
-                if self.keep_stages:
-                    self.last_stages = dict(blur=blur, binary=binary)
 
         result.update(masks=1, proposals=stats["contours"], search_count=1,
                       reject=dict(stats), threshold=None)
@@ -4378,7 +4430,7 @@ from vision.preview import Preview, TouchButtons, display_result, apply_maixvisi
 from vision.aim_control import VisionControl, send_uart
 from vision.app_runtime import run
 
-BUILD_ID = "2026-11-04-track-band-v1.3.0"
+BUILD_ID = "2026-11-04-band-rise-v1.3.1"
 
 # Compatibility aliases for existing PC tools and board integrations.
 _FrameRate, _LatestVision, _Preview, _Touch = FrameRate, LatestFrameWorker, Preview, TouchButtons

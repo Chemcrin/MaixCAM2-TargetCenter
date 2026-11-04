@@ -132,6 +132,16 @@ def main():
     else:
         check("R3 corner std", False, "only %d/6 valid" % len(quads))
 
+    print("\nL 曝光鲁棒性：整幅增益变化时不应影响检出（判据不许依赖绝对灰度）")
+    base, truth = synth_target(scale=1.0, centre=(320, 240))
+    for gain in (0.5, 0.7, 1.0, 1.3, 1.6, 2.0):
+        scaled = np.clip(base.astype(np.float32) * gain, 0, 255).astype(np.uint8)
+        tracker.reset()
+        res = run_detect(tracker, scaled)
+        err = (abs(res.u - truth[0]) + abs(res.v - truth[1])) if res.valid else 999.0
+        check("L1 gain=%.1f" % gain, res.valid and err <= 3.0,
+              "valid=%s err=%.1f reason=%s" % (res.valid, err, res.get("fail_reason", "-")))
+
     print("\nN 负样本：笔记本屏幕必须拒检")
     for name in ("negative_e421.png",):
         path = FIXTURE / name

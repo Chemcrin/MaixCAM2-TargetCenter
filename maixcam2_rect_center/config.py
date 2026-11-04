@@ -123,13 +123,14 @@ class Config:
     RECT_BAND_OFFSET_PX = 7.0     # 内外采样点离边界的距离；应小于胶带可见厚度
     RECT_BAND_CONTRAST = 10.0     # 灰度差门限；现场偏暗时先降它再降占比门
     RECT_MIN_BAND_RATIO = 0.045   # 暗带厚度 / 边长 下限：胶带约 0.08~0.09，显示器边框约 0.01~0.02
-    RECT_BAND_MIN_UNIFORM = 0.40  # 四边厚度 min/max 下限：同一卷胶带同宽，显示器边框差几倍
-    RECT_MIN_INNER_MEAN = 85.0    # 框内平均灰度下限：挡“暗设备面板/屏幕黑窗口”这类暗框
+    RECT_BAND_MIN_UNIFORM = 0.40  # 四边厚度 min/max 下限（≥3 条边有效才判）
+    RECT_MIN_INNER_RATIO = 0.60   # 框内均值 / 全图均值 的下限：挡“暗设备面板/黑窗口”这类暗框
+    RECT_MIN_INNER_FLOOR = 45.0   # 上面那个比例判据的绝对兜底，防止全图极暗时门限过低
     RECT_MIN_EDGE_SCORE = 0.60    # 至少三条边的暗带占比要达到这个值（第四条可被遮挡）
-    RECT_BAND_DARK_RATIO = 0.72   # 判"暗带"用的相对灰度：低于内测灰度这个比例算暗
+    RECT_BAND_RISE_STEP = 18.0    # 暗带外沿的灰度回升门限：相邻像素涨这么多就算出了胶带
     RECT_BAND_PROBE_RATIO = 0.15  # 向外最多探测短边的这个比例
-    RECT_BAND_DARK_MAX = 70.0     # 暗带的绝对灰度上限：胶带比这还暗，灰背景不算
     RECT_BAND_CANDIDATES = 12     # 只对面积最大的这些候选做暗带证据（整帧耗时大头）
+    RECT_DEBUG_BAND = False       # 真：失败帧的 det_fail 里附候选判据读数（板端定位用）
 
     # 角点精修：沿边拟合直线再求交，抑制顶点逐帧跳动
     RECT_EDGE_REFINE = True
