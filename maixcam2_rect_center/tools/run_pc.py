@@ -1,7 +1,4 @@
-"""Run the actual detector on Unicode image paths, video, or a camera.
-
---stage 用于分阶段调参：先看 binary 把二值图调闭合，再看 result 判断筛选是否合理。
-"""
+"""Run the actual detector on Unicode image paths, video, or a camera."""
 import argparse
 import json
 import sys
@@ -36,26 +33,16 @@ def main():
     parser.add_argument('--show',action='store_true')
     parser.add_argument('--output',type=Path)
     parser.add_argument('--limit',type=int,default=0)
-    parser.add_argument('--stage',choices=('none','blur','binary'),default='none',
-                        help='显示/导出中间阶段而不是最终结果')
     args=parser.parse_args()
     tracker=CenterTracker(load_config(),with_laser=True)
-    if args.stage!='none':
-        tracker.detector.keep_stages=True
     cv2.setNumThreads(tracker.cfg.OPENCV_THREADS)
     def process(gray,name,index):
         if gray is None: raise OSError('cannot read '+name)
         result=tracker.track(gray)
         print(json.dumps(dict(source=name,valid=result.valid,center=result.center,stage=result.stage,
-            ms=result.ms,reason=result.get('fail_reason'),reject=result.get('reject'),
-            dx=result.dx,dy=result.dy),ensure_ascii=False))
+            ms=result.ms,masks=result.get('masks'),dx=result.dx,dy=result.dy),ensure_ascii=False))
         if args.show or args.output:
-            stage=tracker.detector.last_stages.get(args.stage) if args.stage!='none' else None
-            if stage is not None:
-                canvas=cv2.cvtColor(stage,cv2.COLOR_GRAY2BGR)
-                cv2.putText(canvas,'stage=%s'%args.stage,(8,22),cv2.FONT_HERSHEY_SIMPLEX,.6,(0,0,255),1)
-            else:
-                canvas=draw_result(gray,result,gray.shape[1])
+            canvas=draw_result(gray,result,gray.shape[1])
             if args.output: imwrite_unicode(args.output/('%04d.png'%index),canvas)
             if args.show:
                 cv2.imshow('Target Center',canvas)
