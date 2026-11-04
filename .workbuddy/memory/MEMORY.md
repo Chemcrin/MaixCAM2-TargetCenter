@@ -2,25 +2,28 @@
 
 > 只记跨会话必须知道、AGENTS.md 之外的结论。契约/门禁/目录树见根 AGENTS.md；流水见 YYYY-MM-DD.md。
 
-## 0 现状（2026-10-26）
-- 唯一应用 `maixcam2_rect_center/`：version 1.1.0，BUILD_ID `2026-10-26-simple-darkframe-v1.1.0`；
-  25 文件包，check_pc 24/24、check_app OK=124 FAIL=0。
+## 0 现状（2026-11-04）
+- 唯一应用 `maixcam2_rect_center/`：BUILD_ID `2026-11-04-track-band-v1.3.0`；
+  check_pc 15/15、check_app OK=113 FAIL=0。
 - git 只有 `main`；tag `v1.0.0`（旧发布点）/`archive/v0.3.2`/`baseline-dual-track-2026-10-05`。
 - 待办：目录改名 `maixcam2_target_aim/`（同步 app.yaml id 与工具路径）。
 
-## 1 v1.1 视觉链路（识别简化）
-- 搜索：Canny+Otsu 两层提案 → A4 长宽比/面积预筛 → outer/inner × 6/20px 直线精修 → 四边胶带软证据打分；
-  高置信即停，无 verify/rescue 级联、无 front view、无运动预测。中心 = 四边形对角线交点。
-- 硬门槛：≥3 边暗带、弱边 0<contrast<10、暗/亮≤0.72、暗带厚度/18mm≥0.62、梯度支持≥0.45；
-  暗背景 `_tape_ratio=None` 时用 SEARCH_MIN_SCORE=220 兜底。
-- PC：全图搜索 median 4.2ms（真实 board 7ms）、track 1.26ms；performance 30/30 max .14px、
-  precision 76/76 max .76px、subpixel 121/121 max .064px、e2e 16/16；实心块/窗格/椭圆/照片拒检。
-- 多角度 `tools/test_angles.py`：干净 155/155 max .79px、径向畸变 72/72 max 3.27px、
-  真实 corner 旋转缩放 21/21 max 3.37px。`MAX_WEAK_SIDE_CONTRAST=40` 是为一条弱边留余量。
+## 1 视觉链路（v1.3.0，当前）
+- 提案：自适应反色二值化 → `RETR_CCOMP`（外轮廓 + 内孔，**纸面是内孔**）→ 面积/四点(或 minAreaRect)/对边长度比
+  → 四层胶带证据（方向得分 + 至少3边成立 + 暗带厚度比 + 四边同宽 + 框内亮度）→ 择优（有时序先验取"近且大"）。
+- 跨帧：锁定后 `refine_edges_1d` 沿四边法向一维搜索重建四边形（stage=track），满 `RECT_TRACK_MAX_FRAMES` 回全图；
+  丢锁后位置先验只在 `RECT_PRIOR_FRAMES` 内有效。中心仍取对角线交点。
+- `RECT_BLOCK_SIZE` 必须**大于胶带像素宽度**，否则胶带被"挖空"成两条细线导致四边凑不出。
+  现场 165cm 处纸约 71px、胶带约 6px（比例恒定 8.4%，不随距离变）。
+- PC：中位 2.2ms / p95 3.3ms（640×480）；识别回归 `tools/test_rectangle_detect.py` 全过
+  （合成中心 err≤1.5px、旋转±35°/竖放、角点重复 std 0.019px、负样本 e421 + 细边框屏拒检、真实帧 err 0.5px）。
+- 已知边界：纸面缺口过大整帧判负（靠跟踪跨过）；"白亮面+同宽黑边"的同类物体会抢锁。
+- 实测：p014 检测中心 (251.7,220.8) vs HoughCircles 同心圆圆心 (252.5,218.5)，偏 2.4px。
 
-## 2 板端（2026-10-18 实测；v1.1 未上板）
-- 旧版 det_ms=39~71ms、track 56~115ms，30fps 未达成；v1.1 需看 `[perf] det_ms/det_stage`。
-- `det_stage` 应在首帧后保持 track；⚠ 禁 pkill/kill（只走 MaixVision 停止按钮）。
+## 2 板端（2026-11-04 实测 v1.2；v1.3 未上板）
+- v1.2 板端 `valid_fps=0.0`、`det_ms=105.6`、`reject=full/all_filtered det_props=115`——即完全检不出。
+- 上板要看 `[perf] det_stage`：应出现 `track`；长期停在 `full_search` 说明跟踪没接上（查位移门/暗带门）。
+- ⚠ 禁 pkill/kill（只走 MaixVision 停止按钮）。
 
 ## 3 纪律
 - 文档口径：写架构不写实现，数值/行号/版本/日期不进文档；变更记录不进文档（git 即历史）；
