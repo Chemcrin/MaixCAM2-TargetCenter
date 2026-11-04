@@ -266,7 +266,8 @@ def band_edge_floor(gray, quad, offset=7.0, min_contrast=10.0, per_edge=9):
     return float(per[2])
 
 
-def band_thickness(gray, quad, dark_ratio=0.72, probe_ratio=0.15, samples=3):
+def band_thickness(gray, quad, dark_ratio=0.72, probe_ratio=0.15, samples=3,
+                   dark_max=70.0):
     """边界外侧那条暗带有多厚，按边长归一。返回 (中位数, 最小, 最大)。
 
     18mm 胶带贴在 210mm 宽的纸上，厚度占边长约 8%；显示器边框、窗框、桌沿的
@@ -303,7 +304,9 @@ def band_thickness(gray, quad, dark_ratio=0.72, probe_ratio=0.15, samples=3):
             ref = float(gray[int(inner[1]), int(inner[0])])
             if ref < 20.0:
                 continue
-            thr = dark_ratio * ref
+            # 绝对上限：胶带是画面里最暗的一圈。只按"比内侧暗 28%"判的话，
+            # 灰背景（90 上下）也会算成暗带，厚度会一路量到探测窗口尽头。
+            thr = min(dark_ratio * ref, dark_max)
             run = 0
             gap = 0
             for k in range(3, max_probe + 1):
@@ -346,7 +349,7 @@ def inner_mean(gray, quad):
 
 def filter_band(gray, candidates, min_score, offset, min_contrast,
                 min_ratio=0.0, dark_ratio=0.72, probe_ratio=0.15, min_uniform=0.0,
-                min_inner=0.0, min_edge=0.0):
+                min_inner=0.0, min_edge=0.0, dark_max=70.0):
     """按暗带得分、暗带厚度与四边厚度一致性筛候选，就地写入 band 相关字段。
 
     三项：得分证明"外侧确实更暗"；厚度证明"暗得够宽，是胶带不是边框"；
@@ -364,7 +367,8 @@ def filter_band(gray, candidates, min_score, offset, min_contrast,
         if min_edge > 0.0 and band_edge_floor(gray, quad, offset, min_contrast) < min_edge:
             continue
         if min_ratio > 0.0:
-            median, low, high = band_thickness(gray, quad, dark_ratio, probe_ratio)
+            median, low, high = band_thickness(gray, quad, dark_ratio, probe_ratio,
+                                               dark_max=dark_max)
             if median < min_ratio:
                 continue
             uniform = (low / high) if high > 0.0 else 0.0
@@ -601,6 +605,7 @@ class RectangleCenterDetector:
         self.min_edge_score = float(getattr(config, "RECT_MIN_EDGE_SCORE", 0.60))
         self.band_dark_ratio = float(getattr(config, "RECT_BAND_DARK_RATIO", 0.72))
         self.band_probe_ratio = float(getattr(config, "RECT_BAND_PROBE_RATIO", 0.15))
+        self.band_dark_max = float(getattr(config, "RECT_BAND_DARK_MAX", 70.0))
         self.band_offset = float(getattr(config, "RECT_BAND_OFFSET_PX", 7.0))
         self.band_contrast = float(getattr(config, "RECT_BAND_CONTRAST", 10.0))
         self.refine_edges = bool(getattr(config, "RECT_EDGE_REFINE", True))
@@ -650,7 +655,7 @@ class RectangleCenterDetector:
         if band_score(gray, quad, offset, self.band_contrast) < self.min_band:
             return None
         median, low, high = band_thickness(gray, quad, self.band_dark_ratio,
-                                           self.band_probe_ratio)
+                                           self.band_probe_ratio, dark_max=self.band_dark_max)
         if median < self.min_band_ratio:
             return None
         if high > 0.0 and low / high < self.min_band_uniform:
@@ -688,7 +693,7 @@ class RectangleCenterDetector:
                     g, candidates, self.min_band, self.band_offset, self.band_contrast,
                     self.min_band_ratio, self.band_dark_ratio, self.band_probe_ratio,
                     self.min_band_uniform, self.min_inner_mean,
-                    self.min_edge_score)
+                    self.min_edge_score, self.band_dark_max)
                 prior = self._prior()
                 best = select_best(candidates, *(prior if prior else (None, 0.0)))
                 if best is not None and self.refine_edges:
