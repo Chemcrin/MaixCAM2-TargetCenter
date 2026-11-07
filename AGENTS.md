@@ -37,7 +37,7 @@
 ├── maixcam2_rect_center/       ★ 唯一可烧录应用（id 与目录名一致）
 │   ├── main.py / config.py / target_api.py / vision/*.py
 │   ├── dist/main_single.py     单文件版（自动生成）
-│   ├── tools/                  门禁 / 回归 / 验证 / 一次性诊断（不进应用包）
+│   ├── tools/                  门禁 / PC 复现（不进应用包）
 │   └── README.md               算法与上板说明（★ 应用目录内唯一文档）
 ├── reports/                    工具产物（★ 应用目录**之外**，不进库）：
 │   video/ precision/ subpixel/ e2e/ —— tools/ 下的回放/验证脚本默认写这里
@@ -119,13 +119,11 @@ U0 混有内核日志，开机清 RX（`FLUSH_RX_ON_START`）。
 > 改手感**一次只动一个数**，跑一轮看效果再动下一个——一次改多个分不清谁起作用。
 > 自动标定默认关闭（`CALIBRATE_AXIS` 为空）；要重标临时改 `"auto"`，标完置回。
 
-### 3.2 上电时序与自检
+### 3.2 上电时序
 
-- 上电 = 使能 → 建显示/触摸 → 进主循环（识别 + 闭环）；**上电不发脉冲**。
-- 自检 = 屏幕右上角 `SELF-TEST` **按钮**点击触发，按固定脉冲走 4 步
-  （不依赖标定；`SELF_TEST_PULSES` 置 0 才回退按角度换算）。
-  自检与视觉彻底解耦，调度在 `vision/aim_control.py`。
-- 视觉标定 3s 收不到有效 `dx/dy` 立即失败并交还主流程（`CALIBRATE_VISUAL_TIMEOUT_S`），不会干等。
+- 上电 = 双轴使能 → 建显示 → 进主循环（识别 + 闭环）；**上电不发脉冲**。
+- 本版本**无自检按钮、无失锁扫描、无自动标定**；要验证电机动作，用 `target_api.AimLoop`
+  单独跑，不要临时改主循环。
 
 ### 3.3 光斑读数
 
@@ -138,7 +136,8 @@ U0 混有内核日志，开机清 RX（`FLUSH_RX_ON_START`）。
 
 让"板子跑的"和"仓库里的"能对上号，并让门禁证明没改坏。命令一律在 `maixcam2_rect_center/` 下、用 `"D:/Python311/python.exe"` 执行（为什么见 §4.1）。
 
-1. **提升 `main.py` 顶部 `BUILD_ID`**（格式 `YYYY-MM-DD-<slug>-vN`）。
+1. **提升 `vision/logic.py` 顶部 `BUILD_ID`**（格式 `YYYY-MM-DD-<slug>-vN`；入口 `main.py`
+   只是桩，不持有版本号）。
    板端打印 `[rect-center] <BUILD_ID>`，**与本地逐字一致才算跑的新代码**。
    改了 `main.py` / `config.py` / `vision/*` / `target_api.py` 任一个都要做。
 2. **重生成单文件版**：`tools/build_single.py`。
@@ -149,20 +148,24 @@ U0 混有内核日志，开机清 RX（`FLUSH_RX_ON_START`）。
    "D:/Python311/python.exe" -B tools/check_pc.py   # build --check/--smoke + check_app --manifest(含包内清单核对) + 全部测试
    ```
 
-   - `--quick` 跳过 2 个慢用例；改**视觉阈值**（`MIN_*`/`MAX_*`/`SCORE_*`）、**主循环控制流**、
-     **显示/搜索预算**时建议跑全量。
-   - Linux 专属用例标 SKIP、打包身份问题标 KNOWN；**退出码 1 才是真失败**。
-   - 单独复跑某项：`tools/test_*.py` 均可直接跑。针对性建议：阈值 → `test_performance` + `test_real_scene`；
-     主循环 → `test_main_self_test`。
+   - 依次是：`check_app --manifest`（包内清单）→ `build_single --check/--smoke`（单文件版是否过期）
+     → `test_smoke`（合成图回归：中心精度、负样本、长宽比边界、偏差符号）。
+   - `test_smoke` 只证明链路没坏，**不证明真机可用**：改阈值或动候选生成后，
+     必须用 `run_pc.py --images` 对真机帧逐帧复核。
+   - **退出码 1 才是真失败**；`--quick` 为兼容保留，当前没有可跳过的长用例。
 
 ### 4.1 PC（Windows）上怎么跑
 
 板端专属的东西（MaixPy SDK / 显示 / 串口）PC 上跑不了，其余全部可在 PC 复现——调参与复现问题先走 PC：
 
 ```bash
-"D:/Python311/python.exe" -B tools/run_pc.py --images 图/*.png   # 图片/视频/摄像头跑真实检测器
-"D:/Python311/python.exe" -B tools/diagnose_detect.py <图片>     # 逐边打印"为什么没检出"
+"D:/Python311/python.exe" -B tools/run_pc.py --images 图/*.png            # 图片跑真实检测器
+"D:/Python311/python.exe" -B tools/run_pc.py --video 录像.mp4 --limit 30  # 视频抽帧
+"D:/Python311/python.exe" -B tools/run_pc.py --images 图/ --stage binary  # 导出二值图，查环是否闭合
 ```
+
+没检出先看输出的 `reject` 计数：`area` 多 → 面积门或二值化；`quad` 多 → 近似没凑出四边；
+`aspect` 多 → 方向/倾斜。
 
 - ⚠ 本机路径含中文：**不要**用 `cv2.imread/imwrite`（返回 None），用 `run_pc.py` 的
   `imread_unicode/imwrite_unicode`。
@@ -225,13 +228,14 @@ git checkout <sha> -- <文件>                             # 恢复单文件；�
 3. `image2cv()` 对灰度图返回 `(H,W,1)` 三维哑轴 → 别按 `ndim==2` 判灰度，按实际 shape 判断。
 4. U0(A28/A29) **必须显式 pinmap**，空表静默不通（"yaw 不动"的历史根因之一）；
    ttyS0 还是系统日志口，故开机 `FLUSH_RX_ON_START`。
-5. 位置模式 `acc=0` = 瞬时启停 → 卡顿/冲击。自检与闭环都给非 0 acc，越小越柔。
-6. 标定依赖视觉会阻塞（黑框出视野干等）→ 已加 `CALIBRATE_VISUAL_TIMEOUT_S` 快速失败。
+5. 位置模式 `acc=0` = 瞬时启停 → 卡顿/冲击。闭环给非 0 acc，越小越柔。
+6. 自适应二值化对**厚胶带**不保证闭合：真机帧会漏掉靶纸、反把背景小矩形锁上。
+   误锁比漏检更危险（漏检只 HOLD，误锁会把云台带偏）→ 上板前用真机帧跑 `run_pc.py` 复核。
 7. `app.yaml` 的 `exclude` 漏目录 → 文档混进应用包；改完核 `check_app.py --manifest`。
 8. 调试抓屏与报告会迅速堆爆项目目录 → 产物写 `reports/`（应用目录外）；
    `tools/clean_artifacts.py`（扫描）/ `--apply`（删除）只清可再生产物，**保留测试固件**；
    `check_app.py` 的 C11 在目录超 30MB 时直接判 FAIL（MaixVision 打包上限）。
-9. 显示在主进程 daemon 线程（`SHOW_ASYNC=True`，`vision/preview.py`）；**不要把 `Display()`
+9. 显示在主进程 daemon 线程（`SHOW_ASYNC=True`，`vision/output.py`）；**不要把 `Display()`
    放进子进程**——子进程起不来就一帧不画且无报错。排查先看 `[preview] mode=`。
 10. 板端单帧超过 `RESULT_MAX_AGE_S` 即判 stale，且 `[perf]` 的 stage 被替换成 `"stale"`、
     **掩盖检测器真实阶段**。帧率塌到个位数先查这条链，
@@ -243,8 +247,8 @@ git checkout <sha> -- <文件>                             # 恢复单文件；�
 
 - **改完源码**：`BUILD_ID` 已更新 → `dist/main_single.py` 已重生成 → `check_pc.py` 全绿
   → **按精确路径提交**（前缀见 §0′）。
-- **上板**：日志 `[rect-center] <BUILD_ID>` 与本地一致；`SELF-TEST` 出 4 步动作
-  （pitch 上→下、yaw 左→右）；追踪起停柔和、停下激光不晃。
+- **上板**：日志 `[rect-center] <BUILD_ID>` 与本地一致；`[gimbal] pinmap ... readback=` 两轴都 ok；
+  `[aim] state=` 随误差在 COARSE/FINE/SETTLE 间切换；追踪起停柔和、停下激光不晃。
 - **留痕**：往 `.workbuddy/memory/YYYY-MM-DD.md` **追加**一行本轮做了什么、怎么验证的
   （只记有长期价值的结论与坑）；跨会话必须知道的约定 → `MEMORY.md`。
   ⚠ 都在仓库根，不要写进应用目录。
