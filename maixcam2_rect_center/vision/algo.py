@@ -4,14 +4,17 @@
 
     几何  signed_area / order_quad / line_cross / quad_diagonal_center
     图像  blur_frame / binarize_frame / find_quad_candidates / select_largest
+          find_concentric（同心圆，独立成链）
     偏差  deviation（靶心 − 光斑，纯算术）
 
-三条刻意的设计约束（属于本层，不要在别处放宽）：
+四条刻意的设计约束（属于本层，不要在别处放宽）：
 
-1. **判据只有三层**：面积 → 四边形近似 → 长宽比。不做胶带暗带证据、亚像素精修、
+1. **四边形判据只有三层**：面积 → 四边形近似 → 长宽比。不做胶带暗带证据、亚像素精修、
    单应反算。画面里出现更大的深色矩形时会锁错，这是本方案的已知边界。
-2. **中心取四点的对角线交点**，不取正立外接矩形中心 —— 透视下无偏。
-3. 参数全部由调用方传入，所以本层可以在 PC 上脱离 `Config` 单独断言。
+2. **同心圆是并行证据，不是第四层判据**：`find_concentric` 走 RETR_LIST 独立成链，
+   命中即直接给出圆心；它不放宽上面三层，三层也不因它改变。
+3. **中心取四点的对角线交点**，不取正立外接矩形中心 —— 透视下无偏；同心圆路径取圆心。
+4. 参数全部由调用方传入，所以本层可以在 PC 上脱离 `Config` 单独断言。
 
 依赖方向：**本层不 import 其余三层**，只依赖 cv2 / numpy / math。
 """
@@ -23,7 +26,7 @@ import numpy as np
 __all__ = [
     "signed_area", "order_quad", "line_cross", "quad_diagonal_center",
     "blur_frame", "binarize_frame", "find_quad_candidates", "select_largest",
-    "deviation",
+    "find_concentric", "deviation",
 ]
 
 # ================================================================== 纯函数
@@ -140,6 +143,94 @@ def find_quad_candidates(binary, min_area, max_area_ratio, eps_ratio,
 def select_largest(candidates):
     """在通过三层的候选里取面积最大者；空列表返回 None。"""
     return max(candidates, key=lambda c: c["area"]) if candidates else None
+
+
+# ------------------------------------------------------------------ 同心圆
+def find_concentric(binary, min_radius, max_radius_ratio,
+                    min_circularity=0.80, min_rings=2, min_outer_radius=20.0,
+                    close_kernel=3, max_contours=240):
+    """在二值图里找一组同心圆，返回 (u, v, r_max, rings) 或 None。
+
+    为什么需要这条独立路径：三条四边形判据要求靶纸四周存在**闭合暗环**，
+    没贴胶带、或胶带被高光/反光打断时整张靶纸连候选都进不了；而画面上任何
+    "被暗边围住的横放矩形"（墙、柜门、门框）反而全部通过，取最大面积就锁错。
+    同心圆是靶纸独有的证据，且**圆心就是靶心本身**，不依赖长宽比前提。
+
+    判据链（任一不满足即整组作废）：
+        单圈圆度 4πA/P² >= min_circularity   —— 区分圆与矩形（正方形仅 0.785）
+        半径去重：同一环的内沿/外沿半径只差线宽，合并成一个 ring
+        圆心聚簇：圆心相距 <= 10% 半径的归为同一组
+        簇内不同半径数 >= min_rings、r_max/r_min >= 1.5、r_max >= min_outer_radius
+
+    为什么要先做闭运算：印在纸上的圆环只有 1~2px 宽，二值化后常被抗锯齿切成
+    若干小弧段；弧段不闭合，`contourArea` 退化成"线宽×弧长"，圆度接近 0，
+    整圈就此消失。3×3 闭运算能把 1~2px 的断口补上，代价是半径略胖 1~2px，
+    对"取圆心"没有影响。
+
+    min_rings 取 2 而不是靶纸的圈数：真实帧里常只有最外圈 + 一圈内环是闭合的
+    （`real_scene_corner_gap.png` 实测 2 组半径、圆度 0.89/0.91），
+    要求 3 圈会把真靶纸一起拒掉。误报由 r_max/r_min >= 1.5 与 min_outer_radius 兜。
+
+    不做拟合、不做亚像素：`minEnclosingCircle` 的圆心在像素级已足够，
+    后续偏差与闭环都按像素工作，亚像素对 165cm 处 0.67px 的靶心没有意义。
+    """
+    h, w = binary.shape[:2]
+    max_r = float(max_radius_ratio) * min(h, w)
+    src = binary
+    if int(close_kernel) >= 3:
+        k = int(close_kernel) | 1                     # 闭运算核必须是奇数
+        src = cv2.morphologyEx(binary, cv2.MORPH_CLOSE,
+                               np.ones((k, k), np.uint8))
+    contours = cv2.findContours(src, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[-2]
+    rings = []
+    for cnt in contours[:int(max_contours)]:
+        area = cv2.contourArea(cnt)
+        if area < 12.0:
+            continue
+        peri = cv2.arcLength(cnt, True)
+        if peri <= 0:
+            continue
+        if 4.0 * math.pi * area / (peri * peri) < min_circularity:
+            continue
+        (cx, cy), r = cv2.minEnclosingCircle(cnt)
+        if r < float(min_radius) or r > max_r:
+            continue
+        rings.append((float(cx), float(cy), float(r)))
+    if len(rings) < int(min_rings):
+        return None
+
+    # 按圆心聚簇：同一组同心圆的各圈圆心高度重合，不同位置的圆不会互吞。
+    clusters = []
+    for cx, cy, r in rings:
+        for cl in clusters:
+            if math.hypot(cx - cl["x"], cy - cl["y"]) <= max(4.0, 0.10 * cl["r"]):
+                n = cl["n"]
+                cl["x"] = (cl["x"] * n + cx) / (n + 1)
+                cl["y"] = (cl["y"] * n + cy) / (n + 1)
+                cl["r"] = max(cl["r"], r)
+                cl["n"] = n + 1
+                cl["radii"].append(r)
+                break
+        else:
+            clusters.append(dict(x=cx, y=cy, r=r, n=1, radii=[r]))
+
+    best = None
+    for cl in clusters:
+        uniq = []
+        for r in sorted(cl["radii"]):
+            if not uniq or r - uniq[-1] > max(3.0, 0.09 * uniq[-1]):
+                uniq.append(r)
+        if len(uniq) < int(min_rings):
+            continue
+        if uniq[-1] < float(min_outer_radius):
+            continue
+        if uniq[-1] / uniq[0] < 1.5:
+            continue
+        # 圈数越多、最外圈越大越可信；同分时留大的那组。
+        score = len(uniq) * uniq[-1]
+        if best is None or score > best[0]:
+            best = (score, cl["x"], cl["y"], uniq[-1], len(uniq))
+    return None if best is None else (best[1], best[2], best[3], best[4])
 
 
 # ================================================================== 结果组装

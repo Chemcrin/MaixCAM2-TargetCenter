@@ -79,6 +79,19 @@ class Config:
     RECT_MAX_CANDIDATES = 32      # 候选上限，防病态画面拖慢
     RECT_KEEP_STAGES = False      # 真：把 blur/binary 留在 last_stages，供 --stage 导出
 
+    # ---- 同心圆（与上面三层四边形**并行**，命中即优先）----
+    # 为什么要有：三层四边形要求"闭合暗环 + 靶纸横放"。没贴胶带、胶带被高光打断时
+    # 整张靶纸连候选都进不了，而画面里任何"被暗边围住的横放矩形"反而全过，
+    # 取最大面积就锁错。同心圆是靶纸独有证据，圆心就是靶心。
+    # 关掉本组（RECT_CIRCLE_ENABLE=False）即完全退回 v1.3.0 行为。
+    RECT_CIRCLE_ENABLE = True
+    RECT_CIRCLE_CIRCULARITY = 0.80   # 单圈圆度 4πA/P² 下限；正方形只有 0.785，不宜再低
+    RECT_CIRCLE_MIN_RINGS = 2        # 至少几圈同心才认；真实帧常只有 2 圈是闭合的
+    RECT_CIRCLE_MIN_RADIUS = 2.0     # 单个圈半径下限（px）；靶纸最内圈可能只有 2~3px
+    RECT_CIRCLE_MIN_OUTER_RADIUS = 20.0   # 最外圈半径下限（px），主要挡小零件/噪点
+    RECT_CIRCLE_MAX_RADIUS_RATIO = 0.45   # 最外圈半径上限（占画面短边），挡"整面墙的圆形"
+    RECT_CIRCLE_CLOSE_KERNEL = 5     # 检测前闭运算核；补细圆环断口。⚠ 实测 3 反会破坏检测，用 5/7
+
     # ---- 激光光斑读数（相机与激光固连，光斑位置近似固定）----
     # "fixed"：不检测，每帧只算"黑框中心 − 标定常量"，零开销（默认）
     # "detect"：每 LASER_INTERVAL_S 实测一次，用于重标 U/V

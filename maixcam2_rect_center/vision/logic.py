@@ -28,20 +28,22 @@ import time
 import cv2
 import numpy as np
 
-from .algo import (binarize_frame, blur_frame, deviation, find_quad_candidates,
-                  order_quad, quad_diagonal_center, select_largest)
+from .algo import (binarize_frame, blur_frame, deviation, find_concentric,
+                  find_quad_candidates, order_quad, quad_diagonal_center,
+                  select_largest)
 from .output import (Preview, aligned_frame, apply_commands, display_result,
                     draw_preview, estimate_move_seconds, perf_line, stop_motion,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-07-merge-team-v1.3.0-v1"
+BUILD_ID = "2026-11-07-add-concentric-v2"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
 
 # 结果阶段词汇（检测器写入 result["stage"]）
 STAGE_OK = "full_search"
+STAGE_CIRCLE = "concentric"
 STAGE_NONE = "no_black_frame"
 
 
@@ -82,6 +84,26 @@ def locate_result(best, stats):
     return fail_result(STAGE_NONE, "full", reason)
 
 
+def success_circle_result(circle):
+    """同心圆 → 成功结果。圆心即靶心，比黑框对角线更直接。
+
+    `quad` 给 None：本路径没有四边形，绘图层按 `circle` 字段改画圆。
+    外接框按圆的包围盒填，是为让下游（画框/日志）不必特判。
+    """
+    u, v, r, rings = circle
+    r = float(r)
+    return dict(valid=True, stage=STAGE_CIRCLE,
+                u=float(u), v=float(v), raw_u=float(u), raw_v=float(v),
+                quad=None, circle=(float(u), float(v), r, int(rings)),
+                inner_quad=None, detected_quad=None, outer_inferred=False,
+                area=math.pi * r * r, aspect=1.0,
+                bbox=(int(round(u - r)), int(round(v - r)),
+                      int(round(2.0 * r)), int(round(2.0 * r))),
+                partial=False, refined_edges=0, weak_edges=0, clipped_edges=0,
+                rect_to_image=None, circle_points=None,
+                width_mm=None, height_mm=None)
+
+
 def finish_result(result, timestamp, image_size, started):
     """补齐时间戳、图像尺寸、耗时。"""
     result.update(captured_at=timestamp, image_size=image_size,
@@ -108,6 +130,14 @@ class RectangleCenterDetector:
         self.kernel = tuple(getattr(config, "RECT_GAUSS_KERNEL", (5, 5)))
         self.max_candidates = int(getattr(config, "RECT_MAX_CANDIDATES", 32))
         self.keep_stages = bool(getattr(config, "RECT_KEEP_STAGES", False))
+        self.circle_enable = bool(getattr(config, "RECT_CIRCLE_ENABLE", True))
+        self.circle_circularity = float(getattr(config, "RECT_CIRCLE_CIRCULARITY", 0.80))
+        self.circle_min_rings = int(getattr(config, "RECT_CIRCLE_MIN_RINGS", 2))
+        self.circle_min_radius = float(getattr(config, "RECT_CIRCLE_MIN_RADIUS", 2.0))
+        self.circle_min_outer = float(getattr(config, "RECT_CIRCLE_MIN_OUTER_RADIUS", 20.0))
+        self.circle_close_kernel = int(getattr(config, "RECT_CIRCLE_CLOSE_KERNEL", 3))
+        self.circle_max_radius_ratio = float(
+            getattr(config, "RECT_CIRCLE_MAX_RADIUS_RATIO", 0.45))
 
     def reset(self):
         """接口兼容用。本检测器无跨帧状态，清空只影响调试缓存。"""
@@ -130,7 +160,20 @@ class RectangleCenterDetector:
             candidates, stats = find_quad_candidates(
                 binary, self.min_area, self.max_area_ratio, self.eps_ratio,
                 self.min_aspect, self.max_aspect, self.max_candidates)
-            result = locate_result(select_largest(candidates), stats)
+            # 同心圆优先：圆心就是靶心，且不依赖"靶纸横放 + 有闭合暗环"两个前提。
+            # 找不到才退回三层四边形路径 —— 两条链各自独立，互不放宽。
+            circle = None
+            if self.circle_enable:
+                circle = find_concentric(binary, self.circle_min_radius,
+                                         self.circle_max_radius_ratio,
+                                         self.circle_circularity,
+                                         self.circle_min_rings,
+                                         self.circle_min_outer,
+                                         self.circle_close_kernel)
+            if circle is not None:
+                result = success_circle_result(circle)
+            else:
+                result = locate_result(select_largest(candidates), stats)
             if self.keep_stages:
                 self.last_stages = dict(blur=blur, binary=binary)
 

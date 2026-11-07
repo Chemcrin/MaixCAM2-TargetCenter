@@ -53,8 +53,8 @@ _LINK = (0, 160, 255)        # BGR 橙：光斑->靶心连线
 def draw_result(gray, result, show_width=480, top_offset=0):
     """把一帧结果画成 BGR 画布。坐标一律按 scale 换算，文字仍报原图坐标。
 
-    只画三个元素：绿色四边形、黄色外接框、蓝色靶心十字。外接框保留是为了
-    直观看"框选得对不对"；长宽比按正立外接框算。
+    两条路径各自成图：同心圆 -> 圈出最外环 + 圆心十字；四边形 -> 绿色四边形、
+    黄色外接框、蓝色靶心十字。外接框保留是为了直观看"框选得对不对"。
     """
     g = np.asarray(gray).squeeze()
     scale = min(1.0, float(show_width) / max(1, g.shape[1]))
@@ -63,8 +63,20 @@ def draw_result(gray, result, show_width=480, top_offset=0):
     canvas = cv2.cvtColor(g, cv2.COLOR_GRAY2BGR)
 
     if not result.get("valid"):
-        cv2.putText(canvas, "NO BLACK RECTANGLE", (8, 24 + top_offset),
+        cv2.putText(canvas, "NO TARGET", (8, 24 + top_offset),
                     cv2.FONT_HERSHEY_SIMPLEX, .55, (0, 0, 255), 1)
+        return canvas
+
+    circle = result.get("circle")
+    if circle:
+        cu, cv_, radius, rings = circle
+        c = (int(round(cu * scale)), int(round(cv_ * scale)))
+        cv2.circle(canvas, c, max(1, int(round(radius * scale))), (0, 255, 0), 2, cv2.LINE_AA)
+        cv2.drawMarker(canvas, c, (255, 0, 0), cv2.MARKER_CROSS, 14, 2)
+        cv2.putText(canvas, "(%d,%d) r=%d rings=%d %.1fms" %
+                    (round(cu), round(cv_), int(round(radius)), int(rings),
+                     result.get("detector_ms", 0.)),
+                    (8, 22 + top_offset), cv2.FONT_HERSHEY_SIMPLEX, .45, (255, 220, 0), 1)
         return canvas
 
     q = np.rint(np.asarray(result["quad"], np.float32) * scale).astype(np.int32)
