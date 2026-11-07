@@ -2,22 +2,30 @@
 
 > 只记跨会话必须知道、AGENTS.md 之外的结论。契约/门禁/目录树见根 AGENTS.md；流水见 YYYY-MM-DD.md。
 
-## 0 现状（2026-11-07，v1.3.0）
-- `maixcam2_rect_center/` = **v1.3.0**（commit `517ba9d`，tag `v1.3.0`）：小组四层重写，
-  `vision/{poll,algo,logic,output}.py` 一文件一层；BUILD_ID 在 `vision/logic.py`
-  （`2026-11-07-merge-team-v1.3.0-v1`），`main.py` 只是入口桩，不再持有版本号。
+## 0 现状（2026-11-07，v1.3.0 + 同心圆路径）
+- `maixcam2_rect_center/` 基线 = **v1.3.0**（commit `517ba9d`，tag `v1.3.0`）：小组四层重写，
+  `vision/{poll,algo,logic,output}.py` 一文件一层；BUILD_ID 在 `vision/logic.py`，
+  当前 `2026-11-07-add-concentric-v2`（commit `01c8ba7`），`main.py` 只是入口桩。
 - 回退点 tag `pre-merge-team-v1.3.0-2026-11-07`（= v1.1.0 全内容，commit `8de34e1`）；
   更早的 v1.3.1 线在 `pre-rollback-v1.3.1-2026-11-04`。
-- 门禁 4 项：check_app --manifest + build_single --check/--smoke + test_smoke。
-  旧 21 个回归用例随旧模块删除，只剩合成图冒烟，**真机覆盖为零**。
+- 门禁 4 项：check_app --manifest + build_single --check/--smoke + test_smoke（现 17 项断言）。
+  真机覆盖仍只有 `tools/*.png` 四张固定帧，没有自动化的真机回归。
 
-## 1 视觉链路（v1.3.0）
-- 自适应反色二值化（block 31 / C 8，**不用绝对灰度阈值**）+ 三层过滤：面积（含 0.92 上限）
-  → approxPolyDP 四点 → 正立外接框长宽比 1.10–1.80（前提靶纸横放）。中心取对角线交点，无跨帧状态。
-- PC 实测约 1–9ms（随输入分辨率）；依赖单向：poll ← algo ← output ← logic。
-- ⚠ **相对 v1.1.0 已知回退**：真机帧 `real_scene_corner_gap.png`（510×377）v1.1.0 能 partial
-  锁到靶纸 (246,161)，v1.3.0 漏掉靶纸、反锁画面顶部小矩形 (297.5,65.5)；扫 eps 0.02–0.06 ×
-  C 5/8/12 全档不恢复（靶纸始终凑不出候选）。合成图正常（中心误差 <2px）。
+## 1 视觉链路（v1.3.0 + 同心圆）
+- 公共前处理：自适应反色二值化（block 31 / C 8，**不用绝对灰度阈值**）。之后两条**并行**路径：
+  - **同心圆（优先）**：`algo.find_concentric`，圆度 → 半径去重 → 圆心聚簇 → 圈数/半径比；
+    中心取**圆心**。不依赖胶带、不要求靶纸横放。
+  - **三层四边形（兜底）**：面积（含 0.92 上限）→ approxPolyDP 四点 → 正立外接框长宽比
+    1.10–1.80（前提靶纸横放）；中心取对角线交点。
+  - 开关 `RECT_CIRCLE_ENABLE=False` 即完全退回纯 v1.3.0 行为。
+- 为什么要同心圆：反色二值化找的是"闭合暗环"。现场靶纸没贴胶带时靶纸根本不进候选，
+  而墙/柜门/门框这类"暗边围出的横放矩形"全部过三层，`select_largest` 取面积最大就锁错。
+- PC 实测约 1–2ms；依赖单向：poll ← algo ← output ← logic；无跨帧状态。
+- ✅ **v1.1.0 回退已修复**：`real_scene_corner_gap.png` 由误锁 (297.5,65.5) → 正确 (246.2,161.2)。
+- ⚠ 同心圆路径的硬约束（改参数前必看）：`CLOSE_KERNEL` **用 5 或 7，3 会把圆全吃掉**；
+  `MIN_RINGS=2`（真机帧只有外圈+一圈闭合）；`MIN_RADIUS=2.0`（内圈只有 2.7px）；
+  圆度 0.80（正方形 0.785，再低矩形会钻进来；0.86 会误杀真靶纸）。
+- ⚠ 仍不认：只印单圈、或两圈相邻的靶纸；`real_board_frame.png` 仍检不出（圆环断裂成弧段）。
 - ⚠ 误锁比漏检危险：漏检只 HOLD，误锁把云台带偏。上板前必须用真机帧跑 `run_pc.py` 复核。
 
 ## 2 板端
