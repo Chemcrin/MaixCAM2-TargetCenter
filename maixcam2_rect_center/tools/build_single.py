@@ -17,8 +17,8 @@ main_single.py，让「运行当前文件」也能跑通 —— 现场快速试�
 各模块源码原样嵌入本文件；运行时先造出虚拟模块对象塞进 sys.modules，再 exec 源码。
 于是源码里的
     from config import Config                       （main.py）
-    from vision.rectangle_center import ...         （main.py / target_api.py）
-    from vision.stepper_link import StepperLink     （main.py 函数内）
+    from vision.logic import RectangleCenterDetector （target_api.py）
+    from vision.output import StepperLink            （target_api.py 函数内）
 这些写法不需要任何改写就能正常工作，traceback 里的文件名也仍显示 main.py / vision/*.py。
 
 用法（在 maixcam2_rect_center/ 目录下）
@@ -142,7 +142,7 @@ def build():
     w('for _full in _MOD_ORDER:\n')
     w('    if _full == "vision":\n')
     w('        continue\n')
-    w('    if "." in _full:                       # vision.rectangle_center 这类子模块\n')
+    w('    if "." in _full:                       # vision.logic 这类子模块\n')
     w('        _parent, _leaf = _full.split(".", 1)\n')
     w('        _m = _types.ModuleType(_full)\n')
     w('        setattr(_sys.modules[_parent], _leaf, _m)\n')

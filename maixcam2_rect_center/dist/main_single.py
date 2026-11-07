@@ -10,7 +10,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-07 21:19:25
+生成时间：2026-11-07 21:25:12
     config.py                    sha1=2a7466f33183
     main.py                      sha1=c2f5fb47aa9e
     target_api.py                sha1=cbe9d71f4265
@@ -2583,7 +2583,7 @@ _sys.modules["vision"] = _pkg
 for _full in _MOD_ORDER:
     if _full == "vision":
         continue
-    if "." in _full:                       # vision.rectangle_center 这类子模块
+    if "." in _full:                       # vision.logic 这类子模块
         _parent, _leaf = _full.split(".", 1)
         _m = _types.ModuleType(_full)
         setattr(_sys.modules[_parent], _leaf, _m)
