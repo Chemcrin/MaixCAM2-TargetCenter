@@ -12,9 +12,9 @@
 用法（在 maixcam2_rect_center/ 下，本机 Python 用 "D:/Python311/python.exe"）：
     python -B tools/git_round.py --check
         只做检查：BUILD_ID 一致性 / build_single --check / check_app --manifest / 待提交清单。
-    python -B tools/git_round.py -m "gpt: 摘要"
+    python -B tools/git_round.py -m "code: 摘要"
         先跑上面的检查；通过后精确 add 本轨目录并 commit。
-    python -B tools/git_round.py -m "gpt: 摘要" --with-memory
+    python -B tools/git_round.py -m "code: 摘要" --with-memory
         连 .workbuddy/memory/ 一起提交（跨会话记忆；默认不含，避免卷入别人的记忆改动）。
     python -B tools/git_round.py --rollback main.py
         打印 main.py 的提交历史与"回滚到某次提交"的命令（**默认不执行**）。
@@ -61,18 +61,18 @@ def checks(verbose=True):
     warns = []
 
     if verbose:
-        print("=== [1/4] BUILD_ID 一致性（main.py vs dist/main_single.py）===")
-    src_build = _read_build_id(os.path.join(ROOT, "main.py"))
+        print("=== [1/4] BUILD_ID 一致性（vision/logic.py vs dist/main_single.py）===")
+    src_build = _read_build_id(os.path.join(ROOT, "vision", "logic.py"))
     dis_build = _read_build_id(os.path.join(ROOT, "dist", "main_single.py"))
     if verbose:
-        print("  main.py : %s" % src_build)
+        print("  logic.py: %s" % src_build)
         print("  dist    : %s" % dis_build)
     if src_build is None:
         ok = False
-        warns.append("main.py 里找不到 BUILD_ID")
+        warns.append("vision/logic.py 里找不到 BUILD_ID")
     if src_build != dis_build:
         ok = False
-        warns.append("dist 与 main.py 的 BUILD_ID 不一致 -> 先跑 tools/build_single.py")
+        warns.append("dist 与 vision/logic.py 的 BUILD_ID 不一致 -> 先跑 tools/build_single.py")
 
     if verbose:
         print("\n=== [2/4] 单文件版是否过期（build_single --check）===")
@@ -110,7 +110,7 @@ def do_commit(message, with_memory):
         return 2
 
     if not message.startswith(PREFIXES):
-        message = "gpt: " + message
+        message = "code: " + message
         print("[git_round] 提交信息自动加前缀 -> %s" % message)
 
     paths = [SELF_DIR]
@@ -162,7 +162,7 @@ def do_rollback(relpath, apply_sha=None):
         print("\n[git_round] git checkout %s -- %s" % (apply_sha, target))
         print(out.strip() or "  (完成)")
         print("[git_round] 恢复后**必须**重跑：tools/build_single.py --check 与 "
-              "tools/check_app.py --manifest（C8 会核对 BUILD_ID 一致）")
+              "tools/check_app.py --manifest（C8 会核对 BUILD_ID 存在且被打印）")
         return rc
 
     print("\n[git_round] 回滚命令（按需选一条，本脚本不会自动执行）：")

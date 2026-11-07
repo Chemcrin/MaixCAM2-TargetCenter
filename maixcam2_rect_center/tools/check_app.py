@@ -33,15 +33,16 @@ OK, WARN, FAIL = "OK", "WARN", "FAIL"
 
 CHECKS = {
     "C1": "app.yaml 存在、字段齐全、id 等于目录名、version 形如 x.y.z",
-    "C2": "icon 存在、是 PNG、尺寸/体积在建议范围内",
+    "C2": "icon 可缺省（用固件内置图标）；若声明则校验 PNG 尺寸/体积",
     "C3": "main.py / config.py 存在，vision/ 有 __init__.py",
     "C4": "所有将进包的 .py 语法编译通过",
     "C5": "AST 扫描：桌面 API 禁止清单、顶层 maix 导入、帧循环内无条件落盘",
     "C6": "将进包的文件均为 UTF-8 无 BOM 且纯 LF",
     "C7": "源码字符串里无绝对 Windows 路径",
-    "C8": "BUILD_ID 存在且被打印；有 dist/main_single.py 时核对一致",
-    "C9": "exclude 覆盖 .md / tools / dist / __pycache__ / 调试截图；报告失效条目",
+    "C8": "BUILD_ID 存在且被打印（逻辑层 vision/logic.py）",
+    "C9": "tools 等目录与 .md 不进包；有图片进包时告警；报告失效条目",
     "C10": "包内清单无禁入类型，合计体积在预算内",
+    "C11": "项目目录总体积在 MaixVision 打包上限内",
 }
 
 # ---------------------------------------------------------------- 结果收集
@@ -53,16 +54,8 @@ def add(level: str, code: str, msg: str) -> None:
     _RESULTS.append((level, code, msg))
 
 
-def passed(code: str) -> int:
-    return sum(1 for lv, c, _ in _RESULTS if c == code and lv == OK)
-
-
 def failed(code: str) -> int:
     return sum(1 for lv, c, _ in _RESULTS if c == code and lv == FAIL)
-
-
-def warn_count(code: str) -> int:
-    return sum(1 for lv, c, _ in _RESULTS if c == code and lv == WARN)
 
 
 # ---------------------------------------------------------------- app.yaml
@@ -101,7 +94,10 @@ def parse_app_yaml(text: str) -> dict:
 
 # ---------------------------------------------------------------- 打包清单
 
-ALWAYS_EXCLUDED = {".git", "__pycache__", ".gitignore", ".gitattributes"}
+# 与官方打包器一致：只有这两项无条件排除（app.yaml 文档原文
+# ".git and __pycache__ is always exclude"）。.gitignore / .gitattributes
+# 不在其中 —— 它们会被真的打进包，必须靠 app.yaml 的 exclude 显式声明。
+ALWAYS_EXCLUDED = {".git", "__pycache__"}
 FORBIDDEN_PACKED_SUFFIX = {
     ".pyc", ".pyo", ".zip", ".tar", ".gz", ".log", ".md", ".txt",
     ".jpg", ".jpeg", ".bmp", ".json", ".csv", ".xlsx",
@@ -339,10 +335,6 @@ def check_ast(path: Path, src: str, top_level_maix_ok: bool) -> None:
                         % (path, call.lineno, fn.name, nm, "（检测到有 If 保护）" if guarded else "（未见任何条件保护）"))
 
 
-def defines_class(tree_or_src) -> bool:
-    return "class Config" in tree_or_src
-
-
 # ---------------------------------------------------------------- 主流程
 
 def resolve_root(arg_root, script_dir: Path) -> Path:
@@ -398,7 +390,7 @@ def main(argv=None) -> int:
         else:
             add(OK, "C1", "无嵌套 app.yaml")
 
-    required = ["id", "name", "version", "icon", "author", "desc"]
+    required = ["id", "name", "version", "author", "desc"]
     missing = [k for k in required if not cfg.get(k)]
     if missing:
         add(FAIL, "C1", "app.yaml 缺少必需字段: %s" % ", ".join(missing))
@@ -418,10 +410,10 @@ def main(argv=None) -> int:
     if cfg.get("version") and not re.match(r"^\d+\.\d+\.\d+$", str(cfg["version"])):
         add(WARN, "C1", "version='%s' 不是 x.y.z 形式" % cfg["version"])
 
-    # ---------------- C2 icon
+    # ---------------- C2 icon（可选：不声明就用固件自带图标）
     icon = cfg.get("icon")
     if not icon:
-        add(FAIL, "C2", "app.yaml 未声明 icon")
+        add(OK, "C2", "未声明 icon —— launcher 回退到固件内置 /maixapp/share/icon/icon.json")
     else:
         ip = root / icon
         if not ip.exists():
@@ -487,27 +479,22 @@ def main(argv=None) -> int:
 
     # ---------------- C8 BUILD_ID
     if mainpy.exists():
-        msrc = mainpy.read_text(encoding="utf-8", errors="replace")
+        # 四层结构里 BUILD_ID 归逻辑层（vision/logic.py）；main.py 只是入口桩，
+        # 只保留 sys.path 引导与一次转交，不再持有版本号。
+        bid_src = root / "vision" / "logic.py"
+        bid_label = "vision/logic.py"
+        if not bid_src.exists():
+            bid_src, bid_label = mainpy, "main.py"
+        msrc = bid_src.read_text(encoding="utf-8", errors="replace")
         m = re.search(r"^BUILD_ID\s*=\s*[\"']([^\"']+)[\"']", msrc, re.M)
         if not m:
-            add(FAIL, "C8", "main.py 未定义 BUILD_ID（无法判断板子跑的是否新代码）")
+            add(FAIL, "C8", "%s 未定义 BUILD_ID（无法判断板子跑的是否新代码）" % bid_label)
         else:
             bid = m.group(1)
             if msrc.count("BUILD_ID") < 2:
-                add(FAIL, "C8", "main.py 定义了 BUILD_ID='%s' 但没有在启动日志里打印" % bid)
+                add(FAIL, "C8", "%s 定义了 BUILD_ID='%s' 但没有在启动日志里打印" % (bid_label, bid))
             else:
-                add(OK, "C8", "main.py BUILD_ID='%s' 且被引用 %d 次" % (bid, msrc.count("BUILD_ID")))
-            single = root / "dist" / "main_single.py"
-            if single.exists():
-                ssrc = single.read_text(encoding="utf-8", errors="replace")
-                m2 = re.search(r"^BUILD_ID\s*=\s*[\"']([^\"']+)[\"']", ssrc, re.M)
-                if not m2:
-                    add(WARN, "C8", "dist/main_single.py 存在但取不到 BUILD_ID")
-                elif m2.group(1) != bid:
-                    add(FAIL, "C8", "单文件版 BUILD_ID='%s' 与源码 '%s' 不一致（重跑 build_single.py）"
-                        % (m2.group(1), bid))
-                else:
-                    add(OK, "C8", "单文件版 BUILD_ID 与源码一致")
+                add(OK, "C8", "%s BUILD_ID='%s' 且被引用 %d 次" % (bid_label, bid, msrc.count("BUILD_ID")))
 
     # ---------------- C9 exclude 覆盖
     packed_names = [r for r, _ in packed]
@@ -526,7 +513,8 @@ def main(argv=None) -> int:
     else:
         add(OK, "C9", "无 .md 进包")
     img_packed = [r for r in packed_names
-                  if r.lower().endswith((".png", ".jpg", ".jpeg", ".bmp")) and r != icon]
+                  if r.lower().endswith((".png", ".jpg", ".jpeg", ".bmp"))
+                  and not (icon and r == icon)]
     for r in img_packed:
         if DEBUG_IMAGE_RE.search(r):
             add(FAIL, "C9", "调试图片会进应用包: %s —— 必须写进 exclude" % r)
@@ -572,6 +560,37 @@ def main(argv=None) -> int:
         add(FAIL, "C10", "包内没有 main.py")
     if "app.yaml" not in packed_names:
         add(FAIL, "C10", "包内没有 app.yaml（打包时成员必须在 zip 根目录，不能再套一层）")
+
+    # ---------------- C11 项目目录总体积
+    # MaixVision「运行项目」打包的是**整个项目目录**，不按 app.yaml 的 exclude 裁剪；
+    # 超过 30MB 直接拒绝运行。所以这里量目录总占用，与 C10 的"包内清单"是两件事。
+    project_bytes = project_files = 0
+    biggest: list[tuple[int, str]] = []
+    for base, dirs, names in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in (".git", "__pycache__", ".vscode")]
+        for name in names:
+            p = Path(base) / name
+            try:
+                sz = p.stat().st_size
+            except OSError:
+                continue
+            project_bytes += sz
+            project_files += 1
+            if sz >= 256 * 1024:
+                biggest.append((sz, str(p.relative_to(root)).replace("\\", "/")))
+    biggest.sort(reverse=True)
+    detail = "、".join("%s %.1fMB" % (n, s / 1048576.0) for s, n in biggest[:3])
+    if project_bytes > 30 * 1024 * 1024:
+        add(FAIL, "C11", "项目目录 %.1fMB 超过 MaixVision 30MB 上限（会拒绝运行），"
+                         "最大项：%s。产物请写到 ../reports/，"
+                         "并跑 tools/clean_artifacts.py --apply"
+                         % (project_bytes / 1048576.0, detail))
+    elif project_bytes > 8 * 1024 * 1024:
+        add(WARN, "C11", "项目目录 %.1fMB 偏大（MaixVision 上限 30MB），最大项：%s"
+                         % (project_bytes / 1048576.0, detail))
+    else:
+        add(OK, "C11", "项目目录 %d 个文件，合计 %.2fMB（上限 30MB）"
+                       % (project_files, project_bytes / 1048576.0))
 
     # ---------------- 输出
     # 保证每个检查项都有结论：否则"没报错"与"根本没检查"分不清。

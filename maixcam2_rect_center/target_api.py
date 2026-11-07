@@ -54,6 +54,8 @@
     quad       (4,2)   外框四角，顺序已规整（左上起逆时针）
     inner_quad (4,2)   内框四角（胶带内沿）
     stage      str     track / roi_search / full_search / no_black_frame
+    fail_stage str     仅 valid=False 时：本帧实际走过的层级，如 track+roi+full（调试用）
+    fail_reason str    仅 valid=False 时：track_refine / no_proposal / rejected
     ms         float   本帧检测耗时（毫秒）
     laser_u/v  float   光斑位置（仅 with_laser=True 且光斑有效时有意义）
     dx, dy     float   靶心 − 光斑（仅 with_laser=True 时；无效为 None）
@@ -71,7 +73,7 @@
 
 不想改 ``config.py`` 时用 ``load_config(...)`` 造一份覆盖::
 
-    cfg = load_config(MIN_AREA_RATIO=0.02, SEARCH_WIDTH=240)
+    cfg = load_config(RECT_MIN_AREA=500, RECT_MAX_ASPECT=2.0)
     tracker = CenterTracker(cfg)
 """
 
@@ -86,8 +88,8 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-from vision.rectangle_center import RectangleCenterDetector
-from vision.laser_spot import LaserSpotDetector, deviation
+from vision.algo import deviation
+from vision.logic import LaserSpotDetector, RectangleCenterDetector
 
 __all__ = ["Result", "load_config", "to_gray", "detect_black_frame",
            "CenterTracker", "track_center", "reset", "AimLoop", "fixed_laser_error"]
@@ -115,6 +117,9 @@ class Result(dict):
 
     def __repr__(self):
         if not self.get("valid"):
+            if self.get("fail_stage"):
+                return "Result(invalid, stage=%s, fail=%s/%s)" % (
+                    self.get("stage"), self.get("fail_stage"), self.get("fail_reason", "-"))
             return "Result(invalid, stage=%s)" % self.get("stage")
         return "Result(u=%.1f, v=%.1f, stage=%s)" % (
             self.get("u", float("nan")), self.get("v", float("nan")), self.get("stage"))
@@ -123,7 +128,7 @@ class Result(dict):
 def load_config(**overrides):
     """返回 config.Config（可带覆盖项，不改磁盘上的 config.py）。
 
-    ``load_config(MIN_AREA_RATIO=0.02)`` → 派生一个只改了该字段的配置类。
+    ``load_config(RECT_MIN_AREA=500)`` → 派生一个只改了该字段的配置类。
     """
     from config import Config
     if not overrides:
@@ -280,8 +285,8 @@ def reset():
 class AimLoop:
     """追踪 + 光斑偏差 + 双轴云台闭环（会驱动 ZDT 电机）。
 
-    ⚠ 使用前必须完成开环标定（``CALIBRATE_AXIS`` 跑一次填回 config），否则方向/增益
-    是占位值，可能正反馈甩头。不需要电机的问请只用 ``detect_black_frame`` /
+    ⚠ 使用前必须完成开环标定（把实测的 ``PULSE_PER_PX_*`` / ``DIR_SIGN_*`` 填回 config），
+    否则方向/增益是占位值，可能正反馈甩头。不需要电机的问请只用 ``detect_black_frame`` /
     ``CenterTracker``，不要实例化本类。
 
     ``step(frame)`` 返回的 ``Result`` 比追踪器多两个字段：
@@ -289,33 +294,21 @@ class AimLoop:
         cmds       dict  {"yaw": (ccw, pulses, rpm) or None, "pitch": ...}
     """
 
-    def __init__(self, cfg=None, enable_motors=True, with_laser=True, clock=None, heading=None):
+    def __init__(self, cfg=None, enable_motors=True, with_laser=True, clock=None):
         self.cfg = cfg if cfg is not None else load_config()
         self.clock = clock if clock is not None else time
         self.tracker = CenterTracker(self.cfg, with_laser=with_laser)
         self.link = self.aim = None
         self.closed = False
         if enable_motors:
-            from vision.stepper_link import StepperLink
-            from vision.gimbal_aim import GimbalAim
+            from vision.logic import GimbalAim
+            from vision.output import StepperLink
             self.link = StepperLink(self.cfg, clock=self.clock)
             self.aim = GimbalAim(self.cfg)
             if self.link.enable() is False:
                 self.aim.fault("enable_failed")
-        from vision.aim_control import VisionControl
-        calibrator = None
-        if enable_motors:
-            from vision.gimbal_calibrate import GimbalCalibrator
-            cal_cfg = type("YawCalibration", (self.cfg,), {"CALIBRATE_AXIS": "yaw"}) if self.cfg.CALIBRATE_AXIS == "auto" else self.cfg
-            calibrator = GimbalCalibrator(cal_cfg, self.link, self.clock.perf_counter())
-            if calibrator.done:
-                calibrator = None
-            if heading is None and (getattr(self.cfg, "ENABLE_IMU_FEEDFORWARD", False) or (getattr(self.cfg, "ENABLE_SEARCH_BUTTON", True) and getattr(self.cfg, "SEARCH_USE_IMU", True))):
-                from vision.imu_heading import HeadingFeedforward
-                heading = HeadingFeedforward(self.cfg, clock=self.clock)
-        self.control = VisionControl(self.cfg, self.link, self.aim, calibrator, clock=self.clock, heading=heading)
-        if self.cfg.CALIBRATE_AXIS == "auto":
-            self.control._auto_axis = "yaw"
+        from vision.logic import VisionControl
+        self.control = VisionControl(self.cfg, self.link, self.aim, clock=self.clock)
 
     def step(self, frame, now=None):
         if self.closed:
@@ -331,8 +324,8 @@ class AimLoop:
             self.control.idle()
 
     def request_search(self):
-        if not self.closed:
-            self.control.request_search.set()
+        """兼容占位：本版本已无失锁扫描能力，调用只打一行提示，不驱动电机。"""
+        print("[api] request_search: 本版本未编入搜索扫描（见 AGENTS.md），忽略")
 
     def stop(self):
         if self.link is not None:
@@ -345,8 +338,5 @@ class AimLoop:
         try:
             self.stop()
         finally:
-            try:
-                self.control.close()
-            finally:
-                if self.link is not None:
-                    self.link.close()
+            if self.link is not None:
+                self.link.close()

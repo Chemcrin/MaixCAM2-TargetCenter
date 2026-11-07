@@ -45,32 +45,14 @@ OUT_DIR = os.path.join(ROOT, "dist")
 OUT_PY = os.path.join(OUT_DIR, "main_single.py")
 
 # 需要打进单文件的模块：(模块名, 相对路径) —— 顺序即执行顺序，被依赖的在前
-# v0.4.6：入口 main.py 按功能拆分为独立模块，此处同步新增 6 项。
-#   · rate_meter / camera_source / vision_worker / preview 依赖少、可直接排在前面；
-#   · vision_worker、preview 依赖 rate_meter ⇒ rate_meter 必须在它们之前；
-#   · ★ vision.aim_control 依赖 rectangle_center / laser_spot / gimbal_self_test
-#     ⇒ 必须排在**这三者之后**（单文件版按序 exec，被依赖者须在前）。
+# 四层结构（v1.3.0 起）：poll / algo 为最底层，output 依赖二者，logic 依赖前三者，
+# target_api 依赖 logic。单文件版按序 exec，被依赖者必须排在前面。
 MODULES = (
     ('config', 'config.py'),
-    ('vision.rate_meter', 'vision/rate_meter.py'),
-    ('vision.camera_source', 'vision/camera_source.py'),
-    ('vision.vision_worker', 'vision/vision_worker.py'),
-    ('vision.telemetry', 'vision/telemetry.py'),
-    ('vision.maixvision_stream', 'vision/maixvision_stream.py'),
-    ('vision.preview', 'vision/preview.py'),
-    ('vision.rect_geometry', 'vision/rect_geometry.py'),
-    ('vision.contour_locator', 'vision/contour_locator.py'),
-    ('vision.kalman_filter', 'vision/kalman_filter.py'),
-    ('vision.rectangle_center', 'vision/rectangle_center.py'),
-    ('vision.laser_spot', 'vision/laser_spot.py'),
-    ('vision.stepper_link', 'vision/stepper_link.py'),
-    ('vision.imu_heading', 'vision/imu_heading.py'),
-    ('vision.gimbal_self_test', 'vision/gimbal_self_test.py'),
-    ('vision.gimbal_aim', 'vision/gimbal_aim.py'),
-    ('vision.gimbal_search', 'vision/gimbal_search.py'),
-    ('vision.aim_control', 'vision/aim_control.py'),
-    ('vision.gimbal_calibrate', 'vision/gimbal_calibrate.py'),
-    ('vision.app_runtime', 'vision/app_runtime.py'),
+    ('vision.poll', 'vision/poll.py'),
+    ('vision.algo', 'vision/algo.py'),
+    ('vision.output', 'vision/output.py'),
+    ('vision.logic', 'vision/logic.py'),
     ('vision', 'vision/__init__.py'),
     ('target_api', 'target_api.py'),
 )
@@ -232,18 +214,18 @@ def smoke():
     if missing:
         print("[smoke] FAIL 这些模块没有被注入 sys.modules: %s" % missing)
         return 1
-    from vision.rectangle_center import RectangleCenterDetector     # noqa: F401
-    from vision.stepper_link import StepperLink                     # noqa: F401
+    from vision.logic import RectangleCenterDetector, GimbalAim     # noqa: F401
+    from vision.output import StepperLink                           # noqa: F401
     from target_api import detect_black_frame, CenterTracker        # noqa: F401
     from config import Config
     checks = []
-    with open(os.path.join(ROOT, MAIN_REL), "r", encoding="utf-8") as f:
-        main_src = f.read()
-    bid_main = re.search(r"^BUILD_ID\s*=\s*[\"']([^\"']+)[\"']", main_src, re.M)
+    with open(os.path.join(ROOT, "vision", "logic.py"), "r", encoding="utf-8") as f:
+        logic_src = f.read()
+    bid_main = re.search(r"^BUILD_ID\s*=\s*[\"']([^\"']+)[\"']", logic_src, re.M)
     bid_single = re.search(r"^BUILD_ID\s*=\s*[\"']([^\"']+)[\"']", text, re.M)
-    checks.append(("BUILD_ID 与 main.py 一致",
+    checks.append(("BUILD_ID 与 vision/logic.py 一致",
                    bool(bid_main and bid_single and bid_main.group(1) == bid_single.group(1))))
-    checks.append(("config 参数可读", bool(getattr(Config, "BLACK_FRAME_MM", None))))
+    checks.append(("config 参数可读", bool(getattr(Config, "RECT_MIN_AREA", None))))
     checks.append(("target_api 符号就位", callable(detect_black_frame) and callable(CenterTracker)))
     bad = [label for label, ok in checks if not ok]
     for label, ok in checks:

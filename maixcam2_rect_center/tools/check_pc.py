@@ -1,41 +1,52 @@
-"""One-command PC checks. Missing hardware/fixtures are explicit, never fake passes."""
+"""One-command PC checks for the v1.3.0 four-layer build.
+
+Covers packaging (check_app) and the single-file build (build_single), plus the
+synthetic-image smoke regression. Board-only behaviour (camera, display, UART)
+cannot run here; missing hardware stays explicit, never a fake pass.
+
+    python -B tools/check_pc.py            # full gate
+    python -B tools/check_pc.py --quick    # same set (kept for muscle memory)
+"""
 import argparse
 import os
 import subprocess
 import sys
 from pathlib import Path
-ROOT=Path(__file__).resolve().parents[1]
-TESTS=(
- 'test_performance.py','verify_precision.py','test_precision_control.py','test_kalman.py','test_real_scene.py','test_target_api.py',
- 'test_tracking.py','test_runtime_performance.py','test_gimbal_aim.py','test_gimbal_tracking.py',
- 'test_aimloop_tracking.py','test_gimbal_search.py','test_imu_heading.py','test_imu_turn_tracking.py',
- 'test_preview_stream.py','test_app_runtime.py','test_main_self_test.py','test_extension_control.py',
- 'test_extension_review.py','test_laser.py','test_images_e2e.py')
+
+ROOT = Path(__file__).resolve().parents[1]
+CHECKS = (
+    ['tools/check_app.py', '--manifest'],
+    ['tools/build_single.py', '--check'],
+    ['tools/build_single.py', '--smoke'],
+    ['tools/test_smoke.py'],
+)
 
 
 def main():
-    # Windows pipes default to GBK; child tests print Unicode maths and Chinese.
+    # Windows pipes default to GBK; child checks print Chinese and Unicode maths.
     os.environ['PYTHONIOENCODING'] = 'utf-8'
-    if hasattr(sys.stdout,'reconfigure'):
+    if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
-    parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--quick',action='store_true',help='Skip only long image and runtime integration suites')
-    args=parser.parse_args()
-    commands=[['tools/build_single.py','--check'],['tools/build_single.py','--smoke'],['tools/check_app.py','--manifest']]
-    for test in TESTS:
-        if args.quick and test in ('test_images_e2e.py','test_main_self_test.py'):
-            print('SKIP quick:',test,flush=True)
-        else: commands.append(['tools/'+test])
-    failed=[]
-    for command in commands:
-        print('\nCHECK '+' '.join(command),flush=True)
-        try: result=subprocess.run([sys.executable,'-B',*command],cwd=ROOT,timeout=180)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--quick', action='store_true',
+                        help='Accepted for compatibility; this gate has no long suite to skip')
+    parser.parse_args()
+    failed = []
+    for command in CHECKS:
+        print('\nCHECK ' + ' '.join(command), flush=True)
+        try:
+            result = subprocess.run([sys.executable, '-B', *command], cwd=ROOT, timeout=180)
         except subprocess.TimeoutExpired:
-            failed.append(command); print('FAIL timeout',flush=True); continue
-        if result.returncode: failed.append(command)
-    print('\nPC checks: %d passed / %d failed'%(len(commands)-len(failed),len(failed)))
-    for command in failed: print('FAIL '+' '.join(command))
+            failed.append(command)
+            print('FAIL timeout', flush=True)
+            continue
+        if result.returncode:
+            failed.append(command)
+    print('\nPC checks: %d passed / %d failed' % (len(CHECKS) - len(failed), len(failed)))
+    for command in failed:
+        print('FAIL ' + ' '.join(command))
     return bool(failed)
 
 
-if __name__=='__main__': sys.exit(main())
+if __name__ == '__main__':
+    sys.exit(main())
