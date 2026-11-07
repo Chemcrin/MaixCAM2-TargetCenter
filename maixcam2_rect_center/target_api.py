@@ -200,9 +200,9 @@ def _wrap(raw, gray):
 def detect_black_frame(frame, cfg=None, detector=None):
     """**无状态**识别黑框，返回 ``Result``（没识别到则 ``valid=False``，``bool(res)`` 为假）。
 
-    每帧都是一次完整的"缩小图Canny/Otsu 候选 → 四边暗带验证 → 亚像素精修"，不依赖上一帧，
-    适合"只在某几问里取一次黑框"的用法。传 ``detector`` 可复用分配，但每次都清空跟踪状态；
-    连续视频使用 ``CenterTracker``。
+    每帧都是一次完整的"轮廓候选 → 内外框亚像素拟合 → 8×8 单应 → 同心环校验"，
+    不依赖上一帧，适合"只在某几问里取一次黑框"的用法。传 ``detector`` 可复用分配，
+    但每次都清空跟踪状态；连续视频使用 ``CenterTracker``。
 
     :param frame:    numpy uint8 灰度图或 MaixPy image
     :param cfg:      配置类（默认 config.Config；可用 load_config(...) 覆盖）

@@ -28,21 +28,23 @@ import time
 import cv2
 import numpy as np
 
-from .algo import (binarize_frame, blur_frame, deviation, find_concentric,
-                  find_quad_candidates, order_quad, quad_diagonal_center,
-                  select_largest)
+from .algo import (apply_homography, binarize_frame, blur_frame, deviation,
+                  find_concentric, find_frame_candidates, find_quad_candidates,
+                  invert_homography, order_quad, plane_quad, quad_diagonal_center,
+                  ring_report, sample_polar, select_largest, solve_homography)
 from .output import (Preview, aligned_frame, apply_commands, display_result,
                     draw_preview, estimate_move_seconds, perf_line, stop_motion,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-07-add-concentric-v2"
+BUILD_ID = "2026-11-07-plane-frame-v1"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
 
 # 结果阶段词汇（检测器写入 result["stage"]）
 STAGE_OK = "full_search"
+STAGE_PLANE = "plane_frame"
 STAGE_CIRCLE = "concentric"
 STAGE_NONE = "no_black_frame"
 
@@ -104,6 +106,51 @@ def success_circle_result(circle):
                 width_mm=None, height_mm=None)
 
 
+def plane_result(best, rings, homography, model, min_rings, spacing_cv):
+    """胶带带候选 → 成功结果。
+
+    靶心 = **内框**对角线交点。为什么必须是内框：胶带上下宽度不等时，外框中心
+    会比真实靶心偏出半个带宽（真实帧实测 8~11px），而纸边永远与印刷同心圆同心。
+    同心环在这里只贡献置信度，不改变坐标 —— 这正是"圆心不用量"的落点。
+    """
+    inner = best.get("inner")
+    outer = best.get("outer")
+    center = quad_diagonal_center(inner) if inner is not None else None
+    if center is None:
+        return fail_result(STAGE_PLANE, "plane", "degenerate")
+    ring_ok = bool(rings and rings.get("count", 0) >= int(min_rings) and
+                   float(rings.get("spacing_cv", 1.0)) <= float(spacing_cv))
+    band = dict(gray=best.get("band_gray"), paper=best.get("paper_gray"),
+                contrast=best.get("score"))
+    if not ring_ok:
+        # 有带无环 = 笔记本屏幕、窗框、柜门这类"亮面被暗边包住"的东西。
+        # 靶纸的同心环是它独有的证据，这里必须硬拒；漏检只 HOLD，误锁会把云台带偏。
+        out = fail_result(STAGE_PLANE, "ring", "no_rings")
+        out.update(quad=outer, inner_quad=inner, ring=rings, band=band)
+        return out
+    width_mm, height_mm = float(model[0]), float(model[1])
+    circle_points = None
+    plane_to_image = invert_homography(homography) if homography is not None else None
+    if plane_to_image is not None and rings.get("radii"):
+        r = float(rings["radii"][-1])
+        ang = np.linspace(0.0, 2.0 * math.pi, 72, endpoint=False)
+        circle_points = apply_homography(
+            plane_to_image, np.stack([r * np.cos(ang), r * np.sin(ang)], axis=1))
+    confidence = min(1.0, float(best.get("score", 0.0)) / 90.0)
+    return dict(valid=True, stage=STAGE_PLANE,
+                u=float(center[0]), v=float(center[1]),
+                raw_u=float(center[0]), raw_v=float(center[1]),
+                quad=outer, inner_quad=inner, detected_quad=outer, outer_inferred=False,
+                center_ref="inner",
+                circle=None,
+                area=float(best.get("area", 0.0)), aspect=float(best.get("aspect", 0.0)),
+                bbox=best.get("bbox"),
+                partial=False, refined_edges=4, weak_edges=0, clipped_edges=0,
+                rect_to_image=plane_to_image, circle_points=circle_points,
+                width_mm=width_mm, height_mm=height_mm,
+                band=band, ring=rings, ring_ok=True, confidence=float(confidence))
+
+
 def finish_result(result, timestamp, image_size, started):
     """补齐时间戳、图像尺寸、耗时。"""
     result.update(captured_at=timestamp, image_size=image_size,
@@ -138,11 +185,94 @@ class RectangleCenterDetector:
         self.circle_close_kernel = int(getattr(config, "RECT_CIRCLE_CLOSE_KERNEL", 3))
         self.circle_max_radius_ratio = float(
             getattr(config, "RECT_CIRCLE_MAX_RADIUS_RATIO", 0.45))
+        # 新引擎（四角单应 + 环校验）参数；缺省值全部有兜底，config 未同步也不抛异常。
+        self.engine = str(getattr(config, "RECT_ENGINE", "plane")).strip().lower()
+        self.model = tuple(getattr(config, "RECT_MODEL_MM", (261.0, 174.0)))
+        self.refine_samples = int(getattr(config, "RECT_REFINE_SAMPLES", 14))
+        self.refine_span = float(getattr(config, "RECT_REFINE_SPAN", 4.0))
+        self.refine_step = float(getattr(config, "RECT_REFINE_STEP", 0.5))
+        self.tape_max_px = float(getattr(config, "RECT_TAPE_MAX_PX", 26.0))
+        self.edge_rise = float(getattr(config, "RECT_EDGE_RISE", 10.0))
+        self.band_min_contrast = float(getattr(config, "RECT_BAND_MIN_CONTRAST", 25.0))
+        self.ring_rays = int(getattr(config, "RECT_RING_RAYS", 72))
+        self.ring_radii = int(getattr(config, "RECT_RING_RADII", 64))
+        self.ring_max_ratio = float(getattr(config, "RECT_RING_MAX_RATIO", 0.48))
+        self.ring_min_contrast = float(getattr(config, "RECT_RING_MIN_CONTRAST", 6.0))
+        self.ring_min_count = int(getattr(config, "RECT_RING_MIN_COUNT", 3))
+        self.ring_spacing_cv = float(getattr(config, "RECT_RING_SPACING_CV", 0.22))
+        self.ring_smooth = int(getattr(config, "RECT_RING_SMOOTH", 9))
 
     def reset(self):
         """接口兼容用。本检测器无跨帧状态，清空只影响调试缓存。"""
         self.last = None
         self.last_stages = {}
+
+    def _legacy(self, binary):
+        """v1.3.0 原链路：三层四边形 + 同心圆优先。RECT_ENGINE="legacy" 时走这里。"""
+        candidates, stats = find_quad_candidates(
+            binary, self.min_area, self.max_area_ratio, self.eps_ratio,
+            self.min_aspect, self.max_aspect, self.max_candidates)
+        circle = None
+        if self.circle_enable:
+            circle = find_concentric(binary, self.circle_min_radius,
+                                     self.circle_max_radius_ratio,
+                                     self.circle_circularity,
+                                     self.circle_min_rings,
+                                     self.circle_min_outer,
+                                     self.circle_close_kernel)
+        if circle is not None:
+            return success_circle_result(circle), stats
+        return locate_result(select_largest(candidates), stats), stats
+
+    def _ring_check(self, gray, homography):
+        """纸面坐标里等分采样，返回环报告；只用于校验，不参与定位。"""
+        if homography is None:
+            return None
+        plane_to_image = invert_homography(homography)
+        if plane_to_image is None:
+            return None
+        short = float(min(self.model))
+        r_min, r_max = 0.04 * short, self.ring_max_ratio * short
+        if r_max <= r_min:
+            return None
+        radii, samples = sample_polar(gray, plane_to_image, self.ring_rays,
+                                      self.ring_radii, r_min, r_max)
+        return ring_report(radii, samples, self.ring_min_contrast, self.ring_smooth)
+
+    def _plane(self, gray, binary):
+        """四角单应链路：定内框 → 解映射 → 环校验。靶心始终来自内框四角。"""
+        t0 = time.perf_counter()
+        cands, stats = find_frame_candidates(
+            gray, binary, self.min_area, self.max_area_ratio, self.min_aspect,
+            self.max_aspect, self.band_min_contrast, self.refine_samples,
+            self.refine_span, self.tape_max_px, self.edge_rise, self.refine_step,
+            self.max_candidates)
+        t1 = time.perf_counter()
+        if cands:
+            best = cands[0]
+            homography = solve_homography(best["inner"], plane_quad(*self.model))
+            rings = self._ring_check(gray, homography)
+            t2 = time.perf_counter()
+            out = plane_result(best, rings, homography, self.model,
+                               self.ring_min_count, self.ring_spacing_cv)
+            out["t_ms"] = dict(cand=(t1 - t0) * 1000.0, ring=(t2 - t1) * 1000.0)
+            return out, stats
+        # 一个框都没有（多半是没贴胶带、纸边与背景同色）→ 退回同心圆路径。
+        # 两条链互不放宽：这里只在"没有任何框候选"时才启用。
+        circle = None
+        if self.circle_enable:
+            circle = find_concentric(binary, self.circle_min_radius,
+                                     self.circle_max_radius_ratio,
+                                     self.circle_circularity,
+                                     self.circle_min_rings,
+                                     self.circle_min_outer,
+                                     self.circle_close_kernel)
+        if circle is not None:
+            out = success_circle_result(circle)
+        else:
+            out = locate_result(None, stats)
+        out["t_ms"] = dict(cand=(time.perf_counter() - t0) * 1000.0)
+        return out, stats
 
     def process(self, gray, timestamp=None):
         started = time.perf_counter()
@@ -155,25 +285,19 @@ class RectangleCenterDetector:
             result = fail_result("empty_frame", "none", "empty")
             stats = dict(contours=0, area=0, quad=0, aspect=0, candidates=0)
         else:
+            t0 = time.perf_counter()
             blur = blur_frame(g, self.kernel)
+            t1 = time.perf_counter()
             binary = binarize_frame(blur, self.block_size, self.c_const)
-            candidates, stats = find_quad_candidates(
-                binary, self.min_area, self.max_area_ratio, self.eps_ratio,
-                self.min_aspect, self.max_aspect, self.max_candidates)
-            # 同心圆优先：圆心就是靶心，且不依赖"靶纸横放 + 有闭合暗环"两个前提。
-            # 找不到才退回三层四边形路径 —— 两条链各自独立，互不放宽。
-            circle = None
-            if self.circle_enable:
-                circle = find_concentric(binary, self.circle_min_radius,
-                                         self.circle_max_radius_ratio,
-                                         self.circle_circularity,
-                                         self.circle_min_rings,
-                                         self.circle_min_outer,
-                                         self.circle_close_kernel)
-            if circle is not None:
-                result = success_circle_result(circle)
+            t2 = time.perf_counter()
+            if self.engine == "legacy":
+                result, stats = self._legacy(binary)
             else:
-                result = locate_result(select_largest(candidates), stats)
+                result, stats = self._plane(g, binary)
+            # 分段耗时给板端日志用：哪一段贵，一眼能看出来，不用再猜。
+            split = result.get("t_ms") or {}
+            split.update(blur=(t1 - t0) * 1000.0, bin=(t2 - t1) * 1000.0)
+            result["t_ms"] = split
             if self.keep_stages:
                 self.last_stages = dict(blur=blur, binary=binary)
 

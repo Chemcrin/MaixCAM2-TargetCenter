@@ -84,6 +84,17 @@ def draw_result(gray, result, show_width=480, top_offset=0):
     for x, y in q:
         cv2.circle(canvas, (int(x), int(y)), 3, (255, 0, 255), -1)
 
+    # 内框（纸边）+ 环采样点：调试用，缺省字段直接跳过。
+    inner = result.get("inner_quad")
+    if inner is not None:
+        iq = np.rint(np.asarray(inner, np.float32) * scale).astype(np.int32)
+        cv2.polylines(canvas, [iq], True, (255, 200, 0), 1, cv2.LINE_AA)
+    samples = result.get("circle_points")
+    if samples is not None:
+        pts = np.rint(np.asarray(samples, np.float32) * scale).astype(np.int32)
+        for x, y in pts[::4]:
+            cv2.circle(canvas, (int(x), int(y)), 1, (0, 220, 255), -1)
+
     bbox = result.get("bbox")
     if bbox:
         x, y, bw, bh = bbox
@@ -855,6 +866,12 @@ def perf_line(build_id, capture_fps, display_fps, display_low1, vision_fps,
     det = result if detector_result is None else detector_result
     fail_stage = det.get("fail_stage")
     fail_tag = "-" if not fail_stage else "%s/%s" % (fail_stage, det.get("fail_reason", "-"))
+    split = det.get("t_ms") or {}
+    split_tag = ""
+    if split:
+        split_tag = " det_split=%.1f/%.1f/%.1f/%.1f" % (
+            split.get("blur", 0.0), split.get("bin", 0.0),
+            split.get("cand", 0.0), split.get("ring", 0.0))
     return ("[perf] %s capture=%.1f disp=%.1f low1=%.1f detect_fps=%.1f "
             "valid=%s stage=%s | read=%.1f draw=%.1f loop=%.1f ms | "
             "show avg=%.1f p95=%.1f max=%.1fms n=%d | "
@@ -866,7 +883,7 @@ def perf_line(build_id, capture_fps, display_fps, display_low1, vision_fps,
              age_s * 1000, shown, drop_show, drop_vision)) + (
             " det_valid=%s det_stage=%s det_ms=%.1f det_masks=%d det_fail=%s det_props=%d" %
             (det.get("valid", False), det.get("stage"), det.get("detector_ms", 0.),
-             det.get("masks", 0), fail_tag, det.get("proposals", 0)))
+             det.get("masks", 0), fail_tag, det.get("proposals", 0))) + split_tag
 
 def draw_preview(cfg, preview, gray, result, laser, age, fps, status, now):
     view = draw_result(gray, result, preview.render_width, top_offset=PANEL_H if laser else 0)

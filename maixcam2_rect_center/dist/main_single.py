@@ -10,21 +10,21 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-07 22:48:05
-    config.py                    sha1=af6e481f25c5
+生成时间：2026-11-07 23:34:27
+    config.py                    sha1=3d40cead7e25
     main.py                      sha1=c2f5fb47aa9e
-    target_api.py                sha1=cbe9d71f4265
+    target_api.py                sha1=228e453c656f
     vision/__init__.py           sha1=6e0b16db8298
-    vision/algo.py               sha1=c9df6fd804a5
-    vision/logic.py              sha1=1541285669f0
-    vision/output.py             sha1=50ce0f33579b
+    vision/algo.py               sha1=8c8db4a9c08c
+    vision/logic.py              sha1=a77da9d9ae7a
+    vision/output.py             sha1=4b6351f1a474
     vision/poll.py               sha1=992056fd530e
 """
 
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': 'af6e481f25c5929b9d1f5b640dc2689038e30bdb', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'c9df6fd804a53a2bf1a4f8ed507a3de9c345d037', 'vision/output.py': '50ce0f33579b04885eac2a598cd0f9b1db81d441', 'vision/logic.py': '1541285669f0e613e8d3547b4352a54fb1c01ac5', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': 'cbe9d71f4265623980b97a8362d551748a7acabd', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': '3d40cead7e25ce41739c9342dc78f7e3b9c4656d', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': '8c8db4a9c08c67d2f350f1e06420b66a84d1104c', 'vision/output.py': '4b6351f1a47414d8c2e4915d7431add4ea996a3e', 'vision/logic.py': 'a77da9d9ae7a1244573733d90afb851d1f342186', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': '228e453c656f41797d4dc6099e2d87b96ffb53ed', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -100,6 +100,28 @@ class Config:
     UART_RX_MAX_BYTES = 256
     UART_RX_BUFFER_MAX_BYTES = 1024
 
+    # ---- 识别引擎 ----
+    # "plane"：四角 → 归一化 8×8 单应 → 纸面坐标；靶心取**内框**对角线交点，
+    #          同心环只做校验（回答"这里有没有等距同心环"），不参与定位。
+    # "legacy"：v1.3.0 原链路（三层四边形 + 同心圆优先），保留开关便于对比与回退。
+    RECT_ENGINE = "plane"
+    # 纸面模型的真实尺寸（mm，横放）。只影响"环半径 / 毫米"的校验口径，
+    # **不影响靶心**：矩形四角的对角线交点对模型缩放是齐次的，填错只影响校验松紧。
+    RECT_MODEL_MM = (261.0, 174.0)
+    RECT_REFINE_SAMPLES = 14       # 每条边取几个采样点做亚像素定位
+    RECT_REFINE_SPAN = 6.0         # 沿法线搜索外沿的半宽（px）
+    RECT_REFINE_STEP = 0.5         # 亚像素采样步长（px）
+    RECT_TAPE_MAX_PX = 30.0        # 从外沿向内找纸边的最远距离（px），须大于胶带带宽
+    RECT_EDGE_RISE = 10.0          # 判"暗→亮"跳变的灰度差门限（每 0.5px）
+    RECT_BAND_MIN_CONTRAST = 25.0  # 带内比纸面暗多少灰度才认（负样本靠它挡）
+    RECT_RING_RAYS = 72            # 环校验的等分角度数
+    RECT_RING_RADII = 64           # 径向采样档数
+    RECT_RING_MAX_RATIO = 0.48     # 采样半径上限（占纸面短边的一半，1.0=到边）
+    RECT_RING_MIN_CONTRAST = 6.0   # 单环最小灰度落差（高通后）
+    RECT_RING_MIN_COUNT = 3        # 至少几条环才算"有同心环证据"
+    RECT_RING_SPACING_CV = 0.22    # 环间距变异系数上限（等距性）
+    RECT_RING_SMOOTH = 9           # 高通滑动平均窗口（采样档数）
+
     # ---- 识别（自适应反色二值化 + 三层过滤）----
     # 调参顺序：先 RECT_BLOCK_SIZE / RECT_C 把二值图调闭合，再 RECT_MIN_AREA 去碎片，
     # 再 RECT_APPROX_EPS 稳四边形，最后 RECT_MIN/MAX_ASPECT 收紧形状。
@@ -111,7 +133,7 @@ class Config:
     RECT_GAUSS_KERNEL = (5, 5)    # 高斯核；(0, 0) = 跳过模糊
     RECT_BLOCK_SIZE = 31          # 自适应阈值窗口，必须为 >=3 的奇数
     RECT_C = 8.0                  # 自适应阈值常数：调小补断边，调大压噪点
-    RECT_MAX_CANDIDATES = 32      # 候选上限，防病态画面拖慢
+    RECT_MAX_CANDIDATES = 6       # 精修候选上限（精修是唯一的重活），防病态画面拖慢
     RECT_KEEP_STAGES = False      # 真：把 blur/binary 留在 last_stages，供 --stage 导出
 
     # ---- 同心圆（与上面三层四边形**并行**，命中即优先）----
@@ -454,6 +476,10 @@ __all__ = [
     "signed_area", "order_quad", "line_cross", "quad_diagonal_center",
     "blur_frame", "binarize_frame", "find_quad_candidates", "select_largest",
     "find_concentric", "deviation",
+    "bilinear", "frame_edge_points", "fit_line", "quad_from_lines", "refine_frame",
+    "solve_homography", "apply_homography", "invert_homography", "plane_quad",
+    "sample_polar", "ring_report", "quad_mix", "band_evidence",
+    "find_frame_candidates",
 ]
 
 # ================================================================== 纯函数
@@ -660,6 +686,380 @@ def find_concentric(binary, min_radius, max_radius_ratio,
     return None if best is None else (best[1], best[2], best[3], best[4])
 
 
+# ------------------------------------------------------------------ 灰度采样
+def bilinear(gray, xs, ys):
+    """双线性采样，越界夹到边缘。xs/ys 可为标量或任意形状数组。"""
+    g = gray.astype(np.float32, copy=False)
+    h, w = g.shape[:2]
+    x = np.clip(np.asarray(xs, np.float32), 0.0, w - 2.0)
+    y = np.clip(np.asarray(ys, np.float32), 0.0, h - 2.0)
+    x0 = np.floor(x).astype(np.int32)
+    y0 = np.floor(y).astype(np.int32)
+    fx = x - x0
+    fy = y - y0
+    return (g[y0, x0] * (1 - fx) * (1 - fy) + g[y0, x0 + 1] * fx * (1 - fy) +
+            g[y0 + 1, x0] * (1 - fx) * fy + g[y0 + 1, x0 + 1] * fx * fy)
+
+
+def _runs(flags):
+    """连续 True 的区间：返回 (起点数组, 终点数组[不含])。"""
+    f = np.asarray(flags, np.int8)
+    d = np.diff(np.concatenate([[0], f, [0]]))
+    return np.flatnonzero(d == 1), np.flatnonzero(d == -1)
+
+
+def _crossing(prof, i, level, offs):
+    """prof[i-1] → prof[i] 之间 level 的穿越位置，按 offs 插值成实际偏移。"""
+    if i <= 0 or i >= prof.size:
+        return float(offs[min(max(i, 0), offs.size - 1)])
+    a, b = float(prof[i - 1]), float(prof[i])
+    t = 0.0 if abs(b - a) < 1e-6 else float(np.clip((level - a) / (b - a), 0.0, 1.0))
+    return float(offs[i - 1] + t * (offs[i] - offs[i - 1]))
+
+
+def frame_edge_points(gray, a, b, center, samples=14, span=6.0, inward=30.0,
+                      rise=10.0, step=0.5):
+    """沿一条边 a→b 采样，返回 (外沿点, 内沿点) 两组亚像素坐标。
+
+    判据用的是"胶带是一段连续暗带"，而不是"哪里有梯度"：
+      外沿 = 从外向内第一次出现、并能持续 3 个采样的暗区起点；
+      内沿 = 从外沿继续向内，暗区结束、回到纸面亮度的位置。
+    这样胶带内部的噪点、阴影边缘、以及**遮挡物**（比纸暗但远不如胶带黑）
+    都不会被当成边界——灰斑那类东西的"暗"和胶带的"暗"不在一个量级。
+
+    没有可判定的暗带（被完全遮挡 / 该处不是胶带）就跳过这个采样点；
+    调用方按"每条边至少 4 点"判成败，缺的角由相邻两条直线求交补回来。
+    """
+    a = np.asarray(a, np.float64)
+    b = np.asarray(b, np.float64)
+    c = np.asarray(center, np.float64)
+    d = b - a
+    length = float(np.hypot(d[0], d[1]))
+    if length < 8.0:
+        return np.empty((0, 2)), np.empty((0, 2))
+    d = d / length
+    nrm = np.array([-d[1], d[0]])
+    if float(nrm @ ((a + b) * 0.5 - c)) < 0.0:
+        nrm = -nrm
+    out_pts, in_pts = [], []
+    # 沿外法线从 +span（框外）走到 -inward（框内）：先遇到暗带起点，再遇到暗带终点。
+    offs = np.arange(span, -inward - 1e-9, -step)
+    zero = int(round(span / step))
+    ts = np.linspace(0.15, 0.85, int(samples))
+    base = a[None, :] + ts[:, None] * (b - a)[None, :]
+    gx = base[:, 0:1] + nrm[0] * offs[None, :]
+    gy = base[:, 1:2] + nrm[1] * offs[None, :]
+    prof = bilinear(gray, gx, gy)                 # (samples, len(offs)) 一次取完
+    lo = np.percentile(prof, 10.0, axis=1)
+    hi = np.percentile(prof, 90.0, axis=1)
+    for k in range(prof.shape[0]):
+        if hi[k] - lo[k] < float(rise):
+            continue
+        row = prof[k]
+        level = lo[k] + 0.40 * (hi[k] - lo[k])
+        starts, ends = _runs(row < level)
+        if starts.size == 0:
+            continue
+        j = int(np.argmin(np.abs(starts - zero)))
+        s0, s1 = int(starts[j]), int(ends[j])
+        if s1 - s0 < 4 or s1 >= row.size - 2:
+            continue                     # 暗带太窄，或延伸到窗口末端（内沿不在窗内）
+        pos_out = _crossing(row, s0, level, offs) if s0 > 0 else float(offs[0])
+        pos_in = _crossing(row, s1, level, offs)
+        if pos_out - pos_in < 2.0:
+            continue
+        dark_mean = float(row[s0:s1].mean())
+        bright_mean = float(row[s1:].mean())
+        if bright_mean < 40.0 or dark_mean > 0.60 * bright_mean:
+            continue                     # 遮挡物/阴影：暗得不够"黑"，不是胶带
+        out_pts.append(base[k] + nrm * pos_out)
+        in_pts.append(base[k] + nrm * pos_in)
+    return (np.asarray(out_pts, np.float64).reshape(-1, 2),
+            np.asarray(in_pts, np.float64).reshape(-1, 2))
+
+
+def fit_line(points):
+    """总体最小二乘直线拟合，返回过 (p0) 与方向 p1 的两点式；点不足返回 None。"""
+    p = np.asarray(points, np.float32).reshape(-1, 2)
+    if p.shape[0] < 2:
+        return None
+    vx, vy, x0, y0 = cv2.fitLine(p, cv2.DIST_L2, 0, 0.01, 0.01).ravel()
+    if not np.isfinite((vx, vy, x0, y0)).all() or (abs(vx) < 1e-9 and abs(vy) < 1e-9):
+        return None
+    return (float(x0), float(y0)), (float(x0 + vx), float(y0 + vy))
+
+
+def quad_from_lines(lines):
+    """四条边线两两求交 → 四角。第 i 个角 = 第 i-1 条边与第 i 条边的交点。"""
+    if lines is None or len(lines) != 4 or any(l is None for l in lines):
+        return None
+    pts = []
+    for i in range(4):
+        p = line_cross(lines[i - 1][0], lines[i - 1][1], lines[i][0], lines[i][1])
+        if p is None:
+            return None
+        pts.append(p)
+    q = np.asarray(pts, np.float32)
+    if not np.isfinite(q).all():
+        return None
+    return order_quad(q)
+
+
+def refine_frame(gray, quad, samples=14, span=6.0, inward=30.0, rise=10.0, step=0.5):
+    """粗四边形 → (外框四角, 内框四角, 内沿命中点数)。任一框凑不齐四边返回 None。"""
+    q = order_quad(quad)
+    c = q.mean(axis=0)
+    outer_lines, inner_lines = [], []
+    inner_hits = 0
+    for i in range(4):
+        po, pi = frame_edge_points(gray, q[i], q[(i + 1) % 4], c,
+                                   samples, span, inward, rise, step)
+        inner_hits += int(pi.shape[0])
+        lo, li = fit_line(po), fit_line(pi)
+        if lo is not None:
+            outer_lines.append(lo)
+        if li is not None:
+            inner_lines.append(li)
+    return quad_from_lines(outer_lines), quad_from_lines(inner_lines), inner_hits
+
+
+# ------------------------------------------------------------------ 单应
+def _normalize_points(points):
+    """Hartley 归一化：重心到原点、平均距离到 √2。返回 (T, T⁻¹, 归一化点)。
+
+    不做这一步，8×8 的条件数会到 1e5 量级，像素坐标的舍入误差被放大成可见偏差。
+    """
+    p = np.asarray(points, np.float64).reshape(-1, 2)
+    center = p.mean(axis=0)
+    dist = float(np.sqrt(((p - center) ** 2).sum(axis=1)).mean())
+    scale = math.sqrt(2.0) / max(dist, 1e-9)
+    t = np.array([[scale, 0.0, -scale * center[0]],
+                  [0.0, scale, -scale * center[1]],
+                  [0.0, 0.0, 1.0]], np.float64)
+    t_inv = np.array([[1.0 / scale, 0.0, center[0]],
+                      [0.0, 1.0 / scale, center[1]],
+                      [0.0, 0.0, 1.0]], np.float64)
+    return t, t_inv, (p - center) * scale
+
+
+def _solve8(a, b):
+    """8×8 高斯消元（列主元）。a、b 不被改动；奇异返回 None。"""
+    m = np.concatenate([np.asarray(a, np.float64), np.asarray(b, np.float64).reshape(8, 1)],
+                       axis=1)
+    for col in range(8):
+        pivot = int(np.argmax(np.abs(m[col:, col]))) + col
+        if abs(m[pivot, col]) < 1e-12:
+            return None
+        if pivot != col:
+            m[[col, pivot]] = m[[pivot, col]]
+        m[col] /= m[col, col]
+        for row in range(8):
+            if row != col and m[row, col] != 0.0:
+                m[row] -= m[row, col] * m[col]
+    return m[:, 8]
+
+
+def solve_homography(src, dst):
+    """图像点 src → 平面点 dst 的单应矩阵 (3×3)。
+
+    8 个自由度：每对点给 2 个方程，4 对点正好 8×8，高斯消元；多于 4 对时
+    正规方程 AᵀA h = Aᵀb 仍是 8×8，同一套消元，白捡最小二乘。
+    两侧都先归一化，最后把归一化变换剥掉。
+    """
+    s = np.asarray(src, np.float64).reshape(-1, 2)
+    d = np.asarray(dst, np.float64).reshape(-1, 2)
+    n = int(min(len(s), len(d)))
+    if n < 4:
+        return None
+    s, d = s[:n], d[:n]
+    ts, ts_inv, sn = _normalize_points(s)
+    td, td_inv, dn = _normalize_points(d)
+    rows = np.zeros((2 * n, 8), np.float64)
+    rhs = np.zeros(2 * n, np.float64)
+    for k in range(n):
+        u, v = sn[k]
+        x, y = dn[k]
+        rows[2 * k] = (u, v, 1.0, 0.0, 0.0, 0.0, -x * u, -x * v)
+        rows[2 * k + 1] = (0.0, 0.0, 0.0, u, v, 1.0, -y * u, -y * v)
+        rhs[2 * k] = x
+        rhs[2 * k + 1] = y
+    h = _solve8(rows, rhs) if n == 4 else _solve8(rows.T @ rows, rows.T @ rhs)
+    if h is None:
+        return None
+    hn = np.array([[h[0], h[1], h[2]], [h[3], h[4], h[5]], [h[6], h[7], 1.0]], np.float64)
+    mat = td_inv @ hn @ ts
+    if not np.isfinite(mat).all() or abs(mat[2, 2]) < 1e-12:
+        return None
+    return mat / mat[2, 2]
+
+
+def apply_homography(mat, points):
+    """把 (N,2) 点按 3×3 单应投影过去。"""
+    p = np.asarray(points, np.float64).reshape(-1, 2)
+    q = np.concatenate([p, np.ones((p.shape[0], 1))], axis=1) @ np.asarray(mat, np.float64).T
+    w = q[:, 2:3]
+    return q[:, :2] / np.where(np.abs(w) < 1e-12, 1e-12, w)
+
+
+def invert_homography(mat):
+    """3×3 单应的解析逆（伴随矩阵 / 行列式）。奇异返回 None。"""
+    m = np.asarray(mat, np.float64)
+    a, b, c = m[0]
+    d, e, f = m[1]
+    g, h, i = m[2]
+    det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+    if abs(det) < 1e-12:
+        return None
+    inv = np.array([[e * i - f * h, c * h - b * i, b * f - c * e],
+                    [f * g - d * i, a * i - c * g, c * d - a * f],
+                    [d * h - e * g, b * g - a * h, a * e - b * d]], np.float64) / det
+    return inv / inv[2, 2] if abs(inv[2, 2]) > 1e-12 else inv
+
+
+def plane_quad(width, height):
+    """纸面模型矩形（中心在原点、y 向下），顺序与 order_quad 一致：[左上,右上,右下,左下]。"""
+    hw, hh = float(width) * 0.5, float(height) * 0.5
+    return np.array([[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]], np.float32)
+
+
+# ------------------------------------------------------------------ 极坐标采样
+def sample_polar(gray, plane_to_image, n_theta, n_r, r_min, r_max):
+    """在平面坐标里按同心圆采样，返回 (半径数组, 灰度矩阵 [n_r, n_theta])。
+
+    圆必须在平面上才是等角度的；直接在图像上画圆会被透视压成椭圆。
+    这里不生成正视图像，只把采样点逆变换回原图取值 —— 省掉整幅 warp。
+    """
+    n_r = max(2, int(n_r))
+    n_theta = max(4, int(n_theta))
+    step = (float(r_max) - float(r_min)) / (n_r - 1)
+    radii = float(r_min) + step * np.arange(n_r)
+    ang = np.linspace(0.0, 2.0 * math.pi, n_theta, endpoint=False)
+    rr, aa = np.meshgrid(radii, ang, indexing='ij')
+    pts = np.stack([rr.ravel() * np.cos(aa.ravel()),
+                    rr.ravel() * np.sin(aa.ravel())], axis=1)
+    img = apply_homography(plane_to_image, pts).reshape(n_r, n_theta, 2)
+    return radii, bilinear(gray, img[..., 0], img[..., 1])
+
+
+def ring_report(radii, samples, min_contrast=6.0, smooth=9):
+    """从极坐标采样读同心环：条数、半径、对比度、间距一致性。
+
+    先减自身滑动平均（高通），把"纸面整体明暗"和"胶带厚边"压掉，只留 1~2px 的细环；
+    再找局部极小并抛物线插值。**只做校验**：这里输出的半径不参与靶心定位，
+    因此不需要全局搜索圆心，也就不存在"拟合残差很小但位置错了"的问题。
+    """
+    r = np.asarray(radii, np.float64)
+    prof = np.asarray(samples, np.float64).mean(axis=1)
+    if r.size < 12 or prof.size != r.size:
+        return dict(count=0, radii=[], contrasts=[], spacing_cv=1.0, contrast=0.0)
+    k = int(max(3, int(smooth) | 1))
+    k = min(k, r.size - 2)
+    base = np.convolve(prof, np.ones(k) / float(k), mode='same')
+    hp = prof - base
+    peaks = []
+    for i in range(2, prof.size - 2):
+        if hp[i] < hp[i - 1] and hp[i] <= hp[i + 1] and -hp[i] >= float(min_contrast):
+            a, b, c = hp[i - 1], hp[i], hp[i + 1]
+            den = a - 2.0 * b + c
+            off = 0.5 * (a - c) / den if abs(den) > 1e-9 else 0.0
+            step = float(r[1] - r[0])
+            peaks.append((float(r[i] + np.clip(off, -1.0, 1.0) * step), float(-b)))
+    if not peaks:
+        return dict(count=0, radii=[], contrasts=[], spacing_cv=1.0, contrast=0.0)
+    hits = [p[0] for p in peaks]
+    contrasts = [p[1] for p in peaks]
+    cv = 1.0
+    if len(hits) >= 3:
+        gaps = np.diff(hits)
+        mean = float(gaps.mean())
+        cv = float(gaps.std() / mean) if mean > 1e-9 else 1.0
+    return dict(count=len(hits), radii=hits, contrasts=contrasts,
+                spacing_cv=cv, contrast=float(max(contrasts)))
+
+
+# ------------------------------------------------------------------ 胶带带候选
+def quad_mix(outer, inner, t):
+    """两框对应角做线性混合：t=0 外框、t=1 内框、0.5 带中线（近似）。"""
+    o = np.asarray(outer, np.float32).reshape(4, 2)
+    i = np.asarray(inner, np.float32).reshape(4, 2)
+    return o * (1.0 - float(t)) + i * float(t)
+
+
+def band_evidence(gray, outer, inner):
+    """胶带带证据：带中线灰度 vs 纸面内区灰度，返回 (带灰, 纸灰, 纸-带)。"""
+    band = quad_mix(outer, inner, 0.5)
+    pts = []
+    for i in range(4):
+        for t in (0.25, 0.5, 0.75):
+            pts.append(band[i] + t * (band[(i + 1) % 4] - band[i]))
+    pts = np.asarray(pts, np.float32)
+    band_g = float(bilinear(gray, pts[:, 0], pts[:, 1]).mean())
+    paper = quad_mix(outer, inner, 1.0)
+    c = paper.mean(axis=0)
+    v = paper[2] - paper[0]
+    probe = c + np.array([[0.0, 0.0], [v[0] * 0.2, 0.0], [-v[0] * 0.2, 0.0],
+                          [0.0, v[1] * 0.2], [0.0, -v[1] * 0.2]], np.float32)
+    paper_g = float(bilinear(gray, probe[:, 0], probe[:, 1]).mean())
+    return band_g, paper_g, paper_g - band_g
+
+
+def find_frame_candidates(gray, binary, min_area, max_area_ratio, min_aspect, max_aspect,
+                          min_contrast, samples=14, span=6.0, inward=30.0, rise=10.0,
+                          step=0.5, max_candidates=8):
+    """从二值图提"胶带带"候选：轮廓 → 最小外接矩形 → 内外框精修 → 灰度对比度打分。
+
+    为什么用最小外接矩形而不是 approxPolyDP：胶带内角是圆的、边常被遮挡，
+    多边形逼近永远凑不出 4 个顶点（实测两档真机帧 eps 1%~8% 全为 0）；
+    外接矩形只要求"四个方向上取到极值点"，缺一个角依然成立。
+    记账等式：contours = area + shape + aspect + frame + candidates
+    """
+    h, w = binary.shape[:2]
+    total = float(h * w)
+    contours = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[-2]
+    stats = dict(contours=len(contours), area=0, shape=0, aspect=0, frame=0, candidates=0)
+    prelim = []
+    for cnt in contours:
+        area = cv2.contourArea(cnt)
+        if area < float(min_area) or area > total * float(max_area_ratio):
+            stats["area"] += 1
+            continue
+        rect = cv2.minAreaRect(cnt)
+        (cx, cy), (rw, rh), ang = rect
+        if min(rw, rh) < 12.0:
+            stats["shape"] += 1
+            continue
+        aspect = max(rw, rh) / max(1.0, min(rw, rh))
+        if aspect < float(min_aspect) or aspect > float(max_aspect):
+            stats["aspect"] += 1
+            continue
+        prelim.append((float(area), aspect, rect))
+    # 精修是唯一的重活：按面积取前若干个，避免病态画面把预算耗在小矩形上。
+    prelim.sort(key=lambda p: -p[0])
+    out = []
+    for area, aspect, rect in prelim[:int(max_candidates)]:
+        outer, inner, hits = refine_frame(gray, cv2.boxPoints(rect), samples, span,
+                                          inward, rise, step)
+        if outer is None or inner is None:
+            stats["frame"] += 1
+            continue
+        outer_area = abs(float(cv2.contourArea(outer.astype(np.float32))))
+        inner_area = abs(float(cv2.contourArea(inner.astype(np.float32))))
+        if outer_area <= 1.0 or not (0.25 <= inner_area / outer_area <= 0.95):
+            stats["frame"] += 1
+            continue
+        band_g, paper_g, contrast = band_evidence(gray, outer, inner)
+        if contrast < float(min_contrast):
+            stats["frame"] += 1
+            continue
+        x, y, bw, bh = cv2.boundingRect(outer.astype(np.float32))
+        out.append(dict(outer=outer, inner=inner, score=float(contrast), area=area,
+                        aspect=float(aspect), bbox=(x, y, bw, bh),
+                        band_gray=band_g, paper_gray=paper_g, inner_hits=int(hits)))
+        stats["candidates"] += 1
+    out.sort(key=lambda c: c["score"], reverse=True)
+    return out[:int(max_candidates)], stats
+
+
 # ================================================================== 结果组装
 
 
@@ -778,6 +1178,17 @@ def draw_result(gray, result, show_width=480, top_offset=0):
     cv2.polylines(canvas, [q], True, (0, 255, 0), 2, cv2.LINE_AA)
     for x, y in q:
         cv2.circle(canvas, (int(x), int(y)), 3, (255, 0, 255), -1)
+
+    # 内框（纸边）+ 环采样点：调试用，缺省字段直接跳过。
+    inner = result.get("inner_quad")
+    if inner is not None:
+        iq = np.rint(np.asarray(inner, np.float32) * scale).astype(np.int32)
+        cv2.polylines(canvas, [iq], True, (255, 200, 0), 1, cv2.LINE_AA)
+    samples = result.get("circle_points")
+    if samples is not None:
+        pts = np.rint(np.asarray(samples, np.float32) * scale).astype(np.int32)
+        for x, y in pts[::4]:
+            cv2.circle(canvas, (int(x), int(y)), 1, (0, 220, 255), -1)
 
     bbox = result.get("bbox")
     if bbox:
@@ -1550,6 +1961,12 @@ def perf_line(build_id, capture_fps, display_fps, display_low1, vision_fps,
     det = result if detector_result is None else detector_result
     fail_stage = det.get("fail_stage")
     fail_tag = "-" if not fail_stage else "%s/%s" % (fail_stage, det.get("fail_reason", "-"))
+    split = det.get("t_ms") or {}
+    split_tag = ""
+    if split:
+        split_tag = " det_split=%.1f/%.1f/%.1f/%.1f" % (
+            split.get("blur", 0.0), split.get("bin", 0.0),
+            split.get("cand", 0.0), split.get("ring", 0.0))
     return ("[perf] %s capture=%.1f disp=%.1f low1=%.1f detect_fps=%.1f "
             "valid=%s stage=%s | read=%.1f draw=%.1f loop=%.1f ms | "
             "show avg=%.1f p95=%.1f max=%.1fms n=%d | "
@@ -1561,7 +1978,7 @@ def perf_line(build_id, capture_fps, display_fps, display_low1, vision_fps,
              age_s * 1000, shown, drop_show, drop_vision)) + (
             " det_valid=%s det_stage=%s det_ms=%.1f det_masks=%d det_fail=%s det_props=%d" %
             (det.get("valid", False), det.get("stage"), det.get("detector_ms", 0.),
-             det.get("masks", 0), fail_tag, det.get("proposals", 0)))
+             det.get("masks", 0), fail_tag, det.get("proposals", 0))) + split_tag
 
 def draw_preview(cfg, preview, gray, result, laser, age, fps, status, now):
     view = draw_result(gray, result, preview.render_width, top_offset=PANEL_H if laser else 0)
@@ -1607,21 +2024,23 @@ import time
 import cv2
 import numpy as np
 
-from .algo import (binarize_frame, blur_frame, deviation, find_concentric,
-                  find_quad_candidates, order_quad, quad_diagonal_center,
-                  select_largest)
+from .algo import (apply_homography, binarize_frame, blur_frame, deviation,
+                  find_concentric, find_frame_candidates, find_quad_candidates,
+                  invert_homography, order_quad, plane_quad, quad_diagonal_center,
+                  ring_report, sample_polar, select_largest, solve_homography)
 from .output import (Preview, aligned_frame, apply_commands, display_result,
                     draw_preview, estimate_move_seconds, perf_line, stop_motion,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-07-add-concentric-v2"
+BUILD_ID = "2026-11-07-plane-frame-v1"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
 
 # 结果阶段词汇（检测器写入 result["stage"]）
 STAGE_OK = "full_search"
+STAGE_PLANE = "plane_frame"
 STAGE_CIRCLE = "concentric"
 STAGE_NONE = "no_black_frame"
 
@@ -1683,6 +2102,51 @@ def success_circle_result(circle):
                 width_mm=None, height_mm=None)
 
 
+def plane_result(best, rings, homography, model, min_rings, spacing_cv):
+    """胶带带候选 → 成功结果。
+
+    靶心 = **内框**对角线交点。为什么必须是内框：胶带上下宽度不等时，外框中心
+    会比真实靶心偏出半个带宽（真实帧实测 8~11px），而纸边永远与印刷同心圆同心。
+    同心环在这里只贡献置信度，不改变坐标 —— 这正是"圆心不用量"的落点。
+    """
+    inner = best.get("inner")
+    outer = best.get("outer")
+    center = quad_diagonal_center(inner) if inner is not None else None
+    if center is None:
+        return fail_result(STAGE_PLANE, "plane", "degenerate")
+    ring_ok = bool(rings and rings.get("count", 0) >= int(min_rings) and
+                   float(rings.get("spacing_cv", 1.0)) <= float(spacing_cv))
+    band = dict(gray=best.get("band_gray"), paper=best.get("paper_gray"),
+                contrast=best.get("score"))
+    if not ring_ok:
+        # 有带无环 = 笔记本屏幕、窗框、柜门这类"亮面被暗边包住"的东西。
+        # 靶纸的同心环是它独有的证据，这里必须硬拒；漏检只 HOLD，误锁会把云台带偏。
+        out = fail_result(STAGE_PLANE, "ring", "no_rings")
+        out.update(quad=outer, inner_quad=inner, ring=rings, band=band)
+        return out
+    width_mm, height_mm = float(model[0]), float(model[1])
+    circle_points = None
+    plane_to_image = invert_homography(homography) if homography is not None else None
+    if plane_to_image is not None and rings.get("radii"):
+        r = float(rings["radii"][-1])
+        ang = np.linspace(0.0, 2.0 * math.pi, 72, endpoint=False)
+        circle_points = apply_homography(
+            plane_to_image, np.stack([r * np.cos(ang), r * np.sin(ang)], axis=1))
+    confidence = min(1.0, float(best.get("score", 0.0)) / 90.0)
+    return dict(valid=True, stage=STAGE_PLANE,
+                u=float(center[0]), v=float(center[1]),
+                raw_u=float(center[0]), raw_v=float(center[1]),
+                quad=outer, inner_quad=inner, detected_quad=outer, outer_inferred=False,
+                center_ref="inner",
+                circle=None,
+                area=float(best.get("area", 0.0)), aspect=float(best.get("aspect", 0.0)),
+                bbox=best.get("bbox"),
+                partial=False, refined_edges=4, weak_edges=0, clipped_edges=0,
+                rect_to_image=plane_to_image, circle_points=circle_points,
+                width_mm=width_mm, height_mm=height_mm,
+                band=band, ring=rings, ring_ok=True, confidence=float(confidence))
+
+
 def finish_result(result, timestamp, image_size, started):
     """补齐时间戳、图像尺寸、耗时。"""
     result.update(captured_at=timestamp, image_size=image_size,
@@ -1717,11 +2181,94 @@ class RectangleCenterDetector:
         self.circle_close_kernel = int(getattr(config, "RECT_CIRCLE_CLOSE_KERNEL", 3))
         self.circle_max_radius_ratio = float(
             getattr(config, "RECT_CIRCLE_MAX_RADIUS_RATIO", 0.45))
+        # 新引擎（四角单应 + 环校验）参数；缺省值全部有兜底，config 未同步也不抛异常。
+        self.engine = str(getattr(config, "RECT_ENGINE", "plane")).strip().lower()
+        self.model = tuple(getattr(config, "RECT_MODEL_MM", (261.0, 174.0)))
+        self.refine_samples = int(getattr(config, "RECT_REFINE_SAMPLES", 14))
+        self.refine_span = float(getattr(config, "RECT_REFINE_SPAN", 4.0))
+        self.refine_step = float(getattr(config, "RECT_REFINE_STEP", 0.5))
+        self.tape_max_px = float(getattr(config, "RECT_TAPE_MAX_PX", 26.0))
+        self.edge_rise = float(getattr(config, "RECT_EDGE_RISE", 10.0))
+        self.band_min_contrast = float(getattr(config, "RECT_BAND_MIN_CONTRAST", 25.0))
+        self.ring_rays = int(getattr(config, "RECT_RING_RAYS", 72))
+        self.ring_radii = int(getattr(config, "RECT_RING_RADII", 64))
+        self.ring_max_ratio = float(getattr(config, "RECT_RING_MAX_RATIO", 0.48))
+        self.ring_min_contrast = float(getattr(config, "RECT_RING_MIN_CONTRAST", 6.0))
+        self.ring_min_count = int(getattr(config, "RECT_RING_MIN_COUNT", 3))
+        self.ring_spacing_cv = float(getattr(config, "RECT_RING_SPACING_CV", 0.22))
+        self.ring_smooth = int(getattr(config, "RECT_RING_SMOOTH", 9))
 
     def reset(self):
         """接口兼容用。本检测器无跨帧状态，清空只影响调试缓存。"""
         self.last = None
         self.last_stages = {}
+
+    def _legacy(self, binary):
+        """v1.3.0 原链路：三层四边形 + 同心圆优先。RECT_ENGINE="legacy" 时走这里。"""
+        candidates, stats = find_quad_candidates(
+            binary, self.min_area, self.max_area_ratio, self.eps_ratio,
+            self.min_aspect, self.max_aspect, self.max_candidates)
+        circle = None
+        if self.circle_enable:
+            circle = find_concentric(binary, self.circle_min_radius,
+                                     self.circle_max_radius_ratio,
+                                     self.circle_circularity,
+                                     self.circle_min_rings,
+                                     self.circle_min_outer,
+                                     self.circle_close_kernel)
+        if circle is not None:
+            return success_circle_result(circle), stats
+        return locate_result(select_largest(candidates), stats), stats
+
+    def _ring_check(self, gray, homography):
+        """纸面坐标里等分采样，返回环报告；只用于校验，不参与定位。"""
+        if homography is None:
+            return None
+        plane_to_image = invert_homography(homography)
+        if plane_to_image is None:
+            return None
+        short = float(min(self.model))
+        r_min, r_max = 0.04 * short, self.ring_max_ratio * short
+        if r_max <= r_min:
+            return None
+        radii, samples = sample_polar(gray, plane_to_image, self.ring_rays,
+                                      self.ring_radii, r_min, r_max)
+        return ring_report(radii, samples, self.ring_min_contrast, self.ring_smooth)
+
+    def _plane(self, gray, binary):
+        """四角单应链路：定内框 → 解映射 → 环校验。靶心始终来自内框四角。"""
+        t0 = time.perf_counter()
+        cands, stats = find_frame_candidates(
+            gray, binary, self.min_area, self.max_area_ratio, self.min_aspect,
+            self.max_aspect, self.band_min_contrast, self.refine_samples,
+            self.refine_span, self.tape_max_px, self.edge_rise, self.refine_step,
+            self.max_candidates)
+        t1 = time.perf_counter()
+        if cands:
+            best = cands[0]
+            homography = solve_homography(best["inner"], plane_quad(*self.model))
+            rings = self._ring_check(gray, homography)
+            t2 = time.perf_counter()
+            out = plane_result(best, rings, homography, self.model,
+                               self.ring_min_count, self.ring_spacing_cv)
+            out["t_ms"] = dict(cand=(t1 - t0) * 1000.0, ring=(t2 - t1) * 1000.0)
+            return out, stats
+        # 一个框都没有（多半是没贴胶带、纸边与背景同色）→ 退回同心圆路径。
+        # 两条链互不放宽：这里只在"没有任何框候选"时才启用。
+        circle = None
+        if self.circle_enable:
+            circle = find_concentric(binary, self.circle_min_radius,
+                                     self.circle_max_radius_ratio,
+                                     self.circle_circularity,
+                                     self.circle_min_rings,
+                                     self.circle_min_outer,
+                                     self.circle_close_kernel)
+        if circle is not None:
+            out = success_circle_result(circle)
+        else:
+            out = locate_result(None, stats)
+        out["t_ms"] = dict(cand=(time.perf_counter() - t0) * 1000.0)
+        return out, stats
 
     def process(self, gray, timestamp=None):
         started = time.perf_counter()
@@ -1734,25 +2281,19 @@ class RectangleCenterDetector:
             result = fail_result("empty_frame", "none", "empty")
             stats = dict(contours=0, area=0, quad=0, aspect=0, candidates=0)
         else:
+            t0 = time.perf_counter()
             blur = blur_frame(g, self.kernel)
+            t1 = time.perf_counter()
             binary = binarize_frame(blur, self.block_size, self.c_const)
-            candidates, stats = find_quad_candidates(
-                binary, self.min_area, self.max_area_ratio, self.eps_ratio,
-                self.min_aspect, self.max_aspect, self.max_candidates)
-            # 同心圆优先：圆心就是靶心，且不依赖"靶纸横放 + 有闭合暗环"两个前提。
-            # 找不到才退回三层四边形路径 —— 两条链各自独立，互不放宽。
-            circle = None
-            if self.circle_enable:
-                circle = find_concentric(binary, self.circle_min_radius,
-                                         self.circle_max_radius_ratio,
-                                         self.circle_circularity,
-                                         self.circle_min_rings,
-                                         self.circle_min_outer,
-                                         self.circle_close_kernel)
-            if circle is not None:
-                result = success_circle_result(circle)
+            t2 = time.perf_counter()
+            if self.engine == "legacy":
+                result, stats = self._legacy(binary)
             else:
-                result = locate_result(select_largest(candidates), stats)
+                result, stats = self._plane(g, binary)
+            # 分段耗时给板端日志用：哪一段贵，一眼能看出来，不用再猜。
+            split = result.get("t_ms") or {}
+            split.update(blur=(t1 - t0) * 1000.0, bin=(t2 - t1) * 1000.0)
+            result["t_ms"] = split
             if self.keep_stages:
                 self.last_stages = dict(blur=blur, binary=binary)
 
@@ -2547,9 +3088,9 @@ def _wrap(raw, gray):
 def detect_black_frame(frame, cfg=None, detector=None):
     """**无状态**识别黑框，返回 ``Result``（没识别到则 ``valid=False``，``bool(res)`` 为假）。
 
-    每帧都是一次完整的"缩小图Canny/Otsu 候选 → 四边暗带验证 → 亚像素精修"，不依赖上一帧，
-    适合"只在某几问里取一次黑框"的用法。传 ``detector`` 可复用分配，但每次都清空跟踪状态；
-    连续视频使用 ``CenterTracker``。
+    每帧都是一次完整的"轮廓候选 → 内外框亚像素拟合 → 8×8 单应 → 同心环校验"，
+    不依赖上一帧，适合"只在某几问里取一次黑框"的用法。传 ``detector`` 可复用分配，
+    但每次都清空跟踪状态；连续视频使用 ``CenterTracker``。
 
     :param frame:    numpy uint8 灰度图或 MaixPy image
     :param cfg:      配置类（默认 config.Config；可用 load_config(...) 覆盖）

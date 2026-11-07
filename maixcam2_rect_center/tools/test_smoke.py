@@ -1,7 +1,7 @@
-"""PC 冒烟回归：验证四层链路（二值化 → 三层过滤 → 对角线中心 → 偏差）没被改坏。
+"""PC 冒烟回归：验证四层链路（二值化 → 四角/内外框 → 单应 → 环校验 → 偏差）没被改坏。
 
 不依赖任何图片固件，全部用合成图，因此可以进无人值守的门禁。
-真机场景（反光、贴边、大角度）不在本用例覆盖范围，上板另行确认。
+真机场景（反光、贴边、大角度、遮挡）不在本用例覆盖范围，上板另行确认。
 """
 import sys
 from pathlib import Path
@@ -24,10 +24,17 @@ def check(label, ok, detail=""):
         FAILS.append(label)
 
 
-def draw_frame(cx, cy, w, h, thickness=8, background=235, ink=40, size=(640, 480)):
-    """画一张白底黑框的合成靶纸；框中心即期望靶心。"""
+def draw_frame(cx, cy, w, h, thickness=8, rings=4, background=235, ink=40, size=(640, 480)):
+    """画一张白底黑框 + 同心环的合成靶纸；框中心即期望靶心。
+
+    rings=0 用来造"亮面被暗边包住但没有同心环"的反例（笔记本屏幕、窗框那一类）。
+    """
     img = np.full((size[1], size[0]), background, np.uint8)
     cv2.rectangle(img, (cx - w // 2, cy - h // 2), (cx + w // 2, cy + h // 2), ink, thickness)
+    if rings > 0:
+        r0 = 0.42 * min(w, h)
+        for i in range(rings):
+            cv2.circle(img, (cx, cy), int(r0 * (1 - 0.22 * i)), ink, 2, cv2.LINE_AA)
     return img
 
 
@@ -57,8 +64,8 @@ def main():
     check("invalid", not res.valid, repr(res))
     check("归因 no_proposal", res.get("fail_reason") == "no_proposal", str(res.get("fail_reason")))
 
-    print("[smoke] 3. 边界：正方形被长宽比门拒绝（竖放/大角度倾斜的已知边界）")
-    res = detect_black_frame(draw_frame(320, 240, 200, 200))
+    print("[smoke] 3. 边界：正方形被长宽比门拒绝（rings=0，隔离出形状门本身）")
+    res = detect_black_frame(draw_frame(320, 240, 200, 200, rings=0))
     check("invalid", not res.valid, repr(res))
     check("归因 all_filtered", res.get("fail_reason") == "all_filtered", str(res.get("fail_reason")))
 
@@ -91,6 +98,11 @@ def main():
     cv2.circle(one, (320, 240), 90, 40, 3, cv2.LINE_AA)
     res = detect_black_frame(one)
     check("invalid", not res.valid, repr(res))
+
+    print("[smoke] 8. 反例：亮面被暗边包住但没有同心环（笔记本屏幕/窗框），必须拒检")
+    res = detect_black_frame(draw_frame(320, 240, 300, 200, rings=0))
+    check("invalid", not res.valid, repr(res))
+    check("归因 no_rings", res.get("fail_reason") == "no_rings", str(res.get("fail_reason")))
 
     print("[smoke] %s（失败 %d 项）" % ("PASS" if not FAILS else "FAIL", len(FAILS)))
     return 1 if FAILS else 0

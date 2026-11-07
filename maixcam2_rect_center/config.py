@@ -65,6 +65,28 @@ class Config:
     UART_RX_MAX_BYTES = 256
     UART_RX_BUFFER_MAX_BYTES = 1024
 
+    # ---- 识别引擎 ----
+    # "plane"：四角 → 归一化 8×8 单应 → 纸面坐标；靶心取**内框**对角线交点，
+    #          同心环只做校验（回答"这里有没有等距同心环"），不参与定位。
+    # "legacy"：v1.3.0 原链路（三层四边形 + 同心圆优先），保留开关便于对比与回退。
+    RECT_ENGINE = "plane"
+    # 纸面模型的真实尺寸（mm，横放）。只影响"环半径 / 毫米"的校验口径，
+    # **不影响靶心**：矩形四角的对角线交点对模型缩放是齐次的，填错只影响校验松紧。
+    RECT_MODEL_MM = (261.0, 174.0)
+    RECT_REFINE_SAMPLES = 14       # 每条边取几个采样点做亚像素定位
+    RECT_REFINE_SPAN = 6.0         # 沿法线搜索外沿的半宽（px）
+    RECT_REFINE_STEP = 0.5         # 亚像素采样步长（px）
+    RECT_TAPE_MAX_PX = 30.0        # 从外沿向内找纸边的最远距离（px），须大于胶带带宽
+    RECT_EDGE_RISE = 10.0          # 判"暗→亮"跳变的灰度差门限（每 0.5px）
+    RECT_BAND_MIN_CONTRAST = 25.0  # 带内比纸面暗多少灰度才认（负样本靠它挡）
+    RECT_RING_RAYS = 72            # 环校验的等分角度数
+    RECT_RING_RADII = 64           # 径向采样档数
+    RECT_RING_MAX_RATIO = 0.48     # 采样半径上限（占纸面短边的一半，1.0=到边）
+    RECT_RING_MIN_CONTRAST = 6.0   # 单环最小灰度落差（高通后）
+    RECT_RING_MIN_COUNT = 3        # 至少几条环才算"有同心环证据"
+    RECT_RING_SPACING_CV = 0.22    # 环间距变异系数上限（等距性）
+    RECT_RING_SMOOTH = 9           # 高通滑动平均窗口（采样档数）
+
     # ---- 识别（自适应反色二值化 + 三层过滤）----
     # 调参顺序：先 RECT_BLOCK_SIZE / RECT_C 把二值图调闭合，再 RECT_MIN_AREA 去碎片，
     # 再 RECT_APPROX_EPS 稳四边形，最后 RECT_MIN/MAX_ASPECT 收紧形状。
@@ -76,7 +98,7 @@ class Config:
     RECT_GAUSS_KERNEL = (5, 5)    # 高斯核；(0, 0) = 跳过模糊
     RECT_BLOCK_SIZE = 31          # 自适应阈值窗口，必须为 >=3 的奇数
     RECT_C = 8.0                  # 自适应阈值常数：调小补断边，调大压噪点
-    RECT_MAX_CANDIDATES = 32      # 候选上限，防病态画面拖慢
+    RECT_MAX_CANDIDATES = 6       # 精修候选上限（精修是唯一的重活），防病态画面拖慢
     RECT_KEEP_STAGES = False      # 真：把 blur/binary 留在 last_stages，供 --stage 导出
 
     # ---- 同心圆（与上面三层四边形**并行**，命中即优先）----
