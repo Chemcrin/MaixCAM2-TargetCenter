@@ -25,11 +25,10 @@ import numpy as np
 
 __all__ = [
     "signed_area", "order_quad", "line_cross", "quad_diagonal_center",
-    "blur_frame", "binarize_frame", "find_quad_candidates", "select_largest",
-    "find_concentric", "deviation",
+    "blur_frame", "edge_map", "deviation",
     "bilinear", "frame_edge_points", "fit_line", "quad_from_lines", "refine_frame",
     "solve_homography", "apply_homography", "invert_homography", "plane_quad",
-    "sample_polar", "ring_report", "quad_mix", "band_evidence",
+    "quad_mix", "band_evidence",
     "find_frame_candidates",
 ]
 
@@ -87,154 +86,24 @@ def blur_frame(gray, kernel):
     return cv2.GaussianBlur(gray, tuple(k), 0)
 
 
-def binarize_frame(blur, block_size, c_const):
-    """自适应反色：比局部均值暗 c_const 以上的像素变白，黑胶带因此成为白色环带。
+def edge_map(gray, low, high, close_kernel):
+    """Canny 边缘 + 闭运算：把细边连成能围出区域的轮廓。
 
-    block_size 必须是 >=3 的奇数，否则 OpenCV 直接抛错——在这里先拦，报错更明确。
+    阈值就是"过滤纸面图案"的旋钮：调高，浅色的印刷环直接消失，只剩胶带那种硬边；
+    调低，环会变成一堆小碎轮廓——它们面积小，后面按面积一筛就没了。
+    high <= 0 表示按中位数自动定阈值，适应曝光变化。
     """
-    if block_size < 3 or block_size % 2 == 0:
-        raise ValueError("RECT_BLOCK_SIZE must be an odd integer >= 3")
-    return cv2.adaptiveThreshold(
-        blur, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY_INV,
-        int(block_size), float(c_const))
-
-
-# ------------------------------------------------------------------ 三层过滤
-def find_quad_candidates(binary, min_area, max_area_ratio, eps_ratio,
-                         min_aspect, max_aspect, max_candidates=32):
-    """面积 / 四边形 / 长宽比三层过滤。返回 (候选列表, 各层淘汰计数)。
-
-    只负责"合不合格"，不负责"选哪个"——择优在 select_largest。
-    每个淘汰分支先记账再 continue，于是有一条可自检的等式：
-        contours = area + quad + aspect + candidates
-    """
-    h, w = binary.shape[:2]
-    total = float(h * w)
-    contours = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[-2]
-    stats = dict(contours=len(contours), area=0, quad=0, aspect=0, candidates=0)
-    out = []
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area < min_area or area > total * max_area_ratio:
-            stats["area"] += 1
-            continue
-        peri = cv2.arcLength(cnt, True)
-        if peri <= 0:
-            stats["quad"] += 1
-            continue
-        approx = cv2.approxPolyDP(cnt, eps_ratio * peri, True)
-        if len(approx) != 4:
-            stats["quad"] += 1
-            continue
-        x, y, bw, bh = cv2.boundingRect(approx)
-        if bh <= 0 or bw <= 0:
-            stats["quad"] += 1
-            continue
-        # 正立外接框的宽高比。前提是靶纸横放：竖放会落到 1/1.414 附近被这里拒掉，
-        # 大角度旋转也会让比值趋近 1。现场若出现这两种情况，改判据而不是抬参数。
-        aspect = bw / float(bh)
-        if aspect < min_aspect or aspect > max_aspect:
-            stats["aspect"] += 1
-            continue
-        out.append(dict(area=float(area), bbox=(x, y, bw, bh), aspect=float(aspect),
-                        approx=approx.reshape(4, 2)))
-        stats["candidates"] += 1
-        if len(out) >= max_candidates:
-            break
-    return out, stats
-
-
-def select_largest(candidates):
-    """在通过三层的候选里取面积最大者；空列表返回 None。"""
-    return max(candidates, key=lambda c: c["area"]) if candidates else None
-
-
-# ------------------------------------------------------------------ 同心圆
-def find_concentric(binary, min_radius, max_radius_ratio,
-                    min_circularity=0.80, min_rings=2, min_outer_radius=20.0,
-                    close_kernel=3, max_contours=240):
-    """在二值图里找一组同心圆，返回 (u, v, r_max, rings) 或 None。
-
-    为什么需要这条独立路径：三条四边形判据要求靶纸四周存在**闭合暗环**，
-    没贴胶带、或胶带被高光/反光打断时整张靶纸连候选都进不了；而画面上任何
-    "被暗边围住的横放矩形"（墙、柜门、门框）反而全部通过，取最大面积就锁错。
-    同心圆是靶纸独有的证据，且**圆心就是靶心本身**，不依赖长宽比前提。
-
-    判据链（任一不满足即整组作废）：
-        单圈圆度 4πA/P² >= min_circularity   —— 区分圆与矩形（正方形仅 0.785）
-        半径去重：同一环的内沿/外沿半径只差线宽，合并成一个 ring
-        圆心聚簇：圆心相距 <= 10% 半径的归为同一组
-        簇内不同半径数 >= min_rings、r_max/r_min >= 1.5、r_max >= min_outer_radius
-
-    为什么要先做闭运算：印在纸上的圆环只有 1~2px 宽，二值化后常被抗锯齿切成
-    若干小弧段；弧段不闭合，`contourArea` 退化成"线宽×弧长"，圆度接近 0，
-    整圈就此消失。3×3 闭运算能把 1~2px 的断口补上，代价是半径略胖 1~2px，
-    对"取圆心"没有影响。
-
-    min_rings 取 2 而不是靶纸的圈数：真实帧里常只有最外圈 + 一圈内环是闭合的
-    （`real_scene_corner_gap.png` 实测 2 组半径、圆度 0.89/0.91），
-    要求 3 圈会把真靶纸一起拒掉。误报由 r_max/r_min >= 1.5 与 min_outer_radius 兜。
-
-    不做拟合、不做亚像素：`minEnclosingCircle` 的圆心在像素级已足够，
-    后续偏差与闭环都按像素工作，亚像素对 165cm 处 0.67px 的靶心没有意义。
-    """
-    h, w = binary.shape[:2]
-    max_r = float(max_radius_ratio) * min(h, w)
-    src = binary
-    if int(close_kernel) >= 3:
-        k = int(close_kernel) | 1                     # 闭运算核必须是奇数
-        src = cv2.morphologyEx(binary, cv2.MORPH_CLOSE,
-                               np.ones((k, k), np.uint8))
-    contours = cv2.findContours(src, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[-2]
-    rings = []
-    for cnt in contours[:int(max_contours)]:
-        area = cv2.contourArea(cnt)
-        if area < 12.0:
-            continue
-        peri = cv2.arcLength(cnt, True)
-        if peri <= 0:
-            continue
-        if 4.0 * math.pi * area / (peri * peri) < min_circularity:
-            continue
-        (cx, cy), r = cv2.minEnclosingCircle(cnt)
-        if r < float(min_radius) or r > max_r:
-            continue
-        rings.append((float(cx), float(cy), float(r)))
-    if len(rings) < int(min_rings):
-        return None
-
-    # 按圆心聚簇：同一组同心圆的各圈圆心高度重合，不同位置的圆不会互吞。
-    clusters = []
-    for cx, cy, r in rings:
-        for cl in clusters:
-            if math.hypot(cx - cl["x"], cy - cl["y"]) <= max(4.0, 0.10 * cl["r"]):
-                n = cl["n"]
-                cl["x"] = (cl["x"] * n + cx) / (n + 1)
-                cl["y"] = (cl["y"] * n + cy) / (n + 1)
-                cl["r"] = max(cl["r"], r)
-                cl["n"] = n + 1
-                cl["radii"].append(r)
-                break
-        else:
-            clusters.append(dict(x=cx, y=cy, r=r, n=1, radii=[r]))
-
-    best = None
-    for cl in clusters:
-        uniq = []
-        for r in sorted(cl["radii"]):
-            if not uniq or r - uniq[-1] > max(3.0, 0.09 * uniq[-1]):
-                uniq.append(r)
-        if len(uniq) < int(min_rings):
-            continue
-        if uniq[-1] < float(min_outer_radius):
-            continue
-        if uniq[-1] / uniq[0] < 1.5:
-            continue
-        # 圈数越多、最外圈越大越可信；同分时留大的那组。
-        score = len(uniq) * uniq[-1]
-        if best is None or score > best[0]:
-            best = (score, cl["x"], cl["y"], uniq[-1], len(uniq))
-    return None if best is None else (best[1], best[2], best[3], best[4])
+    src = gray.astype(np.uint8, copy=False)
+    if high <= 0:
+        med = float(np.median(src))
+        low = int(max(10.0, 0.66 * med))
+        high = int(min(255.0, 1.33 * med))
+    e = cv2.Canny(src, int(low), int(high))
+    k = int(close_kernel)
+    if k >= 3:
+        k |= 1
+        e = cv2.morphologyEx(e, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+    return e
 
 
 # ------------------------------------------------------------------ 灰度采样
@@ -473,61 +342,6 @@ def plane_quad(width, height):
     return np.array([[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]], np.float32)
 
 
-# ------------------------------------------------------------------ 极坐标采样
-def sample_polar(gray, plane_to_image, n_theta, n_r, r_min, r_max):
-    """在平面坐标里按同心圆采样，返回 (半径数组, 灰度矩阵 [n_r, n_theta])。
-
-    圆必须在平面上才是等角度的；直接在图像上画圆会被透视压成椭圆。
-    这里不生成正视图像，只把采样点逆变换回原图取值 —— 省掉整幅 warp。
-    """
-    n_r = max(2, int(n_r))
-    n_theta = max(4, int(n_theta))
-    step = (float(r_max) - float(r_min)) / (n_r - 1)
-    radii = float(r_min) + step * np.arange(n_r)
-    ang = np.linspace(0.0, 2.0 * math.pi, n_theta, endpoint=False)
-    rr, aa = np.meshgrid(radii, ang, indexing='ij')
-    pts = np.stack([rr.ravel() * np.cos(aa.ravel()),
-                    rr.ravel() * np.sin(aa.ravel())], axis=1)
-    img = apply_homography(plane_to_image, pts).reshape(n_r, n_theta, 2)
-    return radii, bilinear(gray, img[..., 0], img[..., 1])
-
-
-def ring_report(radii, samples, min_contrast=6.0, smooth=9):
-    """从极坐标采样读同心环：条数、半径、对比度、间距一致性。
-
-    先减自身滑动平均（高通），把"纸面整体明暗"和"胶带厚边"压掉，只留 1~2px 的细环；
-    再找局部极小并抛物线插值。**只做校验**：这里输出的半径不参与靶心定位，
-    因此不需要全局搜索圆心，也就不存在"拟合残差很小但位置错了"的问题。
-    """
-    r = np.asarray(radii, np.float64)
-    prof = np.asarray(samples, np.float64).mean(axis=1)
-    if r.size < 12 or prof.size != r.size:
-        return dict(count=0, radii=[], contrasts=[], spacing_cv=1.0, contrast=0.0)
-    k = int(max(3, int(smooth) | 1))
-    k = min(k, r.size - 2)
-    base = np.convolve(prof, np.ones(k) / float(k), mode='same')
-    hp = prof - base
-    peaks = []
-    for i in range(2, prof.size - 2):
-        if hp[i] < hp[i - 1] and hp[i] <= hp[i + 1] and -hp[i] >= float(min_contrast):
-            a, b, c = hp[i - 1], hp[i], hp[i + 1]
-            den = a - 2.0 * b + c
-            off = 0.5 * (a - c) / den if abs(den) > 1e-9 else 0.0
-            step = float(r[1] - r[0])
-            peaks.append((float(r[i] + np.clip(off, -1.0, 1.0) * step), float(-b)))
-    if not peaks:
-        return dict(count=0, radii=[], contrasts=[], spacing_cv=1.0, contrast=0.0)
-    hits = [p[0] for p in peaks]
-    contrasts = [p[1] for p in peaks]
-    cv = 1.0
-    if len(hits) >= 3:
-        gaps = np.diff(hits)
-        mean = float(gaps.mean())
-        cv = float(gaps.std() / mean) if mean > 1e-9 else 1.0
-    return dict(count=len(hits), radii=hits, contrasts=contrasts,
-                spacing_cv=cv, contrast=float(max(contrasts)))
-
-
 # ------------------------------------------------------------------ 胶带带候选
 def quad_mix(outer, inner, t):
     """两框对应角做线性混合：t=0 外框、t=1 内框、0.5 带中线（近似）。"""
@@ -554,7 +368,7 @@ def band_evidence(gray, outer, inner):
     return band_g, paper_g, paper_g - band_g
 
 
-def find_frame_candidates(gray, binary, min_area, max_area_ratio, min_aspect, max_aspect,
+def find_frame_candidates(gray, edges, min_area, max_area_ratio, min_aspect, max_aspect,
                           min_contrast, samples=14, span=6.0, inward=30.0, rise=10.0,
                           step=0.5, max_candidates=8):
     """从二值图提"胶带带"候选：轮廓 → 最小外接矩形 → 内外框精修 → 灰度对比度打分。
@@ -564,18 +378,19 @@ def find_frame_candidates(gray, binary, min_area, max_area_ratio, min_aspect, ma
     外接矩形只要求"四个方向上取到极值点"，缺一个角依然成立。
     记账等式：contours = area + shape + aspect + frame + candidates
     """
-    h, w = binary.shape[:2]
+    h, w = edges.shape[:2]
     total = float(h * w)
-    contours = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[-2]
+    contours = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[-2]
     stats = dict(contours=len(contours), area=0, shape=0, aspect=0, frame=0, candidates=0)
     prelim = []
     for cnt in contours:
-        area = cv2.contourArea(cnt)
+        rect = cv2.minAreaRect(cnt)
+        (cx, cy), (rw, rh), ang = rect
+        # 边缘图的轮廓是细线，contourArea 接近 0；用外接矩形面积才对得上"框有多大"。
+        area = float(rw) * float(rh)
         if area < float(min_area) or area > total * float(max_area_ratio):
             stats["area"] += 1
             continue
-        rect = cv2.minAreaRect(cnt)
-        (cx, cy), (rw, rh), ang = rect
         if min(rw, rh) < 12.0:
             stats["shape"] += 1
             continue

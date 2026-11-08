@@ -50,11 +50,22 @@ _LINK = (0, 160, 255)        # BGR 橙：光斑->靶心连线
 
 
 # ------------------------------------------------------------------ 画框
+def _draw_build(canvas, result, top_offset=0):
+    """右上角打 BUILD_ID 短标识：不接串口也能确认板子上跑的是哪一版。"""
+    tag = result.get("build")
+    if not tag:
+        return
+    short = str(tag).split("-", 3)[-1] if str(tag).count("-") >= 3 else str(tag)
+    text = "v" + short
+    (tw, _th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, .38, 1)
+    cv2.putText(canvas, text, (max(4, canvas.shape[1] - tw - 8), 18 + top_offset),
+                cv2.FONT_HERSHEY_SIMPLEX, .38, (0, 220, 255), 1)
+
+
 def draw_result(gray, result, show_width=480, top_offset=0):
     """把一帧结果画成 BGR 画布。坐标一律按 scale 换算，文字仍报原图坐标。
 
-    两条路径各自成图：同心圆 -> 圈出最外环 + 圆心十字；四边形 -> 绿色四边形、
-    黄色外接框、蓝色靶心十字。外接框保留是为了直观看"框选得对不对"。
+    绿色四边形 = 胶带外沿，青色线 = 纸边（定心用），蓝色十字 = 靶心。
     """
     g = np.asarray(gray).squeeze()
     scale = min(1.0, float(show_width) / max(1, g.shape[1]))
@@ -63,20 +74,10 @@ def draw_result(gray, result, show_width=480, top_offset=0):
     canvas = cv2.cvtColor(g, cv2.COLOR_GRAY2BGR)
 
     if not result.get("valid"):
-        cv2.putText(canvas, "NO TARGET", (8, 24 + top_offset),
+        reason = result.get("fail_reason") or result.get("stage") or "-"
+        cv2.putText(canvas, "NO TARGET  " + str(reason), (8, 24 + top_offset),
                     cv2.FONT_HERSHEY_SIMPLEX, .55, (0, 0, 255), 1)
-        return canvas
-
-    circle = result.get("circle")
-    if circle:
-        cu, cv_, radius, rings = circle
-        c = (int(round(cu * scale)), int(round(cv_ * scale)))
-        cv2.circle(canvas, c, max(1, int(round(radius * scale))), (0, 255, 0), 2, cv2.LINE_AA)
-        cv2.drawMarker(canvas, c, (255, 0, 0), cv2.MARKER_CROSS, 14, 2)
-        cv2.putText(canvas, "(%d,%d) r=%d rings=%d %.1fms" %
-                    (round(cu), round(cv_), int(round(radius)), int(rings),
-                     result.get("detector_ms", 0.)),
-                    (8, 22 + top_offset), cv2.FONT_HERSHEY_SIMPLEX, .45, (255, 220, 0), 1)
+        _draw_build(canvas, result, top_offset)
         return canvas
 
     q = np.rint(np.asarray(result["quad"], np.float32) * scale).astype(np.int32)
@@ -84,16 +85,11 @@ def draw_result(gray, result, show_width=480, top_offset=0):
     for x, y in q:
         cv2.circle(canvas, (int(x), int(y)), 3, (255, 0, 255), -1)
 
-    # 内框（纸边）+ 环采样点：调试用，缺省字段直接跳过。
+    # 内框（纸边）：定心用的就是它，画出来便于核对是否贴合。
     inner = result.get("inner_quad")
     if inner is not None:
         iq = np.rint(np.asarray(inner, np.float32) * scale).astype(np.int32)
         cv2.polylines(canvas, [iq], True, (255, 200, 0), 1, cv2.LINE_AA)
-    samples = result.get("circle_points")
-    if samples is not None:
-        pts = np.rint(np.asarray(samples, np.float32) * scale).astype(np.int32)
-        for x, y in pts[::4]:
-            cv2.circle(canvas, (int(x), int(y)), 1, (0, 220, 255), -1)
 
     bbox = result.get("bbox")
     if bbox:
@@ -108,6 +104,7 @@ def draw_result(gray, result, show_width=480, top_offset=0):
                 (round(result["u"]), round(result["v"]), int(result.get("area", 0)),
                  float(result.get("aspect", 0.)), result.get("detector_ms", 0.)),
                 (8, 22 + top_offset), cv2.FONT_HERSHEY_SIMPLEX, .45, (255, 220, 0), 1)
+    _draw_build(canvas, result, top_offset)
     return canvas
 
 
@@ -869,9 +866,8 @@ def perf_line(build_id, capture_fps, display_fps, display_low1, vision_fps,
     split = det.get("t_ms") or {}
     split_tag = ""
     if split:
-        split_tag = " det_split=%.1f/%.1f/%.1f/%.1f" % (
-            split.get("blur", 0.0), split.get("bin", 0.0),
-            split.get("cand", 0.0), split.get("ring", 0.0))
+        split_tag = " det_split=%.1f/%.1f/%.1f" % (
+            split.get("blur", 0.0), split.get("bin", 0.0), split.get("cand", 0.0))
     return ("[perf] %s capture=%.1f disp=%.1f low1=%.1f detect_fps=%.1f "
             "valid=%s stage=%s | read=%.1f draw=%.1f loop=%.1f ms | "
             "show avg=%.1f p95=%.1f max=%.1fms n=%d | "

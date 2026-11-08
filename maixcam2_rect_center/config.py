@@ -65,54 +65,29 @@ class Config:
     UART_RX_MAX_BYTES = 256
     UART_RX_BUFFER_MAX_BYTES = 1024
 
-    # ---- 识别引擎 ----
-    # "plane"：四角 → 归一化 8×8 单应 → 纸面坐标；靶心取**内框**对角线交点，
-    #          同心环只做校验（回答"这里有没有等距同心环"），不参与定位。
-    # "legacy"：v1.3.0 原链路（三层四边形 + 同心圆优先），保留开关便于对比与回退。
-    RECT_ENGINE = "plane"
-    # 纸面模型的真实尺寸（mm，横放）。只影响"环半径 / 毫米"的校验口径，
-    # **不影响靶心**：矩形四角的对角线交点对模型缩放是齐次的，填错只影响校验松紧。
-    RECT_MODEL_MM = (261.0, 174.0)
-    RECT_REFINE_SAMPLES = 14       # 每条边取几个采样点做亚像素定位
-    RECT_REFINE_SPAN = 6.0         # 沿法线搜索外沿的半宽（px）
-    RECT_REFINE_STEP = 0.5         # 亚像素采样步长（px）
-    RECT_TAPE_MAX_PX = 30.0        # 从外沿向内找纸边的最远距离（px），须大于胶带带宽
-    RECT_EDGE_RISE = 10.0          # 判"暗→亮"跳变的灰度差门限（每 0.5px）
-    RECT_BAND_MIN_CONTRAST = 25.0  # 带内比纸面暗多少灰度才认（负样本靠它挡）
-    RECT_RING_RAYS = 72            # 环校验的等分角度数
-    RECT_RING_RADII = 64           # 径向采样档数
-    RECT_RING_MAX_RATIO = 0.48     # 采样半径上限（占纸面短边的一半，1.0=到边）
-    RECT_RING_MIN_CONTRAST = 6.0   # 单环最小灰度落差（高通后）
-    RECT_RING_MIN_COUNT = 3        # 至少几条环才算"有同心环证据"
-    RECT_RING_SPACING_CV = 0.22    # 环间距变异系数上限（等距性）
-    RECT_RING_SMOOTH = 9           # 高通滑动平均窗口（采样档数）
+    # ---- 识别（Canny 边缘 → 轮廓 → 矩形 → 内框四角）----
+    RECT_MIN_AREA = 300           # 最小轮廓面积（px2）
+    RECT_MAX_AREA_RATIO = 0.92    # 面积上限（占整幅比例），挡"锁到整面墙"
+    RECT_MIN_ASPECT = 1.10        # 矩形长短边比（按最小外接矩形算，与旋转无关）
+    RECT_MAX_ASPECT = 1.80
+    RECT_GAUSS_KERNEL = (5, 5)    # 边缘检测前的高斯核；(0, 0) = 跳过
+    # Canny 双阈值：0 / 0 = 按画面中位数自动定。★ 这是"过滤纸面图案"的主旋钮——
+    # 调高，浅色印刷环直接消失；调低，环会变成一堆小轮廓，被面积门筛掉。
+    RECT_CANNY_LOW = 0
+    RECT_CANNY_HIGH = 0
+    RECT_EDGE_CLOSE = 5           # 边缘图闭运算核：把断边连起来，奇数，<3 = 跳过
+    RECT_MAX_CANDIDATES = 6       # 精修候选上限（精修是唯一的重活）
+    RECT_KEEP_STAGES = False      # 真：把 blur/edges 留在 last_stages，供 --stage 导出
 
-    # ---- 识别（自适应反色二值化 + 三层过滤）----
-    # 调参顺序：先 RECT_BLOCK_SIZE / RECT_C 把二值图调闭合，再 RECT_MIN_AREA 去碎片，
-    # 再 RECT_APPROX_EPS 稳四边形，最后 RECT_MIN/MAX_ASPECT 收紧形状。
-    RECT_MIN_AREA = 300           # 最小轮廓面积（px2）；先小后大
-    RECT_MAX_AREA_RATIO = 0.92    # 面积上限（占整幅比例）：挡"锁到整面墙/门框"
-    RECT_APPROX_EPS = 0.02        # 多边形近似精度（占周长比例）
-    RECT_MIN_ASPECT = 1.10        # 正立外接框宽高比下限；前提是靶纸横放
-    RECT_MAX_ASPECT = 1.80        # 上限；目标约 1.414
-    RECT_GAUSS_KERNEL = (5, 5)    # 高斯核；(0, 0) = 跳过模糊
-    RECT_BLOCK_SIZE = 31          # 自适应阈值窗口，必须为 >=3 的奇数
-    RECT_C = 8.0                  # 自适应阈值常数：调小补断边，调大压噪点
-    RECT_MAX_CANDIDATES = 6       # 精修候选上限（精修是唯一的重活），防病态画面拖慢
-    RECT_KEEP_STAGES = False      # 真：把 blur/binary 留在 last_stages，供 --stage 导出
-
-    # ---- 同心圆（与上面三层四边形**并行**，命中即优先）----
-    # 为什么要有：三层四边形要求"闭合暗环 + 靶纸横放"。没贴胶带、胶带被高光打断时
-    # 整张靶纸连候选都进不了，而画面里任何"被暗边围住的横放矩形"反而全过，
-    # 取最大面积就锁错。同心圆是靶纸独有证据，圆心就是靶心。
-    # 关掉本组（RECT_CIRCLE_ENABLE=False）即完全退回 v1.3.0 行为。
-    RECT_CIRCLE_ENABLE = True
-    RECT_CIRCLE_CIRCULARITY = 0.80   # 单圈圆度 4πA/P² 下限；正方形只有 0.785，不宜再低
-    RECT_CIRCLE_MIN_RINGS = 2        # 至少几圈同心才认；真实帧常只有 2 圈是闭合的
-    RECT_CIRCLE_MIN_RADIUS = 2.0     # 单个圈半径下限（px）；靶纸最内圈可能只有 2~3px
-    RECT_CIRCLE_MIN_OUTER_RADIUS = 20.0   # 最外圈半径下限（px），主要挡小零件/噪点
-    RECT_CIRCLE_MAX_RADIUS_RATIO = 0.45   # 最外圈半径上限（占画面短边），挡"整面墙的圆形"
-    RECT_CIRCLE_CLOSE_KERNEL = 5     # 检测前闭运算核；补细圆环断口。⚠ 实测 3 反会破坏检测，用 5/7
+    # ---- 内外框精修（黑胶带是一条带子，有内外两条边）----
+    # 靶心取**内框**（纸边）：胶带上下不等宽时，外框中心会偏出半个带宽，实测 8~11px。
+    RECT_MODEL_MM = (261.0, 174.0)  # 纸面模型尺寸；只影响 width_mm/height_mm，不影响靶心
+    RECT_REFINE_SAMPLES = 14      # 每条边取几个剖面
+    RECT_REFINE_SPAN = 6.0        # 沿法线向外搜索的半宽（px）
+    RECT_REFINE_STEP = 0.5        # 剖面采样步长（px）
+    RECT_TAPE_MAX_PX = 30.0       # 从外沿向内找纸边的最远距离（px），须大于胶带带宽
+    RECT_EDGE_RISE = 10.0         # 判"暗带"的最小灰度落差
+    RECT_BAND_MIN_CONTRAST = 25.0 # 带内比纸面暗多少灰度才认
 
     # ---- 激光光斑读数（相机与激光固连，光斑位置近似固定）----
     # "fixed"：不检测，每帧只算"黑框中心 − 标定常量"，零开销（默认）
