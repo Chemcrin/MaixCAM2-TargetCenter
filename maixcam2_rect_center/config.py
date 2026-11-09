@@ -9,6 +9,8 @@ class Config:
     LENS_CORR = False
     LENS_STRENGTH = 1.5
     SHOW = True
+    # True = 保留 MaixVision 图传（从 IDE 运行就能看到画面）；False = 强制本地屏、不图传。
+    SHOW_STREAM = True
     # 0 = 用屏幕原始宽度（推荐）：640×480 画布与相机同尺寸，驱动层不再缩放
     SHOW_WIDTH = 0
     SHOW_FPS = 40

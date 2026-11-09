@@ -192,12 +192,19 @@ def aligned_frame(snapshot, live_gray, result):
     return live_gray
 
 
-def _local_display_call(callback):
-    """建 Display 时临时置 MAIXVISION=0，绕开 MaixVision 图传未就绪时的 500ms 忙等。"""
+def _open_display(display_module, stream):
+    """建 Display。stream=True（默认）保留 MaixVision 图传；False 才强制本地屏。
+
+    历史坑：早期为了绕开"图传未就绪时 send_image() 忙等 500ms"，在建 Display 前把
+    MAIXVISION 置 0。副作用是**图传被彻底关掉**——从 MaixVision 运行也看不到画面。
+    现在默认不碰这个变量；慢的问题交给显示线程（show 再慢只掉预览帧，不拖识别）。
+    """
+    if stream:
+        return display_module.Display()
     previous = os.environ.get("MAIXVISION")
     try:
         os.environ["MAIXVISION"] = "0"
-        return callback()
+        return display_module.Display()
     finally:
         if previous is None:
             os.environ.pop("MAIXVISION", None)
@@ -257,7 +264,8 @@ class Preview:
             return
         try:
             from maix import display
-            self.display = _local_display_call(display.Display)
+            self.stream = bool(getattr(cfg, "SHOW_STREAM", True))
+            self.display = _open_display(display, self.stream)
             self.width = int(self.display.width())
             self.height = int(self.display.height())
             # 画布宽度：SHOW_WIDTH<=0 ⇒ 用屏幕原始宽度（画布＝屏幕 ⇒ show() 零缩放）。
@@ -267,10 +275,10 @@ class Preview:
             if hasattr(display, "set_trans_image_quality"):
                 display.set_trans_image_quality(int(getattr(cfg, "SHOW_JPEG_QUALITY", 70)))
             self.enabled = True
-            print("[preview] mode=%s screen=%dx%d canvas=%dx%d show_fps=%d"
+            print("[preview] mode=%s screen=%dx%d canvas=%dx%d show_fps=%d stream=%s"
                   % ("display-thread" if self.async_show else "sync-inprocess",
                      self.width, self.height, self.render_width, self.render_height,
-                     int(getattr(cfg, "SHOW_FPS", 30))))
+                     int(getattr(cfg, "SHOW_FPS", 30)), "on" if self.stream else "off"))
             # ★ 开机探针：立刻量一次 show() 真实耗时。本地屏典型 1~5ms；若命中 MaixCDK 的
             #   "MaixVision 图传未就绪"分支，send_image() 会在 C++ 里**忙等 500ms 并空转 CPU**
             #   （见 MaixCDK components/vision/src/maix_image_trans.cpp），表现为 show 恒定
@@ -400,7 +408,7 @@ class Preview:
             return -1.0
         if ms >= 300.:
             print("[preview] show 探针 %.0fms：本地显示偏慢；检查 SDK 是否复用了旧图传对象。" % ms)
-            print("[preview] 对策：确认 Display 构造时 MAIXVISION=0；或从设备本地启动对照本地屏耗时。")
+            print("[preview] 对策：确认 SHOW_STREAM 没被关掉；或从设备本地启动对照本地屏耗时。")
         else:
             print("[preview] show 探针 %.1fms —— 显示链路健康（本地屏典型 1~5ms）" % ms)
         return ms
@@ -877,9 +885,10 @@ def perf_line(build_id, capture_fps, display_fps, display_low1, vision_fps,
              read_avg, draw_avg, loop_avg,
              show_avg, show_p95, show_max, show_n,
              age_s * 1000, shown, drop_show, drop_vision)) + (
-            " det_valid=%s det_stage=%s det_ms=%.1f det_masks=%d det_fail=%s det_props=%d" %
+            " det_valid=%s det_stage=%s det_ms=%.1f det_masks=%d det_fail=%s det_props=%d det_band=%d" %
             (det.get("valid", False), det.get("stage"), det.get("detector_ms", 0.),
-             det.get("masks", 0), fail_tag, det.get("proposals", 0))) + split_tag
+             det.get("masks", 0), fail_tag, det.get("proposals", 0),
+             int((det.get("band") or {}).get("contrast") or 0))) + split_tag
 
 def draw_preview(cfg, preview, gray, result, laser, age, fps, status, now):
     view = draw_result(gray, result, preview.render_width, top_offset=PANEL_H if laser else 0)

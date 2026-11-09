@@ -10,21 +10,21 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-08 12:38:01
-    config.py                    sha1=96841b027e34
+生成时间：2026-11-09 13:18:43
+    config.py                    sha1=6e9b6410da60
     main.py                      sha1=c2f5fb47aa9e
     target_api.py                sha1=228e453c656f
     vision/__init__.py           sha1=6e0b16db8298
     vision/algo.py               sha1=19231b8d4804
-    vision/logic.py              sha1=671e70088c29
-    vision/output.py             sha1=c22b297b6470
+    vision/logic.py              sha1=ae0a083e1806
+    vision/output.py             sha1=3fde3164f35b
     vision/poll.py               sha1=992056fd530e
 """
 
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '96841b027e34a931d46502ccc43a84824b5d7691', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': '19231b8d48047b7ed0f24af9a02371369e1e652d', 'vision/output.py': 'c22b297b6470a4d02a3c1ff94b92679568f5aad1', 'vision/logic.py': '671e70088c29101cb4dee2641f35a1c57e01f02c', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': '228e453c656f41797d4dc6099e2d87b96ffb53ed', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': '6e9b6410da601d77d8794b9b339434db522a24c3', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': '19231b8d48047b7ed0f24af9a02371369e1e652d', 'vision/output.py': '3fde3164f35b6b25eb370cd8c6ab122e9e746e7b', 'vision/logic.py': 'ae0a083e1806a8ef9dc90377bc6cc7f4839d4c79', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': '228e453c656f41797d4dc6099e2d87b96ffb53ed', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -44,6 +44,8 @@ class Config:
     LENS_CORR = False
     LENS_STRENGTH = 1.5
     SHOW = True
+    # True = 保留 MaixVision 图传（从 IDE 运行就能看到画面）；False = 强制本地屏、不图传。
+    SHOW_STREAM = True
     # 0 = 用屏幕原始宽度（推荐）：640×480 画布与相机同尺寸，驱动层不再缩放
     SHOW_WIDTH = 0
     SHOW_FPS = 40
@@ -1077,12 +1079,19 @@ def aligned_frame(snapshot, live_gray, result):
     return live_gray
 
 
-def _local_display_call(callback):
-    """建 Display 时临时置 MAIXVISION=0，绕开 MaixVision 图传未就绪时的 500ms 忙等。"""
+def _open_display(display_module, stream):
+    """建 Display。stream=True（默认）保留 MaixVision 图传；False 才强制本地屏。
+
+    历史坑：早期为了绕开"图传未就绪时 send_image() 忙等 500ms"，在建 Display 前把
+    MAIXVISION 置 0。副作用是**图传被彻底关掉**——从 MaixVision 运行也看不到画面。
+    现在默认不碰这个变量；慢的问题交给显示线程（show 再慢只掉预览帧，不拖识别）。
+    """
+    if stream:
+        return display_module.Display()
     previous = os.environ.get("MAIXVISION")
     try:
         os.environ["MAIXVISION"] = "0"
-        return callback()
+        return display_module.Display()
     finally:
         if previous is None:
             os.environ.pop("MAIXVISION", None)
@@ -1142,7 +1151,8 @@ class Preview:
             return
         try:
             from maix import display
-            self.display = _local_display_call(display.Display)
+            self.stream = bool(getattr(cfg, "SHOW_STREAM", True))
+            self.display = _open_display(display, self.stream)
             self.width = int(self.display.width())
             self.height = int(self.display.height())
             # 画布宽度：SHOW_WIDTH<=0 ⇒ 用屏幕原始宽度（画布＝屏幕 ⇒ show() 零缩放）。
@@ -1152,10 +1162,10 @@ class Preview:
             if hasattr(display, "set_trans_image_quality"):
                 display.set_trans_image_quality(int(getattr(cfg, "SHOW_JPEG_QUALITY", 70)))
             self.enabled = True
-            print("[preview] mode=%s screen=%dx%d canvas=%dx%d show_fps=%d"
+            print("[preview] mode=%s screen=%dx%d canvas=%dx%d show_fps=%d stream=%s"
                   % ("display-thread" if self.async_show else "sync-inprocess",
                      self.width, self.height, self.render_width, self.render_height,
-                     int(getattr(cfg, "SHOW_FPS", 30))))
+                     int(getattr(cfg, "SHOW_FPS", 30)), "on" if self.stream else "off"))
             # ★ 开机探针：立刻量一次 show() 真实耗时。本地屏典型 1~5ms；若命中 MaixCDK 的
             #   "MaixVision 图传未就绪"分支，send_image() 会在 C++ 里**忙等 500ms 并空转 CPU**
             #   （见 MaixCDK components/vision/src/maix_image_trans.cpp），表现为 show 恒定
@@ -1285,7 +1295,7 @@ class Preview:
             return -1.0
         if ms >= 300.:
             print("[preview] show 探针 %.0fms：本地显示偏慢；检查 SDK 是否复用了旧图传对象。" % ms)
-            print("[preview] 对策：确认 Display 构造时 MAIXVISION=0；或从设备本地启动对照本地屏耗时。")
+            print("[preview] 对策：确认 SHOW_STREAM 没被关掉；或从设备本地启动对照本地屏耗时。")
         else:
             print("[preview] show 探针 %.1fms —— 显示链路健康（本地屏典型 1~5ms）" % ms)
         return ms
@@ -1762,9 +1772,10 @@ def perf_line(build_id, capture_fps, display_fps, display_low1, vision_fps,
              read_avg, draw_avg, loop_avg,
              show_avg, show_p95, show_max, show_n,
              age_s * 1000, shown, drop_show, drop_vision)) + (
-            " det_valid=%s det_stage=%s det_ms=%.1f det_masks=%d det_fail=%s det_props=%d" %
+            " det_valid=%s det_stage=%s det_ms=%.1f det_masks=%d det_fail=%s det_props=%d det_band=%d" %
             (det.get("valid", False), det.get("stage"), det.get("detector_ms", 0.),
-             det.get("masks", 0), fail_tag, det.get("proposals", 0))) + split_tag
+             det.get("masks", 0), fail_tag, det.get("proposals", 0),
+             int((det.get("band") or {}).get("contrast") or 0))) + split_tag
 
 def draw_preview(cfg, preview, gray, result, laser, age, fps, status, now):
     view = draw_result(gray, result, preview.render_width, top_offset=PANEL_H if laser else 0)
@@ -1817,7 +1828,7 @@ from .output import (Preview, aligned_frame, apply_commands, display_result,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-08-plane-frame-v2"
+BUILD_ID = "2026-11-09-plane-frame-v3"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
