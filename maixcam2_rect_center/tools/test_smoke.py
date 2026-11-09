@@ -92,13 +92,16 @@ def main():
     seq = [tracker.track(blank) for _ in range(12)]
     check("最终拒检", not seq[-1].valid, repr(seq[-1]))
 
-    print("[smoke] 8. 跟踪门：目标瞬间跳到别处，不得把中心直接拽过去")
+    print("[smoke] 8. 跟踪门：目标瞬间跳到别处，应在几帧内跟上且不再摆回")
     tracker = CenterTracker()
     tracker.track(frame)
-    far = draw_frame(80, 80, 240, 170)
-    res = tracker.track(far)
-    moved = abs(res.u - 320.0) + abs(res.v - 240.0) if res.valid else 0.0
-    check("中心未被拽飞", (not res.valid) or moved < 160.0, "moved=%.1f" % moved)
+    far = draw_frame(200, 150, 240, 170)
+    seq = [tracker.track(far) for _ in range(4)]
+    check("跳变后 4 帧全部 valid", all(r.valid for r in seq), str([r.valid for r in seq]))
+    last = seq[-1]
+    err = abs(last.u - 200.0) + abs(last.v - 150.0) if last.valid else 999.0
+    check("恢复后中心对准新位置(<=25px)", err <= 25.0, "err=%.1f" % err)
+    check("不会摆回旧位置", seq[-1].u < 300.0 if last.valid else True, "u=%.1f" % (last.u or -1))
 
     print("[smoke] %s（失败 %d 项）" % ("PASS" if not FAILS else "FAIL", len(FAILS)))
     return 1 if FAILS else 0

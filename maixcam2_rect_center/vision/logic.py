@@ -28,15 +28,15 @@ import time
 import cv2
 import numpy as np
 
-from .algo import (auto_level, box_center, components, dark_mask, deviation,
-                   downscale, frame_candidates, nearest_component, paper_rect,
-                   rect_quad)
+from .algo import (adaptive_mask, auto_level, box_center, components,
+                   dark_mask, deviation, downscale, frame_candidates,
+                   nearest_component, paper_rect, rect_quad)
 from .output import (Preview, aligned_frame, apply_commands, display_result,
                     draw_preview, estimate_move_seconds, perf_line, stop_motion,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-10-fast-track-v9"
+BUILD_ID = "2026-11-09-fast-track-v15"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -99,7 +99,6 @@ class RectangleCenterDetector:
         self.max_aspect = float(getattr(config, "RECT_MAX_ASPECT", 2.60))
         self.min_fill = float(getattr(config, "RECT_MIN_FILL", 0.03))
         self.max_fill = float(getattr(config, "RECT_MAX_FILL", 0.70))
-        self.min_edge = float(getattr(config, "RECT_MIN_EDGE", 0.20))
         self.paper_rounds = int(getattr(config, "RECT_PAPER_ROUNDS", 2))
         self.track_expand = float(getattr(config, "RECT_TRACK_EXPAND", 1.60))
         self.track_margin = float(getattr(config, "RECT_TRACK_MARGIN", 16.0))
@@ -110,6 +109,17 @@ class RectangleCenterDetector:
         self.max_speed = float(getattr(config, "RECT_MAX_SPEED", 2500.0))
         self.gate = float(getattr(config, "RECT_TRACK_GATE", 0.45))
         self.track_max_side = float(getattr(config, "RECT_TRACK_MAX_SIDE", 240.0))
+        self.min_contrast = float(getattr(config, "RECT_MIN_BAND_CONTRAST", 30.0))
+        self.adapt_block = int(getattr(config, "RECT_ADAPT_BLOCK", 31))
+        self.adapt_c = float(getattr(config, "RECT_ADAPT_C", 12.0))
+        self.prior = (
+            float(getattr(config, "LASER_U_NOMINAL", 0.0)) if getattr(config, "ENABLE_LASER", False) else -1.0,
+            float(getattr(config, "LASER_V_NOMINAL", 0.0)))
+        if not getattr(config, "ENABLE_LASER", False):
+            self.prior = (-1.0, -1.0)
+        self._last_log = -1e9
+        self.debug_map = bool(getattr(config, "RECT_DEBUG_MAP", False))
+        self._printed_map = False
         self.keep_stages = bool(getattr(config, "RECT_KEEP_STAGES", False))
         self.last = None
         self.last_stages = {}
@@ -128,10 +138,41 @@ class RectangleCenterDetector:
         self.tracking = False
         self._frames = 0
         self._last_components = 0
+        self._printed_map = False
         self._last_ts = None
         self._hit_ts = None
 
     # ------------------------------------------------------------- 内部工具
+    def _debug_map(self, small, level):
+        """把降采样后的灰度图打成 64×32 的十六进制字符画（一次搜索只打一次）。
+
+        现场调阈值时，这是唯一能"看见板子看到什么"的手段：每格是一个十六进制位
+        （0=最暗 f=最亮），配合 lv 就能判断阈值该往上还是往下。
+        """
+        if not self.debug_map or self._printed_map:
+            return
+        self._printed_map = True
+        m = cv2.resize(small, (64, 32), interpolation=cv2.INTER_AREA)
+        print("[map] ---- level=%.0f (0=dark f=bright)" % level)
+        for row in m:
+            print("[map] " + "".join("%X" % (v >> 4) for v in row))
+
+    def _log_candidates(self, cands, s, level, level_b=None):
+        """搜框时把候选打一行日志（限频 1s），现场排障靠它，别删。"""
+        now = time.perf_counter()
+        if now - self._last_log < 1.0:
+            return
+        self._last_log = now
+        parts = []
+        for c in cands[:5]:
+            parts.append("%s(%d,%d %dx%d e=%.2f con=%.0f%s)" % (
+                "D",
+                c["x"] * s, c["y"] * s, c["w"] * s, c["h"] * s, c["edge"],
+                c["contrast"], "" if c["ok"] else "/x"))
+        print("[cand] lv=%.0f lvb=%.0f n=%d %s"
+              % (level, -1.0 if level_b is None else level_b, len(cands),
+                 " ".join(parts) or "-"))
+
     def _level_for(self, img):
         return auto_level(img, 2.0, 90.0, self.level_ratio,
                           self.level_floor, self.level_ceil)
@@ -160,16 +201,34 @@ class RectangleCenterDetector:
         s = self.scale
         small = downscale(g, s)
         level = self._level_for(small)
-        mask = dark_mask(small, level)
+        mask = adaptive_mask(small, self.adapt_block, self.adapt_c)
+        self._debug_map(small, level)
         comps, _cent = components(mask)
         stats["components"] = int(comps.shape[0])
-        cands = frame_candidates(comps, _cent, mask, self.min_area / float(s * s),
-                                 self.max_area_ratio, self.min_aspect, self.max_aspect,
-                                 self.min_fill, self.max_fill, self.min_edge)
-        if not cands:
+        area_min = self.min_area / float(s * s)
+        # 暗环法：背景比纸亮（亮墙 + 黑胶带）时才成立。
+        dark = frame_candidates(comps, _cent, mask, small, level, area_min,
+                                self.max_area_ratio, self.min_aspect, self.max_aspect,
+                                self.min_fill, self.max_fill, self.min_contrast,
+                                self.paper_rounds)
+        cands = dark
+        cands = dark
+        self._log_candidates(cands, s, level)
+        good = [c for c in cands if c["ok"]]
+        if not good:
             return None
-        c = cands[0]
-        paper = paper_rect(small, (c["x"], c["y"], c["w"], c["h"]), level, self.paper_rounds)
+        # 通过全部判据的候选按"离预期瞄准点最近"排序：操作手把相机对准靶纸，
+        # 所以离光斑标称位置最近的那一个才是靶纸。面积最大不代表最像靶纸 ——
+        # 实测洞洞板面积更大、四边也有暗孔，只有"框内比框边亮"能把它筛掉。
+        px, py = self.prior
+        if px < 0.0 or py < 0.0:
+            px, py = g.shape[1] * 0.5, g.shape[0] * 0.5
+        good.sort(key=lambda c: (abs((c["x"] + c["w"] * 0.5) * s - px) +
+                                 abs((c["y"] + c["h"] * 0.5) * s - py),
+                                 -c["contrast"]))
+        c = good[0]
+        paper = paper_rect(small, (c["x"], c["y"], c["w"], c["h"]), level,
+                           self.paper_rounds)
         box = (c["x"] * s, c["y"] * s, c["w"] * s, c["h"] * s)
         bcx, bcy = box_center(box)
         if paper is not None:
@@ -180,7 +239,8 @@ class RectangleCenterDetector:
         return dict(center=(pcx, pcy), box=box, level=level, reacquire=True,
                     offset=((pcx - bcx) / max(1.0, box[2]),
                             (pcy - bcy) / max(1.0, box[3])),
-                    area=c["area"] * s * s, aspect=c["aspect"], edge=c["edge"])
+                    area=c["area"] * s * s, aspect=c["aspect"], edge=c["edge"],
+                    contrast=c["contrast"])
 
     # ------------------------------------------------------------- ROI 跟踪
     def _track(self, g, ts):
@@ -211,7 +271,7 @@ class RectangleCenterDetector:
         self._frames += 1
         if self.level is None or self._frames % self.level_refresh == 0:
             self.level = self._level_for(small)
-        mask = dark_mask(small, self.level)
+        mask = adaptive_mask(small, self.adapt_block, self.adapt_c)
         comps, cent = components(mask)
         self._last_components = int(comps.shape[0])
         c = nearest_component(comps, cent, ((pred[0] - x0) / s, (pred[1] - y0) / s),
@@ -249,8 +309,13 @@ class RectangleCenterDetector:
                     vx *= self.max_speed / speed
                     vy *= self.max_speed / speed
                 self.velocity = (vx, vy)
-        if self.center is None or self.lost > 0:
-            self.center = meas                      # 重新捕获：直接对齐，不做低通
+        # 重新捕获：直接对齐，不做低通。判定"重新捕获"的标准是全图搜框回来的
+        # 结果离当前中心超过半个框 —— 这种情况多半是换场景/换靶，旧中心已经没意义。
+        jumped = (det.get("reacquire") and self.center is not None and
+                  abs(meas[0] - self.center[0]) + abs(meas[1] - self.center[1]) >
+                  0.6 * max(det["box"][2], det["box"][3]))
+        if self.center is None or self.lost > 0 or jumped:
+            self.center = meas
         else:
             k = self.smooth
             self.center = (self.center[0] + k * (meas[0] - self.center[0]),
@@ -305,7 +370,8 @@ class RectangleCenterDetector:
                     refined_edges=4, weak_edges=0, clipped_edges=0,
                     rect_to_image=None, circle_points=None,
                     band=dict(level=det.get("level"), edge=edge,
-                              contrast=float((edge or 0.0) * 100.0)),
+                              paper=det.get("paper"), body=det.get("body"),
+                              contrast=float(det.get("contrast") or 0.0)),
                     confidence=float(1.0 if not hold else
                                      max(0.2, 1.0 - self.lost / float(max(1, self.hold)))))
 
@@ -894,8 +960,8 @@ def run():
         controller = state['controller'] = VisionControl(cfg, state['link'], state['aim'], clock=clock)
         worker = state['worker'] = LatestFrameWorker(controller.process, controller.idle,
                                                     cfg.VISION_ASYNC, clock=clock)
-        print('[rect-center] %s scale=1/%d level=%.2f display_width=%d display_fps=%d' %
-              (BUILD_ID, cfg.RECT_DOWNSCALE, cfg.RECT_LEVEL_RATIO,
+        print('[rect-center] %s scale=1/%d adapt=%d/%.0f display_width=%d display_fps=%d' %
+              (BUILD_ID, cfg.RECT_DOWNSCALE, cfg.RECT_ADAPT_BLOCK, cfg.RECT_ADAPT_C,
                preview.render_width, cfg.SHOW_FPS))
         print('[preview] async=%s canvas=%dx%d' % (cfg.SHOW_ASYNC, preview.render_width, preview.render_height))
         print('[vision] latest-frame worker=%s max_result_age=%.0fms' % (cfg.VISION_ASYNC, cfg.RESULT_MAX_AGE_S*1000))

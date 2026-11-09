@@ -237,6 +237,7 @@ class Preview:
         self.cfg = cfg
         self._clock = clock if clock is not None else time
         self.display = None
+        self.stream_obj = None                  # MaixVision 图传（独立进程，可为 None）
         self.width = self.height = 0            # 物理屏幕尺寸
         self.render_width = self.render_height = 0
         self.enabled = False                    # 显示是否可用；任何一步失败都置 False 并停用
@@ -264,8 +265,11 @@ class Preview:
             return
         try:
             from maix import display
-            self.stream = bool(getattr(cfg, "SHOW_STREAM", True))
-            self.display = _open_display(display, self.stream)
+            self.stream_on = bool(getattr(cfg, "SHOW_STREAM", True))
+            # 本地屏一律用 MAIXVISION=0 建 Display：内置图传在"连接未就绪"时会在 C++ 里
+            # 忙等 500ms 并占住解释器锁，把识别拖到 20 秒/帧。要 MaixVision 画面就走
+            # 下面的独立进程（`vision/maixvision_stream.py`），它不碰主线程。
+            self.display = _open_display(display, False)
             self.width = int(self.display.width())
             self.height = int(self.display.height())
             # 画布宽度：SHOW_WIDTH<=0 ⇒ 用屏幕原始宽度（画布＝屏幕 ⇒ show() 零缩放）。
@@ -278,12 +282,23 @@ class Preview:
             print("[preview] mode=%s screen=%dx%d canvas=%dx%d show_fps=%d stream=%s"
                   % ("display-thread" if self.async_show else "sync-inprocess",
                      self.width, self.height, self.render_width, self.render_height,
-                     int(getattr(cfg, "SHOW_FPS", 30)), "on" if self.stream else "off"))
+                     int(getattr(cfg, "SHOW_FPS", 30)), "on" if self.stream_on else "off"))
             # ★ 开机探针：立刻量一次 show() 真实耗时。本地屏典型 1~5ms；若命中 MaixCDK 的
             #   "MaixVision 图传未就绪"分支，send_image() 会在 C++ 里**忙等 500ms 并空转 CPU**
             #   （见 MaixCDK components/vision/src/maix_image_trans.cpp），表现为 show 恒定
             #   ~505ms、并连带把相机/识别/闭环一起拖慢。这条必须当场说清。
             self._probe_show()
+            if self.stream_on:
+                try:
+                    from .maixvision_stream import MaixVisionStream
+                    self.stream_obj = MaixVisionStream(cfg, self.render_width,
+                                                       self.render_height, clock=self._clock)
+                    print("[stream] MaixVision 图传已启动（独立进程，%dx%d）%s"
+                          % (self.render_width, self.render_height,
+                             "" if getattr(self.stream_obj, "enabled", False) else " —— 未启用"))
+                except Exception as exc:
+                    self.stream_obj = None
+                    print("[stream] 图传启动失败（只影响 MaixVision 画面）: %s" % exc)
             if self.async_show:
                 self.thread = threading.Thread(target=self._show_loop, name="display", daemon=True)
                 self.thread.start()
@@ -433,6 +448,13 @@ class Preview:
             print("[preview] show 失败，停用显示: %s" % exc)
             return False
         ms = (self._clock.perf_counter() - t0) * 1000.0
+        if self.stream_obj is not None:
+            try:
+                self.stream_obj.submit(canvas)
+            except Exception as exc:
+                print("[stream] 投递失败，停用图传: %s" % exc)
+                self.stream_obj.close()
+                self.stream_obj = None
         self.shown += 1
         completed = self._clock.perf_counter()
         self.rate.record(completed)
@@ -464,6 +486,12 @@ class Preview:
                 self.thread.join(timeout=2.0)
                 if self.thread.is_alive():
                     raise RuntimeError("display thread did not stop")
+        if self.stream_obj is not None:
+            try:
+                self.stream_obj.close()
+            except Exception:
+                pass
+            self.stream_obj = None
         if self.display is not None:
             try:
                 self.display.close()

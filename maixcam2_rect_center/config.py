@@ -12,7 +12,7 @@ class Config:
     # True = 保留 MaixVision 图传（仅在「运行项目」模式下有效）；
     # False = 强制本地屏、不图传。★ 实测：图传通道没建立时 send_image() 每帧空转 500ms
     # 并卡住整个解释器，识别会被拖到 20 秒/帧，所以默认关闭。要看画面再临时打开。
-    SHOW_STREAM = False
+    SHOW_STREAM = True
     # 0 = 用屏幕原始宽度（推荐）：640×480 画布与相机同尺寸，驱动层不再缩放
     SHOW_WIDTH = 0
     SHOW_FPS = 40
@@ -74,6 +74,10 @@ class Config:
     # 阈值 = RECT_LEVEL_RATIO × 画面 90 分位亮度，夹在 [FLOOR+p2, CEIL] 之间。
     # ★ 这是唯一需要按现场调的识别参数：纸面偏暗就调低 RATIO。
     RECT_LEVEL_RATIO = 0.62
+    # 自适应阈值（搜框/跟踪都用它）：block 要大于框带宽（半分辨率下框带 ~10px），
+    # C 是"比局部均值暗多少才算暗"。框找不到了先调这两个，别去动 LEVEL_RATIO。
+    RECT_ADAPT_BLOCK = 31
+    RECT_ADAPT_C = 12.0
     RECT_LEVEL_FLOOR = 45.0
     RECT_LEVEL_CEIL = 160.0
     RECT_LEVEL_REFRESH = 15       # 跟踪时每 N 帧重算一次阈值（曝光慢变够用）
@@ -83,8 +87,9 @@ class Config:
     RECT_MAX_ASPECT = 2.60        # 靶纸倾斜时它会变方，所以上限放宽到 2.6
     RECT_MIN_FILL = 0.03          # 连通域面积 / 外接框面积：环是空心的，很小
     RECT_MAX_FILL = 0.70          # 太满说明是实心块，不是框
-    RECT_MIN_EDGE = 0.20          # ★ 四条边最弱一条的暗像素占比下限。
-    #   胶带环实测 0.27~0.45；"框住靶心的稀疏暗结构"（窗棂/柜门缝）只有 0.10。
+    RECT_MIN_BAND_CONTRAST = 30.0 # ★ 框内(中间40%)比框边亮多少灰度才认。
+    #   白纸压在深色板上实测 100+；洞洞板/显示器边框只有 10~30。
+    #   这一条决定"锁得到靶纸"还是"锁到洞洞板上"，是搜框最关键的一道门。
     RECT_PAPER_ROUNDS = 2         # 从框心向外扫几条线迭代几次（2 次足够收敛）
     RECT_TRACK_EXPAND = 1.35      # 跟踪 ROI = 上一帧框 × 该倍数（越小越快，太小会框不住运动）
     RECT_TRACK_MARGIN = 10.0      # 跟踪 ROI 额外边距（原图 px）
@@ -96,6 +101,7 @@ class Config:
     RECT_TRACK_GATE = 0.45        # 跟踪门：实测中心离预测超过 0.45×框边长就判本帧作废
     RECT_SMOOTH = 0.55            # 中心一阶低通系数；1 = 不平滑
     RECT_KEEP_STAGES = False      # 真：把 mask 留在 last_stages，供 --stage 导出
+    RECT_DEBUG_MAP = True         # 真：首帧把灰度图打成 64x32 字符画（现场调阈值用）
 
     # ---- 激光光斑读数（相机与激光固连，光斑位置近似固定）----
     # "fixed"：不检测，每帧只算"黑框中心 − 标定常量"，零开销（默认）

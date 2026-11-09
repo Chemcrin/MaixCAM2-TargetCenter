@@ -10,21 +10,22 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-09 16:10:13
-    config.py                    sha1=069c98500e62
+生成时间：2026-11-09 17:41:46
+    config.py                    sha1=19d275305a5f
     main.py                      sha1=c2f5fb47aa9e
     target_api.py                sha1=228e453c656f
     vision/__init__.py           sha1=6e0b16db8298
-    vision/algo.py               sha1=d6d35c8e0919
-    vision/logic.py              sha1=a82af088529b
-    vision/output.py             sha1=2aaa4e52e0b8
+    vision/algo.py               sha1=14cb88e0d143
+    vision/logic.py              sha1=885a16c6ce9f
+    vision/maixvision_stream.py  sha1=c30d784f26a0
+    vision/output.py             sha1=4369254f9fc7
     vision/poll.py               sha1=992056fd530e
 """
 
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '069c98500e620973444e05718297fdf66985d8d3', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'd6d35c8e0919875c6650996b8c776792e1092522', 'vision/output.py': '2aaa4e52e0b802cbba6ed6b469fa62c7107c848c', 'vision/logic.py': 'a82af088529b8e79c8f0de2af5e37d33b0482031', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': '228e453c656f41797d4dc6099e2d87b96ffb53ed', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': '19d275305a5fda2d01cf67c746c07dc64bc2c7fe', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': '14cb88e0d143b93a39d42d2af678fceb55bfb4bd', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': '4369254f9fc76aa1fdec9ad193e4fa3952b8cb63', 'vision/logic.py': '885a16c6ce9faf941b69e5d6ac2b550863cb331e', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': '228e453c656f41797d4dc6099e2d87b96ffb53ed', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -47,7 +48,7 @@ class Config:
     # True = 保留 MaixVision 图传（仅在「运行项目」模式下有效）；
     # False = 强制本地屏、不图传。★ 实测：图传通道没建立时 send_image() 每帧空转 500ms
     # 并卡住整个解释器，识别会被拖到 20 秒/帧，所以默认关闭。要看画面再临时打开。
-    SHOW_STREAM = False
+    SHOW_STREAM = True
     # 0 = 用屏幕原始宽度（推荐）：640×480 画布与相机同尺寸，驱动层不再缩放
     SHOW_WIDTH = 0
     SHOW_FPS = 40
@@ -109,6 +110,10 @@ class Config:
     # 阈值 = RECT_LEVEL_RATIO × 画面 90 分位亮度，夹在 [FLOOR+p2, CEIL] 之间。
     # ★ 这是唯一需要按现场调的识别参数：纸面偏暗就调低 RATIO。
     RECT_LEVEL_RATIO = 0.62
+    # 自适应阈值（搜框/跟踪都用它）：block 要大于框带宽（半分辨率下框带 ~10px），
+    # C 是"比局部均值暗多少才算暗"。框找不到了先调这两个，别去动 LEVEL_RATIO。
+    RECT_ADAPT_BLOCK = 31
+    RECT_ADAPT_C = 12.0
     RECT_LEVEL_FLOOR = 45.0
     RECT_LEVEL_CEIL = 160.0
     RECT_LEVEL_REFRESH = 15       # 跟踪时每 N 帧重算一次阈值（曝光慢变够用）
@@ -118,8 +123,9 @@ class Config:
     RECT_MAX_ASPECT = 2.60        # 靶纸倾斜时它会变方，所以上限放宽到 2.6
     RECT_MIN_FILL = 0.03          # 连通域面积 / 外接框面积：环是空心的，很小
     RECT_MAX_FILL = 0.70          # 太满说明是实心块，不是框
-    RECT_MIN_EDGE = 0.20          # ★ 四条边最弱一条的暗像素占比下限。
-    #   胶带环实测 0.27~0.45；"框住靶心的稀疏暗结构"（窗棂/柜门缝）只有 0.10。
+    RECT_MIN_BAND_CONTRAST = 30.0 # ★ 框内(中间40%)比框边亮多少灰度才认。
+    #   白纸压在深色板上实测 100+；洞洞板/显示器边框只有 10~30。
+    #   这一条决定"锁得到靶纸"还是"锁到洞洞板上"，是搜框最关键的一道门。
     RECT_PAPER_ROUNDS = 2         # 从框心向外扫几条线迭代几次（2 次足够收敛）
     RECT_TRACK_EXPAND = 1.35      # 跟踪 ROI = 上一帧框 × 该倍数（越小越快，太小会框不住运动）
     RECT_TRACK_MARGIN = 10.0      # 跟踪 ROI 额外边距（原图 px）
@@ -131,6 +137,7 @@ class Config:
     RECT_TRACK_GATE = 0.45        # 跟踪门：实测中心离预测超过 0.45×框边长就判本帧作废
     RECT_SMOOTH = 0.55            # 中心一阶低通系数；1 = 不平滑
     RECT_KEEP_STAGES = False      # 真：把 mask 留在 last_stages，供 --stage 导出
+    RECT_DEBUG_MAP = True         # 真：首帧把灰度图打成 64x32 字符画（现场调阈值用）
 
     # ---- 激光光斑读数（相机与激光固连，光斑位置近似固定）----
     # "fixed"：不检测，每帧只算"黑框中心 − 标定常量"，零开销（默认）
@@ -459,7 +466,8 @@ import numpy as np
 
 __all__ = [
     "signed_area", "order_quad", "line_cross", "quad_diagonal_center",
-    "downscale", "auto_level", "dark_mask", "components", "frame_candidates",
+    "downscale", "auto_level", "dark_mask", "adaptive_mask", "components",
+    "frame_candidates",
     "nearest_component", "paper_rect", "rect_quad", "box_center", "deviation",
 ]
 
@@ -546,6 +554,20 @@ def dark_mask(small, level):
     return cv2.threshold(small, float(level), 255, cv2.THRESH_BINARY_INV)[1]
 
 
+def adaptive_mask(small, block=31, c=12.0):
+    """自适应二值：比"局部均值 − C"暗的像素置 255。
+
+    为什么不用全局阈值：框体的绝对灰度随曝光漂（白墙场景 ~110，暗室 ~50），
+    全局阈值永远在"框没变暗"和"背景影子被算进来"之间摇摆。
+    自适应只回答"这块是不是比它周围暗"—— 框夹在亮纸和亮墙之间，天然成立；
+    大片均匀的暗背景局部均值和它一样，不会被算成暗。
+    block 必须大于框带宽（半分辨率下框带 ~10px，取 31），否则框会被均值吃掉。
+    """
+    k = int(block) | 1
+    return cv2.adaptiveThreshold(small, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+                                 cv2.THRESH_BINARY_INV, k, float(c))
+
+
 def components(mask):
     """连通域统计：一次调用拿到所有块的 (x, y, w, h, 面积) 与质心。
 
@@ -558,14 +580,21 @@ def components(mask):
     return stats[1:], cent[1:]
 
 
-def frame_candidates(stats, cent, mask, min_area, max_area_ratio, min_aspect,
-                     max_aspect, min_fill, max_fill, min_edge, probe=6):
-    """从连通域里挑"四周被暗带围住的矩形"，返回第一个通过全部判据的候选。
+def frame_candidates(stats, cent, mask, gray, level, min_area, max_area_ratio,
+                     min_aspect, max_aspect, min_fill, max_fill, min_contrast,
+                     rounds, probe=8):
+    """挑"能从框心扫出一个内框、且框内明显比框体亮"的连通域。
 
-    四道门：面积 → 长宽比 → 填充率 → **四条边都压着暗带**。
-    最后一道是关键：画面里"框住靶心的稀疏暗结构"（窗棂、柜门缝、桌沿）外接框
-    也含靶心，但它没有四条边；胶带环四条边都有暗带，缺一个角也不影响
-    （缺角只让那一条边的暗率下降，不会归零）。
+    三道门：形状（面积/长宽比/填充率） → **能扫出内框** → **框内比框体亮**。
+      · "能扫出内框"：从框心向四个方向找第一个"亮→暗"的跨越（见 `paper_rect`）。
+        这一步对倾斜免疫——只要结构是"暗带围住一块亮区"，扫线必然四向命中；
+        而窗棂、柜门缝、洞洞板这种稀疏暗结构扫不出一个占外接框大半的内框。
+        ★ 早期用"外接框四条边压暗带"当判据，靶纸一倾斜（约 10°）就整帧漏检，
+        因为斜框的外接框边缘大部分是亮背景。换成扫内框后不再依赖正置假设。
+      · "框内比框体亮"：区分"白纸压在深色板/胶带上"与"同灰度的暗背景"。
+        对比度取 内框灰度 − 框体灰度（框体=该连通域的暗像素均值），旋转无关。
+    返回**所有被扫描过的候选**（带 ok 标记与各项实测值），由调用方决定如何排序 ——
+    排序规则属于业务，不属于算法层。
     """
     h, w = mask.shape[:2]
     total = float(h * w)
@@ -588,19 +617,30 @@ def frame_candidates(stats, cent, mask, min_area, max_area_ratio, min_aspect,
     if idx.size == 0:
         return []
     idx = idx[np.argsort(-box[idx])][:int(probe)]
+    out = []
     for i in idx:
         x0, y0 = int(sx[i]), int(sy[i])
         w0, h0 = int(bw[i]), int(bh[i])
-        band = 3 if min(w0, h0) > 6 else 1
-        edge = min(float(mask[y0:y0 + band, x0:x0 + w0].mean()),
-                   float(mask[y0 + h0 - band:y0 + h0, x0:x0 + w0].mean()),
-                   float(mask[y0:y0 + h0, x0:x0 + band].mean()),
-                   float(mask[y0:y0 + h0, x0 + w0 - band:x0 + w0].mean())) / 255.0
-        if edge < float(min_edge):
-            continue
-        return [dict(x=x0, y=y0, w=w0, h=h0, area=float(area[i]),
-                     aspect=float(aspect[i]), fill=float(fill[i]), edge=edge)]
-    return []
+        inner = paper_rect(gray, (x0, y0, w0, h0), level, rounds)
+        if inner is None:
+            continue                     # 扫不出内框 → 不是"暗带围住亮区"的结构
+        ix0, iy0, ix1, iy1 = inner
+        rw = (ix1 - ix0) / max(1.0, float(w0))
+        rh = (iy1 - iy0) / max(1.0, float(h0))
+        if not (0.40 <= rw <= 0.98 and 0.40 <= rh <= 0.98):
+            continue                     # 内框太小/太偏：扫到的是内部某个暗点
+        crop = gray[y0:y0 + h0, x0:x0 + w0]
+        body = crop[mask[y0:y0 + h0, x0:x0 + w0] > 0]
+        comp_mean = float(body.mean()) if body.size else float(crop.mean())
+        paper = float(gray[iy0:iy1, ix0:ix1].mean())
+        contrast = max(0.0, paper - comp_mean)
+        ok = contrast >= float(min_contrast)
+        out.append(dict(x=x0, y=y0, w=w0, h=h0, area=float(area[i]),
+                        aspect=float(aspect[i]), fill=float(fill[i]),
+                        edge=min(rw, rh), paper=paper, body=comp_mean,
+                        contrast=contrast, ok=ok))
+    return out
+
 
 
 def nearest_component(stats, cent, target, ref_w, ref_h, size_tol=0.55, dist_ratio=1.2):
@@ -628,6 +668,22 @@ def nearest_component(stats, cent, target, ref_w, ref_h, size_tol=0.55, dist_rat
                 area=float(stats[k, 4]), cx=float(cent[k, 0]), cy=float(cent[k, 1]))
 
 
+def _outer_dark(seg, level):
+    """一维剖面里最外圈暗游程的起点（相对 seg 起点的偏移）；没有暗则 None。
+
+    seg 从框心出发向外。暗游程按"相邻索引差 > 2"分组（1~2px 的反光断口不算新游程），
+    最后一组就是最靠外的暗带 —— 对"印刷环嵌在纸面里"的结构，它必然是框体本身，
+    其起点即纸边。
+    """
+    idx = np.flatnonzero(seg < level)
+    if idx.size == 0:
+        return None
+    if idx.size == 1:
+        return int(idx[0])
+    gap = np.flatnonzero(np.diff(idx) > 2)
+    return int(idx[gap[-1] + 1]) if gap.size else int(idx[0])
+
+
 def paper_rect(gray, box, level, rounds=1):
     """框心向外扫四条线，返回纸边 (left, top, right, bottom)；扫不到返回 None。
 
@@ -646,16 +702,24 @@ def paper_rect(gray, box, level, rounds=1):
         # 三行取最小等于"只要有任意一行是暗的就算暗"，能跨过 1~2px 的断口。
         row = gray[max(y, cy - 1):min(y + h, cy + 2), x:x + w].min(axis=0)
         col = gray[y:y + h, max(x, cx - 1):min(x + w, cx + 2)].min(axis=1)
-        r = np.flatnonzero(row[i:] < level)
-        l = np.flatnonzero(row[:i + 1][::-1] < level)
-        d = np.flatnonzero(col[j:] < level)
-        u = np.flatnonzero(col[:j + 1][::-1] < level)
-        if not (r.size and l.size and d.size and u.size):
-            break                     # 本轮扫不到（通常会撞到框边），保留上一轮的结果
-        left = x + i - int(l[0])
-        right = x + i + int(r[0])
-        top = y + j - int(u[0])
-        bottom = y + j + int(d[0])
+        # 沿每个方向取"最外圈暗带的内侧边界"= 纸边。
+        # 不能取第一个暗点：纸面上印的同心环也是暗的，第一下就撞在环上，
+        # 内框会缩成一个点；也不能取最后一个暗像素：那会跑到框的外沿。
+        # 正确做法是按暗游程分组，取最后一组（最靠外的那圈）的起点。
+        # 某个方向完全扫不到暗（纸边贴着外接框）就退回用外接框那条边：
+        # 缺一角不该让整帧失败，缺的那条边本来就在外接框上。
+        # 比较电平用这条线自己的亮暗中点（p10/p90 的均值），不依赖全局阈值 ——
+        # 框的绝对灰度随曝光漂，但"框比纸暗"这件事不变。
+        lv_r = 0.5 * (float(np.percentile(row, 10)) + float(np.percentile(row, 90)))
+        lv_c = 0.5 * (float(np.percentile(col, 10)) + float(np.percentile(col, 90)))
+        step = _outer_dark(row[i:], lv_r)
+        right = x + w - 1 if step is None else x + i + step
+        step = _outer_dark(row[:i + 1][::-1], lv_r)
+        left = x if step is None else x + i - step
+        step = _outer_dark(col[j:], lv_c)
+        bottom = y + h - 1 if step is None else y + j + step
+        step = _outer_dark(col[:j + 1][::-1], lv_c)
+        top = y if step is None else y + j - step
         if right - left < 12 or bottom - top < 12:
             break
         best = (left, top, right, bottom)
@@ -688,6 +752,304 @@ def deviation(laser, result, use_raw=False):
     if size is not None and not (0 <= lu < size[0] and 0 <= lv < size[1]):
         return None
     return (tx - lu, ty - lv)
+'''
+
+# ===== vision.maixvision_stream  (vision/maixvision_stream.py) =====
+_MOD_SRC['vision.maixvision_stream'] = r'''
+"""MaixVision protocol-0 CLIENT; JPEG/WebSocket run in a fresh process, no maix.
+
+Protocol source: Sipeed/MaixCDK components/vision/src/maix_image_trans.cpp.
+The parent only copies into one mmap slot under a nonblocking flock. The child
+reopens the inherited fd: flock on a shared open-file-description cannot exclude
+its parent, even though it is in another process.
+"""
+import base64
+import hashlib
+import mmap
+import os
+import select
+import socket
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+try:
+    import fcntl
+except ImportError:  # Windows PC tools can import the application without POSIX I/O.
+    fcntl = None
+
+HEADER = 128
+MAGIC = b'\xac\xbe\xcb\xca'
+MAX_MESSAGE = 4*1024*1024
+# C-level translation avoids a Python XOR loop for every JPEG byte (40fps).
+_XOR_TABLES = tuple(bytes(v ^ key for v in range(256)) for key in range(256))
+
+
+def packet(message, payload=b''):
+    frame = MAGIC+struct.pack('<I', len(payload)+3)+bytes((0, message))+payload
+    return frame+bytes((sum(frame)&255,))
+
+
+def unpack_packet(frame):
+    if len(frame) < 11 or frame[:4] != MAGIC or struct.unpack_from('<I', frame, 4)[0] != len(frame)-8 or frame[8] != 0 or sum(frame[:-1])&255 != frame[-1]:
+        raise ValueError('invalid protocol-0 packet')
+    return frame[9], frame[10:-1]
+
+
+class WebSocketClient:
+    def __init__(self, host, port):
+        self.socket = socket.create_connection((host, port), timeout=.5)
+        self.buffer = bytearray()
+        self.fragments = bytearray()
+        self.fragment_opcode = None
+        try:
+            key = base64.b64encode(os.urandom(16)).decode('ascii')
+            request = ('GET / HTTP/1.1\r\nHost: %s:%d\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n' % (host, port, key))
+            self.socket.sendall(request.encode('ascii'))
+            while b'\r\n\r\n' not in self.buffer:
+                data = self.socket.recv(4096)
+                if not data or len(self.buffer) > 16384:
+                    raise OSError('invalid WebSocket handshake')
+                self.buffer.extend(data)
+            headers, rest = bytes(self.buffer).split(b'\r\n\r\n', 1)
+            self.buffer = bytearray(rest)
+            lines = headers.decode('ascii').split('\r\n')
+            fields = {line.split(':',1)[0].lower(): line.split(':',1)[1] for line in lines[1:] if ':' in line}
+            expected = base64.b64encode(hashlib.sha1((key+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest()).decode()
+            if ' 101 ' not in lines[0] or fields.get('sec-websocket-accept', '').strip() != expected:
+                raise OSError('WebSocket upgrade rejected')
+        except BaseException:
+            self.close()
+            raise
+
+    def send(self, payload, opcode=2):
+        mask = os.urandom(4)
+        size = len(payload)
+        head = bytes((0x80|opcode, 0x80|size)) if size < 126 else (bytes((0x80|opcode, 0x80|126))+struct.pack('>H', size) if size < 65536 else bytes((0x80|opcode, 0x80|127))+struct.pack('>Q', size))
+        encoded = bytearray(payload)
+        for i in range(4):
+            encoded[i::4] = encoded[i::4].translate(_XOR_TABLES[mask[i]])
+        self.socket.sendall(head+mask+encoded)
+
+    def receive(self, timeout=.01):
+        if select.select([self.socket], [], [], timeout)[0]:
+            data = self.socket.recv(65536)
+            if not data:
+                raise OSError('WebSocket closed')
+            self.buffer.extend(data)
+        messages = []
+        while len(self.buffer) >= 2:
+            b0, b1 = self.buffer[:2]
+            opcode, size, offset = b0&15, b1&127, 2
+            if b0 & 0x70 or b1 & 0x80:
+                raise ValueError('unsupported WebSocket frame')
+            if size in (126, 127):
+                count = 2 if size == 126 else 8
+                if len(self.buffer) < offset+count:
+                    break
+                size = int.from_bytes(self.buffer[offset:offset+count], 'big')
+                offset += count
+            if size > MAX_MESSAGE:
+                raise ValueError('WebSocket message too large')
+            if len(self.buffer) < offset+size:
+                break
+            payload = bytes(self.buffer[offset:offset+size])
+            del self.buffer[:offset+size]
+            if opcode == 8:
+                raise OSError('WebSocket close')
+            if opcode == 9:
+                self.send(payload, 10)
+                continue
+            if opcode == 10:
+                continue
+            if opcode in (1, 2):
+                if self.fragment_opcode is not None:
+                    raise ValueError('interleaved WebSocket message')
+                self.fragment_opcode = opcode
+            elif opcode != 0 or self.fragment_opcode is None:
+                raise ValueError('invalid continuation')
+            self.fragments.extend(payload)
+            if len(self.fragments) > MAX_MESSAGE:
+                raise ValueError('WebSocket fragments too large')
+            if b0 & 0x80:
+                if self.fragment_opcode == 2:
+                    messages.append(bytes(self.fragments))
+                self.fragments.clear()
+                self.fragment_opcode = None
+        return messages
+
+    def close(self):
+        self.socket.close()
+
+
+class MaixVisionStream:
+    def __init__(self, cfg, width, height, clock=None):
+        self.cfg, self.width, self.height = cfg, int(width), int(height)
+        self.clock = clock if clock is not None else time
+        self.process = self.mapping = self.file = None
+        self.sequence = self.dropped = 0
+        self._metrics_at = self.clock.perf_counter()
+        self._sent_last = 0
+        self._metrics_cache = dict(sent=0,fps=0.,encode_ms=0.,dropped=0)
+        self.enabled = False
+        if fcntl is None:
+            print('[stream] POSIX flock unavailable; local display only')
+            return
+        try:
+            self.file = tempfile.TemporaryFile()
+            size = HEADER+self.width*self.height*3
+            self.file.truncate(size)
+            self.mapping = mmap.mmap(self.file.fileno(), size)
+            # __source__ is supplied by build_single for virtual modules.
+            source = getattr(sys.modules.get(__name__), '__source__', None)
+            if source is None:
+                with open(__file__, encoding='utf-8') as handle:
+                    source = handle.read()
+            command = source+'\n_child(int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3]), sys.argv[4], int(sys.argv[5]), int(sys.argv[6]), int(sys.argv[7]), float(sys.argv[8]), float(sys.argv[9]))\n'
+            self.process = subprocess.Popen([sys.executable, '-c', command, str(self.file.fileno()), str(self.width), str(self.height),
+                getattr(cfg, 'SHOW_STREAM_HOST', '127.0.0.1'), str(getattr(cfg, 'SHOW_STREAM_PORT', 7899)),
+                str(getattr(cfg, 'SHOW_STREAM_WIDTH', 480)), str(getattr(cfg, 'SHOW_JPEG_QUALITY', 70)),
+                str(getattr(cfg, 'SHOW_STREAM_RETRY_S', 2.)), str(getattr(cfg, 'SHOW_STREAM_RETRY_MAX_S', 15.))],
+                pass_fds=(self.file.fileno(),))
+            self.enabled = True
+        except Exception as exc:
+            print('[stream] disabled: %s' % exc)
+            self.close()
+
+    def submit(self, canvas):
+        if not self.enabled or self.process.poll() is not None:
+            return False
+        if canvas.shape != (self.height, self.width, 3) or str(canvas.dtype) != 'uint8':
+            raise ValueError('stream frame shape/dtype mismatch')
+        try:
+            fcntl.flock(self.file.fileno(), fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:
+            self.dropped += 1
+            return False
+        try:
+            self.sequence += 1
+            self.mapping[HEADER:] = canvas.tobytes()
+            struct.pack_into('<QII', self.mapping, 0, self.sequence, self.width, self.height)
+        finally:
+            fcntl.flock(self.file.fileno(), fcntl.LOCK_UN)
+        return True
+
+    def close(self):
+        self.enabled = False
+        if self.process is not None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=1.)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=1.)
+            self.process = None
+        if self.mapping is not None:
+            self.mapping.close()
+            self.mapping = None
+        if self.file is not None:
+            self.file.close()
+            self.file = None
+
+    def metrics(self):
+        """实际发送成功计数（不把投递到mmap的帧当作已图传）。"""
+        if not self.enabled:
+            return dict(self._metrics_cache)
+        now = self.clock.perf_counter()
+        try:
+            fcntl.flock(self.file.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:
+            return dict(self._metrics_cache)
+        try:
+            sent, sent_at, encode_ms = struct.unpack_from('<Qdd',self.mapping,32)
+        finally:
+            fcntl.flock(self.file.fileno(),fcntl.LOCK_UN)
+        elapsed = now-self._metrics_at
+        if elapsed >= .1:
+            self._metrics_cache = dict(sent=sent,fps=(sent-self._sent_last)/elapsed,
+                                       encode_ms=encode_ms,dropped=self.dropped)
+            self._metrics_at,self._sent_last = now,sent
+        return dict(self._metrics_cache)
+
+
+def _child(inherited_fd, width, height, host, port, stream_width, quality, retry, retry_max):
+    import cv2
+    import numpy as np
+    cv2.setNumThreads(1)
+    try:
+        os.nice(5)  # CPU饱和时优先让识别和采图运行。
+    except OSError:
+        pass
+    fd = os.open('/proc/self/fd/%d' % inherited_fd, os.O_RDWR)
+    os.close(inherited_fd)
+    memory = mmap.mmap(fd, HEADER+width*height*3)
+    last = sent = 0
+    delay = retry
+    while True:
+        client = None
+        try:
+            client = WebSocketClient(host, port)
+            client.send(packet(1, b'code'))
+            accepted, fmt, deadline = False, 1, time.monotonic()+10
+            while True:
+                for message in client.receive(.01):
+                    ident, payload = unpack_packet(message)
+                    if ident == 2:
+                        if payload != b'\x01':
+                            raise OSError('MaixVision registration rejected')
+                        accepted, delay = True, retry
+                    elif ident == 14 and len(payload) == 1:
+                        value = payload[0]
+                        if value <= 2:
+                            fmt = value
+                        client.send(packet(15, bytes((int(value <= 2), value))))
+                    elif ident == 21 and len(payload) == 1:
+                        quality = max(1, min(100, payload[0]))
+                        client.send(packet(22, bytes((1, quality))))
+                if not accepted:
+                    if time.monotonic() > deadline:
+                        raise OSError('MaixVision registration timeout')
+                    continue
+                if fmt == 0:
+                    continue
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
+                except BlockingIOError:
+                    continue
+                try:
+                    sequence, w, h = struct.unpack_from('<QII', memory, 0)
+                    raw = bytes(memory[HEADER:]) if sequence != last and sequence and (w,h)==(width,height) else None
+                finally:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                if raw is None:
+                    continue
+                last = sequence
+                encoding_started = time.monotonic()
+                frame = np.frombuffer(raw, np.uint8).reshape(height, width, 3)
+                if 0 < stream_width < width:
+                    frame = cv2.resize(frame, (stream_width, max(1, round(height*stream_width/width))), interpolation=cv2.INTER_AREA)
+                ok, encoded = cv2.imencode('.jpg' if fmt == 1 else '.png', frame,
+                                          [cv2.IMWRITE_JPEG_QUALITY, quality] if fmt == 1 else [])
+                if ok:
+                    encode_ms = (time.monotonic()-encoding_started)*1000
+                    client.send(packet(6, bytes((fmt,))+encoded.tobytes()))
+                    sent += 1
+                    try:
+                        fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        continue
+                    try:
+                        struct.pack_into('<Qdd',memory,32,sent,time.monotonic(),encode_ms)
+                    finally:
+                        fcntl.flock(fd,fcntl.LOCK_UN)
+        except (OSError, ValueError) as exc:
+            print('[stream] reconnect: %s' % exc, flush=True)
+        finally:
+            if client is not None:
+                client.close()
+        time.sleep(delay)
+        delay = min(retry_max, max(.05, delay*2))
 '''
 
 # ===== vision.output  (vision/output.py) =====
@@ -931,6 +1293,7 @@ class Preview:
         self.cfg = cfg
         self._clock = clock if clock is not None else time
         self.display = None
+        self.stream_obj = None                  # MaixVision 图传（独立进程，可为 None）
         self.width = self.height = 0            # 物理屏幕尺寸
         self.render_width = self.render_height = 0
         self.enabled = False                    # 显示是否可用；任何一步失败都置 False 并停用
@@ -958,8 +1321,11 @@ class Preview:
             return
         try:
             from maix import display
-            self.stream = bool(getattr(cfg, "SHOW_STREAM", True))
-            self.display = _open_display(display, self.stream)
+            self.stream_on = bool(getattr(cfg, "SHOW_STREAM", True))
+            # 本地屏一律用 MAIXVISION=0 建 Display：内置图传在"连接未就绪"时会在 C++ 里
+            # 忙等 500ms 并占住解释器锁，把识别拖到 20 秒/帧。要 MaixVision 画面就走
+            # 下面的独立进程（`vision/maixvision_stream.py`），它不碰主线程。
+            self.display = _open_display(display, False)
             self.width = int(self.display.width())
             self.height = int(self.display.height())
             # 画布宽度：SHOW_WIDTH<=0 ⇒ 用屏幕原始宽度（画布＝屏幕 ⇒ show() 零缩放）。
@@ -972,12 +1338,23 @@ class Preview:
             print("[preview] mode=%s screen=%dx%d canvas=%dx%d show_fps=%d stream=%s"
                   % ("display-thread" if self.async_show else "sync-inprocess",
                      self.width, self.height, self.render_width, self.render_height,
-                     int(getattr(cfg, "SHOW_FPS", 30)), "on" if self.stream else "off"))
+                     int(getattr(cfg, "SHOW_FPS", 30)), "on" if self.stream_on else "off"))
             # ★ 开机探针：立刻量一次 show() 真实耗时。本地屏典型 1~5ms；若命中 MaixCDK 的
             #   "MaixVision 图传未就绪"分支，send_image() 会在 C++ 里**忙等 500ms 并空转 CPU**
             #   （见 MaixCDK components/vision/src/maix_image_trans.cpp），表现为 show 恒定
             #   ~505ms、并连带把相机/识别/闭环一起拖慢。这条必须当场说清。
             self._probe_show()
+            if self.stream_on:
+                try:
+                    from .maixvision_stream import MaixVisionStream
+                    self.stream_obj = MaixVisionStream(cfg, self.render_width,
+                                                       self.render_height, clock=self._clock)
+                    print("[stream] MaixVision 图传已启动（独立进程，%dx%d）%s"
+                          % (self.render_width, self.render_height,
+                             "" if getattr(self.stream_obj, "enabled", False) else " —— 未启用"))
+                except Exception as exc:
+                    self.stream_obj = None
+                    print("[stream] 图传启动失败（只影响 MaixVision 画面）: %s" % exc)
             if self.async_show:
                 self.thread = threading.Thread(target=self._show_loop, name="display", daemon=True)
                 self.thread.start()
@@ -1127,6 +1504,13 @@ class Preview:
             print("[preview] show 失败，停用显示: %s" % exc)
             return False
         ms = (self._clock.perf_counter() - t0) * 1000.0
+        if self.stream_obj is not None:
+            try:
+                self.stream_obj.submit(canvas)
+            except Exception as exc:
+                print("[stream] 投递失败，停用图传: %s" % exc)
+                self.stream_obj.close()
+                self.stream_obj = None
         self.shown += 1
         completed = self._clock.perf_counter()
         self.rate.record(completed)
@@ -1158,6 +1542,12 @@ class Preview:
                 self.thread.join(timeout=2.0)
                 if self.thread.is_alive():
                     raise RuntimeError("display thread did not stop")
+        if self.stream_obj is not None:
+            try:
+                self.stream_obj.close()
+            except Exception:
+                pass
+            self.stream_obj = None
         if self.display is not None:
             try:
                 self.display.close()
@@ -1629,15 +2019,15 @@ import time
 import cv2
 import numpy as np
 
-from .algo import (auto_level, box_center, components, dark_mask, deviation,
-                   downscale, frame_candidates, nearest_component, paper_rect,
-                   rect_quad)
+from .algo import (adaptive_mask, auto_level, box_center, components,
+                   dark_mask, deviation, downscale, frame_candidates,
+                   nearest_component, paper_rect, rect_quad)
 from .output import (Preview, aligned_frame, apply_commands, display_result,
                     draw_preview, estimate_move_seconds, perf_line, stop_motion,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-10-fast-track-v9"
+BUILD_ID = "2026-11-09-fast-track-v15"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -1700,7 +2090,6 @@ class RectangleCenterDetector:
         self.max_aspect = float(getattr(config, "RECT_MAX_ASPECT", 2.60))
         self.min_fill = float(getattr(config, "RECT_MIN_FILL", 0.03))
         self.max_fill = float(getattr(config, "RECT_MAX_FILL", 0.70))
-        self.min_edge = float(getattr(config, "RECT_MIN_EDGE", 0.20))
         self.paper_rounds = int(getattr(config, "RECT_PAPER_ROUNDS", 2))
         self.track_expand = float(getattr(config, "RECT_TRACK_EXPAND", 1.60))
         self.track_margin = float(getattr(config, "RECT_TRACK_MARGIN", 16.0))
@@ -1711,6 +2100,17 @@ class RectangleCenterDetector:
         self.max_speed = float(getattr(config, "RECT_MAX_SPEED", 2500.0))
         self.gate = float(getattr(config, "RECT_TRACK_GATE", 0.45))
         self.track_max_side = float(getattr(config, "RECT_TRACK_MAX_SIDE", 240.0))
+        self.min_contrast = float(getattr(config, "RECT_MIN_BAND_CONTRAST", 30.0))
+        self.adapt_block = int(getattr(config, "RECT_ADAPT_BLOCK", 31))
+        self.adapt_c = float(getattr(config, "RECT_ADAPT_C", 12.0))
+        self.prior = (
+            float(getattr(config, "LASER_U_NOMINAL", 0.0)) if getattr(config, "ENABLE_LASER", False) else -1.0,
+            float(getattr(config, "LASER_V_NOMINAL", 0.0)))
+        if not getattr(config, "ENABLE_LASER", False):
+            self.prior = (-1.0, -1.0)
+        self._last_log = -1e9
+        self.debug_map = bool(getattr(config, "RECT_DEBUG_MAP", False))
+        self._printed_map = False
         self.keep_stages = bool(getattr(config, "RECT_KEEP_STAGES", False))
         self.last = None
         self.last_stages = {}
@@ -1729,10 +2129,41 @@ class RectangleCenterDetector:
         self.tracking = False
         self._frames = 0
         self._last_components = 0
+        self._printed_map = False
         self._last_ts = None
         self._hit_ts = None
 
     # ------------------------------------------------------------- 内部工具
+    def _debug_map(self, small, level):
+        """把降采样后的灰度图打成 64×32 的十六进制字符画（一次搜索只打一次）。
+
+        现场调阈值时，这是唯一能"看见板子看到什么"的手段：每格是一个十六进制位
+        （0=最暗 f=最亮），配合 lv 就能判断阈值该往上还是往下。
+        """
+        if not self.debug_map or self._printed_map:
+            return
+        self._printed_map = True
+        m = cv2.resize(small, (64, 32), interpolation=cv2.INTER_AREA)
+        print("[map] ---- level=%.0f (0=dark f=bright)" % level)
+        for row in m:
+            print("[map] " + "".join("%X" % (v >> 4) for v in row))
+
+    def _log_candidates(self, cands, s, level, level_b=None):
+        """搜框时把候选打一行日志（限频 1s），现场排障靠它，别删。"""
+        now = time.perf_counter()
+        if now - self._last_log < 1.0:
+            return
+        self._last_log = now
+        parts = []
+        for c in cands[:5]:
+            parts.append("%s(%d,%d %dx%d e=%.2f con=%.0f%s)" % (
+                "D",
+                c["x"] * s, c["y"] * s, c["w"] * s, c["h"] * s, c["edge"],
+                c["contrast"], "" if c["ok"] else "/x"))
+        print("[cand] lv=%.0f lvb=%.0f n=%d %s"
+              % (level, -1.0 if level_b is None else level_b, len(cands),
+                 " ".join(parts) or "-"))
+
     def _level_for(self, img):
         return auto_level(img, 2.0, 90.0, self.level_ratio,
                           self.level_floor, self.level_ceil)
@@ -1761,16 +2192,34 @@ class RectangleCenterDetector:
         s = self.scale
         small = downscale(g, s)
         level = self._level_for(small)
-        mask = dark_mask(small, level)
+        mask = adaptive_mask(small, self.adapt_block, self.adapt_c)
+        self._debug_map(small, level)
         comps, _cent = components(mask)
         stats["components"] = int(comps.shape[0])
-        cands = frame_candidates(comps, _cent, mask, self.min_area / float(s * s),
-                                 self.max_area_ratio, self.min_aspect, self.max_aspect,
-                                 self.min_fill, self.max_fill, self.min_edge)
-        if not cands:
+        area_min = self.min_area / float(s * s)
+        # 暗环法：背景比纸亮（亮墙 + 黑胶带）时才成立。
+        dark = frame_candidates(comps, _cent, mask, small, level, area_min,
+                                self.max_area_ratio, self.min_aspect, self.max_aspect,
+                                self.min_fill, self.max_fill, self.min_contrast,
+                                self.paper_rounds)
+        cands = dark
+        cands = dark
+        self._log_candidates(cands, s, level)
+        good = [c for c in cands if c["ok"]]
+        if not good:
             return None
-        c = cands[0]
-        paper = paper_rect(small, (c["x"], c["y"], c["w"], c["h"]), level, self.paper_rounds)
+        # 通过全部判据的候选按"离预期瞄准点最近"排序：操作手把相机对准靶纸，
+        # 所以离光斑标称位置最近的那一个才是靶纸。面积最大不代表最像靶纸 ——
+        # 实测洞洞板面积更大、四边也有暗孔，只有"框内比框边亮"能把它筛掉。
+        px, py = self.prior
+        if px < 0.0 or py < 0.0:
+            px, py = g.shape[1] * 0.5, g.shape[0] * 0.5
+        good.sort(key=lambda c: (abs((c["x"] + c["w"] * 0.5) * s - px) +
+                                 abs((c["y"] + c["h"] * 0.5) * s - py),
+                                 -c["contrast"]))
+        c = good[0]
+        paper = paper_rect(small, (c["x"], c["y"], c["w"], c["h"]), level,
+                           self.paper_rounds)
         box = (c["x"] * s, c["y"] * s, c["w"] * s, c["h"] * s)
         bcx, bcy = box_center(box)
         if paper is not None:
@@ -1781,7 +2230,8 @@ class RectangleCenterDetector:
         return dict(center=(pcx, pcy), box=box, level=level, reacquire=True,
                     offset=((pcx - bcx) / max(1.0, box[2]),
                             (pcy - bcy) / max(1.0, box[3])),
-                    area=c["area"] * s * s, aspect=c["aspect"], edge=c["edge"])
+                    area=c["area"] * s * s, aspect=c["aspect"], edge=c["edge"],
+                    contrast=c["contrast"])
 
     # ------------------------------------------------------------- ROI 跟踪
     def _track(self, g, ts):
@@ -1812,7 +2262,7 @@ class RectangleCenterDetector:
         self._frames += 1
         if self.level is None or self._frames % self.level_refresh == 0:
             self.level = self._level_for(small)
-        mask = dark_mask(small, self.level)
+        mask = adaptive_mask(small, self.adapt_block, self.adapt_c)
         comps, cent = components(mask)
         self._last_components = int(comps.shape[0])
         c = nearest_component(comps, cent, ((pred[0] - x0) / s, (pred[1] - y0) / s),
@@ -1850,8 +2300,13 @@ class RectangleCenterDetector:
                     vx *= self.max_speed / speed
                     vy *= self.max_speed / speed
                 self.velocity = (vx, vy)
-        if self.center is None or self.lost > 0:
-            self.center = meas                      # 重新捕获：直接对齐，不做低通
+        # 重新捕获：直接对齐，不做低通。判定"重新捕获"的标准是全图搜框回来的
+        # 结果离当前中心超过半个框 —— 这种情况多半是换场景/换靶，旧中心已经没意义。
+        jumped = (det.get("reacquire") and self.center is not None and
+                  abs(meas[0] - self.center[0]) + abs(meas[1] - self.center[1]) >
+                  0.6 * max(det["box"][2], det["box"][3]))
+        if self.center is None or self.lost > 0 or jumped:
+            self.center = meas
         else:
             k = self.smooth
             self.center = (self.center[0] + k * (meas[0] - self.center[0]),
@@ -1906,7 +2361,8 @@ class RectangleCenterDetector:
                     refined_edges=4, weak_edges=0, clipped_edges=0,
                     rect_to_image=None, circle_points=None,
                     band=dict(level=det.get("level"), edge=edge,
-                              contrast=float((edge or 0.0) * 100.0)),
+                              paper=det.get("paper"), body=det.get("body"),
+                              contrast=float(det.get("contrast") or 0.0)),
                     confidence=float(1.0 if not hold else
                                      max(0.2, 1.0 - self.lost / float(max(1, self.hold)))))
 
@@ -2495,8 +2951,8 @@ def run():
         controller = state['controller'] = VisionControl(cfg, state['link'], state['aim'], clock=clock)
         worker = state['worker'] = LatestFrameWorker(controller.process, controller.idle,
                                                     cfg.VISION_ASYNC, clock=clock)
-        print('[rect-center] %s scale=1/%d level=%.2f display_width=%d display_fps=%d' %
-              (BUILD_ID, cfg.RECT_DOWNSCALE, cfg.RECT_LEVEL_RATIO,
+        print('[rect-center] %s scale=1/%d adapt=%d/%.0f display_width=%d display_fps=%d' %
+              (BUILD_ID, cfg.RECT_DOWNSCALE, cfg.RECT_ADAPT_BLOCK, cfg.RECT_ADAPT_C,
                preview.render_width, cfg.SHOW_FPS))
         print('[preview] async=%s canvas=%dx%d' % (cfg.SHOW_ASYNC, preview.render_width, preview.render_height))
         print('[vision] latest-frame worker=%s max_result_age=%.0fms' % (cfg.VISION_ASYNC, cfg.RESULT_MAX_AGE_S*1000))
@@ -2920,9 +3376,9 @@ if __name__ == "__main__":
         print("MaixPy SDK unavailable. PC: python -B tools/check_app.py")
 '''
 
-_MOD_ORDER = ('config', 'vision.poll', 'vision.algo', 'vision.output', 'vision.logic', 'vision', 'target_api')
+_MOD_ORDER = ('config', 'vision.poll', 'vision.algo', 'vision.maixvision_stream', 'vision.output', 'vision.logic', 'vision', 'target_api')
 
-_REL_OF = {'config': 'config.py', 'vision.poll': 'vision/poll.py', 'vision.algo': 'vision/algo.py', 'vision.output': 'vision/output.py', 'vision.logic': 'vision/logic.py', 'vision': 'vision/__init__.py', 'target_api': 'target_api.py'}
+_REL_OF = {'config': 'config.py', 'vision.poll': 'vision/poll.py', 'vision.algo': 'vision/algo.py', 'vision.maixvision_stream': 'vision/maixvision_stream.py', 'vision.output': 'vision/output.py', 'vision.logic': 'vision/logic.py', 'vision': 'vision/__init__.py', 'target_api': 'target_api.py'}
 
 _pkg = _types.ModuleType("vision")          # 造出虚拟包 vision
 _pkg.__path__ = []

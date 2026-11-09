@@ -27,7 +27,8 @@ import numpy as np
 
 __all__ = [
     "signed_area", "order_quad", "line_cross", "quad_diagonal_center",
-    "downscale", "auto_level", "dark_mask", "components", "frame_candidates",
+    "downscale", "auto_level", "dark_mask", "adaptive_mask", "components",
+    "frame_candidates",
     "nearest_component", "paper_rect", "rect_quad", "box_center", "deviation",
 ]
 
@@ -114,6 +115,20 @@ def dark_mask(small, level):
     return cv2.threshold(small, float(level), 255, cv2.THRESH_BINARY_INV)[1]
 
 
+def adaptive_mask(small, block=31, c=12.0):
+    """自适应二值：比"局部均值 − C"暗的像素置 255。
+
+    为什么不用全局阈值：框体的绝对灰度随曝光漂（白墙场景 ~110，暗室 ~50），
+    全局阈值永远在"框没变暗"和"背景影子被算进来"之间摇摆。
+    自适应只回答"这块是不是比它周围暗"—— 框夹在亮纸和亮墙之间，天然成立；
+    大片均匀的暗背景局部均值和它一样，不会被算成暗。
+    block 必须大于框带宽（半分辨率下框带 ~10px，取 31），否则框会被均值吃掉。
+    """
+    k = int(block) | 1
+    return cv2.adaptiveThreshold(small, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
+                                 cv2.THRESH_BINARY_INV, k, float(c))
+
+
 def components(mask):
     """连通域统计：一次调用拿到所有块的 (x, y, w, h, 面积) 与质心。
 
@@ -126,14 +141,21 @@ def components(mask):
     return stats[1:], cent[1:]
 
 
-def frame_candidates(stats, cent, mask, min_area, max_area_ratio, min_aspect,
-                     max_aspect, min_fill, max_fill, min_edge, probe=6):
-    """从连通域里挑"四周被暗带围住的矩形"，返回第一个通过全部判据的候选。
+def frame_candidates(stats, cent, mask, gray, level, min_area, max_area_ratio,
+                     min_aspect, max_aspect, min_fill, max_fill, min_contrast,
+                     rounds, probe=8):
+    """挑"能从框心扫出一个内框、且框内明显比框体亮"的连通域。
 
-    四道门：面积 → 长宽比 → 填充率 → **四条边都压着暗带**。
-    最后一道是关键：画面里"框住靶心的稀疏暗结构"（窗棂、柜门缝、桌沿）外接框
-    也含靶心，但它没有四条边；胶带环四条边都有暗带，缺一个角也不影响
-    （缺角只让那一条边的暗率下降，不会归零）。
+    三道门：形状（面积/长宽比/填充率） → **能扫出内框** → **框内比框体亮**。
+      · "能扫出内框"：从框心向四个方向找第一个"亮→暗"的跨越（见 `paper_rect`）。
+        这一步对倾斜免疫——只要结构是"暗带围住一块亮区"，扫线必然四向命中；
+        而窗棂、柜门缝、洞洞板这种稀疏暗结构扫不出一个占外接框大半的内框。
+        ★ 早期用"外接框四条边压暗带"当判据，靶纸一倾斜（约 10°）就整帧漏检，
+        因为斜框的外接框边缘大部分是亮背景。换成扫内框后不再依赖正置假设。
+      · "框内比框体亮"：区分"白纸压在深色板/胶带上"与"同灰度的暗背景"。
+        对比度取 内框灰度 − 框体灰度（框体=该连通域的暗像素均值），旋转无关。
+    返回**所有被扫描过的候选**（带 ok 标记与各项实测值），由调用方决定如何排序 ——
+    排序规则属于业务，不属于算法层。
     """
     h, w = mask.shape[:2]
     total = float(h * w)
@@ -156,19 +178,30 @@ def frame_candidates(stats, cent, mask, min_area, max_area_ratio, min_aspect,
     if idx.size == 0:
         return []
     idx = idx[np.argsort(-box[idx])][:int(probe)]
+    out = []
     for i in idx:
         x0, y0 = int(sx[i]), int(sy[i])
         w0, h0 = int(bw[i]), int(bh[i])
-        band = 3 if min(w0, h0) > 6 else 1
-        edge = min(float(mask[y0:y0 + band, x0:x0 + w0].mean()),
-                   float(mask[y0 + h0 - band:y0 + h0, x0:x0 + w0].mean()),
-                   float(mask[y0:y0 + h0, x0:x0 + band].mean()),
-                   float(mask[y0:y0 + h0, x0 + w0 - band:x0 + w0].mean())) / 255.0
-        if edge < float(min_edge):
-            continue
-        return [dict(x=x0, y=y0, w=w0, h=h0, area=float(area[i]),
-                     aspect=float(aspect[i]), fill=float(fill[i]), edge=edge)]
-    return []
+        inner = paper_rect(gray, (x0, y0, w0, h0), level, rounds)
+        if inner is None:
+            continue                     # 扫不出内框 → 不是"暗带围住亮区"的结构
+        ix0, iy0, ix1, iy1 = inner
+        rw = (ix1 - ix0) / max(1.0, float(w0))
+        rh = (iy1 - iy0) / max(1.0, float(h0))
+        if not (0.40 <= rw <= 0.98 and 0.40 <= rh <= 0.98):
+            continue                     # 内框太小/太偏：扫到的是内部某个暗点
+        crop = gray[y0:y0 + h0, x0:x0 + w0]
+        body = crop[mask[y0:y0 + h0, x0:x0 + w0] > 0]
+        comp_mean = float(body.mean()) if body.size else float(crop.mean())
+        paper = float(gray[iy0:iy1, ix0:ix1].mean())
+        contrast = max(0.0, paper - comp_mean)
+        ok = contrast >= float(min_contrast)
+        out.append(dict(x=x0, y=y0, w=w0, h=h0, area=float(area[i]),
+                        aspect=float(aspect[i]), fill=float(fill[i]),
+                        edge=min(rw, rh), paper=paper, body=comp_mean,
+                        contrast=contrast, ok=ok))
+    return out
+
 
 
 def nearest_component(stats, cent, target, ref_w, ref_h, size_tol=0.55, dist_ratio=1.2):
@@ -196,6 +229,22 @@ def nearest_component(stats, cent, target, ref_w, ref_h, size_tol=0.55, dist_rat
                 area=float(stats[k, 4]), cx=float(cent[k, 0]), cy=float(cent[k, 1]))
 
 
+def _outer_dark(seg, level):
+    """一维剖面里最外圈暗游程的起点（相对 seg 起点的偏移）；没有暗则 None。
+
+    seg 从框心出发向外。暗游程按"相邻索引差 > 2"分组（1~2px 的反光断口不算新游程），
+    最后一组就是最靠外的暗带 —— 对"印刷环嵌在纸面里"的结构，它必然是框体本身，
+    其起点即纸边。
+    """
+    idx = np.flatnonzero(seg < level)
+    if idx.size == 0:
+        return None
+    if idx.size == 1:
+        return int(idx[0])
+    gap = np.flatnonzero(np.diff(idx) > 2)
+    return int(idx[gap[-1] + 1]) if gap.size else int(idx[0])
+
+
 def paper_rect(gray, box, level, rounds=1):
     """框心向外扫四条线，返回纸边 (left, top, right, bottom)；扫不到返回 None。
 
@@ -214,16 +263,24 @@ def paper_rect(gray, box, level, rounds=1):
         # 三行取最小等于"只要有任意一行是暗的就算暗"，能跨过 1~2px 的断口。
         row = gray[max(y, cy - 1):min(y + h, cy + 2), x:x + w].min(axis=0)
         col = gray[y:y + h, max(x, cx - 1):min(x + w, cx + 2)].min(axis=1)
-        r = np.flatnonzero(row[i:] < level)
-        l = np.flatnonzero(row[:i + 1][::-1] < level)
-        d = np.flatnonzero(col[j:] < level)
-        u = np.flatnonzero(col[:j + 1][::-1] < level)
-        if not (r.size and l.size and d.size and u.size):
-            break                     # 本轮扫不到（通常会撞到框边），保留上一轮的结果
-        left = x + i - int(l[0])
-        right = x + i + int(r[0])
-        top = y + j - int(u[0])
-        bottom = y + j + int(d[0])
+        # 沿每个方向取"最外圈暗带的内侧边界"= 纸边。
+        # 不能取第一个暗点：纸面上印的同心环也是暗的，第一下就撞在环上，
+        # 内框会缩成一个点；也不能取最后一个暗像素：那会跑到框的外沿。
+        # 正确做法是按暗游程分组，取最后一组（最靠外的那圈）的起点。
+        # 某个方向完全扫不到暗（纸边贴着外接框）就退回用外接框那条边：
+        # 缺一角不该让整帧失败，缺的那条边本来就在外接框上。
+        # 比较电平用这条线自己的亮暗中点（p10/p90 的均值），不依赖全局阈值 ——
+        # 框的绝对灰度随曝光漂，但"框比纸暗"这件事不变。
+        lv_r = 0.5 * (float(np.percentile(row, 10)) + float(np.percentile(row, 90)))
+        lv_c = 0.5 * (float(np.percentile(col, 10)) + float(np.percentile(col, 90)))
+        step = _outer_dark(row[i:], lv_r)
+        right = x + w - 1 if step is None else x + i + step
+        step = _outer_dark(row[:i + 1][::-1], lv_r)
+        left = x if step is None else x + i - step
+        step = _outer_dark(col[j:], lv_c)
+        bottom = y + h - 1 if step is None else y + j + step
+        step = _outer_dark(col[:j + 1][::-1], lv_c)
+        top = y if step is None else y + j - step
         if right - left < 12 or bottom - top < 12:
             break
         best = (left, top, right, bottom)

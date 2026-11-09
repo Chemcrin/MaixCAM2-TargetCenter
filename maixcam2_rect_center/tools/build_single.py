@@ -51,6 +51,7 @@ MODULES = (
     ('config', 'config.py'),
     ('vision.poll', 'vision/poll.py'),
     ('vision.algo', 'vision/algo.py'),
+    ('vision.maixvision_stream', 'vision/maixvision_stream.py'),
     ('vision.output', 'vision/output.py'),
     ('vision.logic', 'vision/logic.py'),
     ('vision', 'vision/__init__.py'),
