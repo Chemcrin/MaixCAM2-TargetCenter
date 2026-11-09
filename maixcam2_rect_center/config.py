@@ -19,7 +19,7 @@ class Config:
     SHOW_JPEG_QUALITY = 70
     VISION_ASYNC = True      # 后台识别，忙时只保留最新帧，不积压旧图
     SHOW_ASYNC = True        # 独立显示线程：show() 慢只掉预览帧，不拖识别/串口/闭环
-    RESULT_MAX_AGE_S = 0.90  # 以采图时刻计龄；过期结果不画框、不下发指令（板上约 4fps，窗口要放宽）
+    RESULT_MAX_AGE_S = 0.40  # 以采图时刻计龄；过期结果不画框、不下发指令（30fps 下收紧窗口）
     OPENCV_THREADS = 1
     LOG_INTERVAL = 2.0
 
@@ -69,29 +69,43 @@ class Config:
     UART_RX_MAX_BYTES = 256
     UART_RX_BUFFER_MAX_BYTES = 1024
 
-    # ---- 识别（Canny 边缘 → 轮廓 → 矩形 → 内框四角）----
-    RECT_MIN_AREA = 300           # 最小轮廓面积（px2）
-    RECT_MAX_AREA_RATIO = 0.92    # 面积上限（占整幅比例），挡"锁到整面墙"
-    RECT_MIN_ASPECT = 1.10        # 矩形长短边比（按最小外接矩形算，与旋转无关）
-    RECT_MAX_ASPECT = 1.80
-    RECT_GAUSS_KERNEL = (5, 5)    # 边缘检测前的高斯核；(0, 0) = 跳过
-    # Canny 双阈值：0 / 0 = 按画面中位数自动定。★ 这是"过滤纸面图案"的主旋钮——
-    # 调高，浅色印刷环直接消失；调低，环会变成一堆小轮廓，被面积门筛掉。
-    RECT_CANNY_LOW = 0
-    RECT_CANNY_HIGH = 0
-    RECT_EDGE_CLOSE = 5           # 边缘图闭运算核：把断边连起来，奇数，<3 = 跳过
-    RECT_MAX_CANDIDATES = 2       # 精修候选上限；板上每多一个约 +190ms
-    RECT_KEEP_STAGES = False      # 真：把 blur/edges 留在 last_stages，供 --stage 导出
+    # ---- 识别（阈值 → 连通域 → 环-洞结构 → 洞四边拟线 → 对角线交点）----
+    RECT_DOWNSCALE = 2            # 搜索态降采样倍数（跟踪态按 ROI 自适应钉上限）
+    RECT_LEVEL_RATIO = 0.62       # 阈值 = 亮面 90 分位 × 该比例（压在胶带与纸面之间）
+    RECT_LEVEL_FLOOR = 45.0       # 阈值下限（再暗的胶带也要能进得来）
+    RECT_LEVEL_CEIL = 160.0       # 阈值上限（再亮的背景也不许当纸面）
+    RECT_CLOSE_SIZE = 3           # 二值闭运算核：桥接运动模糊的细断带；<3 = 关闭
+    RECT_MIN_AREA = 1200          # 连通域最小面积（全分辨率 px2）
+    RECT_MAX_AREA_RATIO = 1.01    # bbox 面积占画面上限：实效关闭。真机实测暗框与暗背景
+                                  # 连成 mega-blob 时 bbox≈整幅（比值=1.0），任何 <1 的门
+                                  # 都会把正确候选杀掉；误锁防护由洞尺寸窗/边比/亮度/
+                                  # 暗带封闭性接管，要收紧再调小此值
+    RECT_MIN_SIDE_PX = 24         # bbox 最短边下限（全分辨率 px）
+    RECT_BBOX_ASPECT_MIN = 0.45   # bbox 边比宽松窗：纸面转 45° 时 bbox 近正方形，不能误杀
+    RECT_BBOX_ASPECT_MAX = 3.4
+    RECT_MIN_FILL = 0.04          # 连通域填充率窗：环是空心的，fill 天然偏低
+    RECT_MAX_FILL = 0.75          # 上限挡实心块（真机立柱实测 0.88）
+    RECT_MAX_CANDIDATES = 2       # 精测候选上限（板上每候选约十几次调用）
+    RECT_MIN_ASPECT = 1.05        # 洞（纸面）边比窗：下限杀正方形/圆洞；上限给透视留余量
+    RECT_MAX_ASPECT = 3.2
+    RECT_HOLE_MIN_PX = 120        # 洞长边尺寸窗（165cm 定距下靶纸像素尺寸已知：
+    RECT_HOLE_MAX_PX = 400        # 挡门框这类巨型假框与印刷环这类微型假框）
+    RECT_BAND_COVER = 0.60        # 洞向外一圈（0.06×洞短边厚）的暗占比下限：
+                                  # 拦"细丝围亮区"/印刷细环；误锁细框结构就调高
+    RECT_BAND_MIN_CONTRAST = 25.0 # 洞内均值 − Otsu 阈值 ≥ 该值才认（洞必须是亮纸面）
+    RECT_MODEL_MM = (261.0, 174.0)  # 纸面模型尺寸；只影响 width_mm/height_mm 输出
+    RECT_KEEP_STAGES = False      # 真：把二值图留在 last_stages，供 --stage 导出
 
-    # ---- 内外框精修（黑胶带是一条带子，有内外两条边）----
-    # 靶心取**内框**（纸边）：胶带上下不等宽时，外框中心会偏出半个带宽，实测 8~11px。
-    RECT_MODEL_MM = (261.0, 174.0)  # 纸面模型尺寸；只影响 width_mm/height_mm，不影响靶心
-    RECT_REFINE_SAMPLES = 8       # 每条边取几个剖面；板上 numpy 单次调用约 1ms，别加大
-    RECT_REFINE_SPAN = 6.0        # 沿法线向外搜索的半宽（px）
-    RECT_REFINE_STEP = 0.5        # 剖面采样步长（px）
-    RECT_TAPE_MAX_PX = 30.0       # 从外沿向内找纸边的最远距离（px），须大于胶带带宽
-    RECT_EDGE_RISE = 10.0         # 判"暗带"的最小灰度落差
-    RECT_BAND_MIN_CONTRAST = 25.0 # 带内比纸面暗多少灰度才认
+    # ---- ROI 跟踪（锁定后的三件套：小窗找、外推跟、丢了续命）----
+    RECT_TRACK_EXPAND = 1.35      # ROI = 上帧框 × 该倍数 + MARGIN
+    RECT_TRACK_MARGIN = 10.0      # ROI 外扩像素
+    RECT_TRACK_MAX_SIDE = 400.0   # ROI 降采样后最长边上限；≥典型 ROI 时跟踪态=全分辨率量测（与搜索态同口径，重捕获零跳变），大 ROI 才降采样兜底
+    RECT_TRACK_SIZE_TOL = 0.25    # 跟踪尺寸门：块尺寸相对"锁定尺寸"的容差
+    RECT_TRACK_GATE = 0.45        # 跟踪门：实测中心离预测超 0.45×框边 → 当帧作废
+    RECT_HOLD_FRAMES = 6          # 抓不到时按速度外推续命的帧数
+    RECT_HOLD_MAX_PX = 90.0       # 外推单帧限幅（防速度跑飞把 ROI 甩到画面另一头）
+    RECT_MAX_SPEED = 2500.0       # 速度限幅 px/s；dt<4ms 不更新（连拍帧间隔会除出天文数字）
+    RECT_SMOOTH = 0.55            # 中心一阶低通系数（重捕获/续命后直接对齐不平滑）
 
     # ---- 激光光斑读数（相机与激光固连，光斑位置近似固定）----
     # "fixed"：不检测，每帧只算"黑框中心 − 标定常量"，零开销（默认）

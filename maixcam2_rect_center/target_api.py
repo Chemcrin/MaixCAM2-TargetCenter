@@ -14,7 +14,7 @@
         print(res.center)               # (u, v)
         print(res.quad)                 # 外框四角 (4,2)
 
-② 追踪中心（**有状态**，窄带跟踪 + 失锁自动重捕获，适合连续视频流）::
+② 追踪中心（**有状态**，ROI 跟踪 + 速度外推 + 失锁自动重捕获，适合连续视频流）::
 
     from target_api import CenterTracker
 
@@ -22,7 +22,7 @@
     while True:
         res = tracker.track(gray)
         if res:
-            print(res.u, res.v, res.stage)     # stage: track / roi_search / full_search
+            print(res.u, res.v, res.stage)     # stage: plane_frame / no_black_frame
 
 函数式快捷用法（内部持有一个默认追踪器，小问里一行搞定）::
 
@@ -48,14 +48,15 @@
 统一返回 ``Result``（dict 子类，支持 ``res["u"]`` 与 ``res.u`` 两种写法）：
 
     valid      bool    是否识别/追踪到黑框
-    u, v       float   靶心像素坐标（已按卡尔曼/可选 EMA 平滑，供显示/常规使用）
+    u, v       float   靶心像素坐标（一阶低通平滑后，供显示/常规使用）
     raw_u/v    float   未平滑中心（闭环用，见 config.AIM_USE_RAW）
     center     tuple   (u, v)；无效时为 None
-    quad       (4,2)   外框四角，顺序已规整（左上起逆时针）
-    inner_quad (4,2)   内框四角（胶带内沿）
-    stage      str     track / roi_search / full_search / no_black_frame
-    fail_stage str     仅 valid=False 时：本帧实际走过的层级，如 track+roi+full（调试用）
-    fail_reason str    仅 valid=False 时：track_refine / no_proposal / rejected
+    quad       (4,2)   外框四角（胶带外沿，仅画图用）
+    inner_quad (4,2)   内框四角（纸边，靶心由它的对角线交点给出）
+    stage      str     plane_frame / no_black_frame（另有 stale = 结果过期）
+    hold       bool    True = 本帧是"速度外推续命"帧（跟踪短暂失败，仍在输出）
+    fail_stage str     仅 valid=False 时：本帧实际走过的层级（调试用）
+    fail_reason str    仅 valid=False 时：no_proposal / all_area / all_filtered
     ms         float   本帧检测耗时（毫秒）
     laser_u/v  float   光斑位置（仅 with_laser=True 且光斑有效时有意义）
     dx, dy     float   靶心 − 光斑（仅 with_laser=True 时；无效为 None）
@@ -200,7 +201,7 @@ def _wrap(raw, gray):
 def detect_black_frame(frame, cfg=None, detector=None):
     """**无状态**识别黑框，返回 ``Result``（没识别到则 ``valid=False``，``bool(res)`` 为假）。
 
-    每帧都是一次完整的"轮廓候选 → 内外框亚像素拟合 → 8×8 单应 → 同心环校验"，
+    每帧都是一次完整的"降采样找块 → 环-洞结构判据 → 洞四边拟线 → 对角线交点"，
     不依赖上一帧，适合"只在某几问里取一次黑框"的用法。传 ``detector`` 可复用分配，
     但每次都清空跟踪状态；连续视频使用 ``CenterTracker``。
 
@@ -224,7 +225,7 @@ def detect_black_frame(frame, cfg=None, detector=None):
 
 # ------------------------------------------------------------- API ② 追踪中心
 class CenterTracker:
-    """**有状态**中心追踪器：窄带跟踪为主，失锁后 ROI 搜索 → 全图重捕获。
+    """**有状态**中心追踪器：锁定后只在 ROI 里找 + 速度外推续命，失锁回全图重捕获。
 
     典型用法：连续 ``track(gray)``；换场景/重新开题时 ``reset()``。
     ``with_laser=True`` 时返回值额外带光斑位置与 ``dx/dy``（靶心 − 光斑）。

@@ -2,18 +2,23 @@
 
 四层之一，只有三类内容：
 
-    几何  signed_area / order_quad / line_cross / quad_diagonal_center
-    图像  blur_frame / binarize_frame / find_quad_candidates / select_largest
-          find_concentric（同心圆，独立成链）
+    几何  line_cross / quad_diagonal_center（对角线交点，纯 Python）
+    图像  downscale / auto_level / dark_mask / close_mask / components
+          prefilter_boxes / ring_hole / hole_quad / outer_from_inner
     偏差  deviation（靶心 − 光斑，纯算术）
 
-四条刻意的设计约束（属于本层，不要在别处放宽）：
+链路核心（为什么这样组织，每一条都对应板上的真实教训）：
 
-1. **四边形判据只有三层**：面积 → 四边形近似 → 长宽比。不做胶带暗带证据、亚像素精修、
-   单应反算。画面里出现更大的深色矩形时会锁错，这是本方案的已知边界。
-2. **同心圆是并行证据，不是第四层判据**：`find_concentric` 走 RETR_LIST 独立成链，
-   命中即直接给出圆心；它不放宽上面三层，三层也不因它改变。
-3. **中心取四点的对角线交点**，不取正立外接矩形中心 —— 透视下无偏；同心圆路径取圆心。
+1. **板上一次 Python 级 numpy/cv2 调用 ≈ 1ms，单帧耗时 ≈ 调用次数**（不是像素数）。
+   所以热路径只有两类写法：整批一次的大图 cv2 调用（阈值/闭运算/连通域/轮廓），
+   以及 `tolist()` 之后的小数组**纯 Python** 循环（选块/投影/拟线/求交）。
+   v9 实测：小数组的向量化 numpy 与循环同价，却多付每次 ~1ms 的调用开销。
+2. **黑胶带环 = 一块暗带围出一个亮洞**。`ring_hole` 用 RETR_CCOMP 的两层层级
+   拿"环外边界 + 洞（纸面）"：洞洞板（许多小洞）、门框立柱（没有洞）被结构性排除；
+   洞里的印刷图案是环的**兄弟**轮廓而非子轮廓，天然不参与判据。
+3. **中心 = 洞四边拟线 → 四线交角 → 对角线交点**。矩形（及其透视像）的对角线交点
+   在任意视角下都对应真靶心：正放、旋转、斜视（梯形）共用同一条链路，无需单应。
+   轮廓用 CHAIN_APPROX_NONE 取密集边点，保证每条边有足够的点做最小二乘。
 4. 参数全部由调用方传入，所以本层可以在 PC 上脱离 `Config` 单独断言。
 
 依赖方向：**本层不 import 其余三层**，只依赖 cv2 / numpy / math。
@@ -24,37 +29,14 @@ import cv2
 import numpy as np
 
 __all__ = [
-    "signed_area", "order_quad", "line_cross", "quad_diagonal_center",
-    "blur_frame", "edge_map", "deviation",
-    "bilinear", "frame_edge_points", "fit_line", "quad_from_lines", "refine_frame",
-    "solve_homography", "apply_homography", "invert_homography", "plane_quad",
-    "quad_mix", "band_evidence",
-    "find_frame_candidates",
+    "line_cross", "quad_diagonal_center",
+    "downscale", "auto_level", "dark_mask", "close_mask", "components",
+    "prefilter_boxes", "ring_hole", "hole_quad", "outer_from_inner",
+    "deviation",
 ]
 
 # ================================================================== 纯函数
 # ------------------------------------------------------------------ 几何
-def signed_area(p):
-    """带符号面积的 2 倍：>0 逆时针。用于把四角规整成统一方向。"""
-    p = np.asarray(p, np.float64)
-    return float(p[0, 0] * (p[1, 1] - p[3, 1]) + p[1, 0] * (p[2, 1] - p[0, 1]) +
-                 p[2, 0] * (p[3, 1] - p[1, 1]) + p[3, 0] * (p[0, 1] - p[2, 1]))
-
-
-def order_quad(points):
-    """四角规整为 [左上, 右上, 右下, 左下]（逆时针）。
-
-    顺序固定是对角线配对的前提：只有这样 q0-q2 与 q1-q3 才是对角线而不是相邻边。
-    """
-    p = np.asarray(points, np.float32).reshape(4, 2)
-    c = p.mean(axis=0)
-    p = p[np.argsort(np.arctan2(p[:, 1] - c[1], p[:, 0] - c[0]))]
-    if signed_area(p) < 0:
-        p = p[::-1]
-    i = int(np.argmin(p.sum(axis=1)))
-    return np.concatenate((p[i:], p[:i]))
-
-
 def line_cross(a, b, c, d):
     """线段 ab 与 cd 所在直线的交点；平行或退化返回 None。"""
     ax, ay = float(a[0]), float(a[1])
@@ -69,389 +51,421 @@ def line_cross(a, b, c, d):
 
 
 def quad_diagonal_center(quad):
-    """对角线交点 = 透视下的矩形中心。退化时返回 None，由调用方判失败。"""
-    q = np.asarray(quad, np.float32)
+    """对角线交点 = 透视下的矩形中心。退化时返回 None，由调用方判失败。
+
+    纯 Python（板上每次 numpy 调用 ~1ms，四点算术不值得付这个钱）。
+    """
+    q = [(float(p[0]), float(p[1])) for p in quad]
+    if len(q) != 4:
+        return None
     p = line_cross(q[0], q[2], q[1], q[3])
-    if p is None or not np.isfinite(p).all():
+    if p is None or not (math.isfinite(p[0]) and math.isfinite(p[1])):
         return None
     return p
 
 
 # ------------------------------------------------------------------ 预处理
-def blur_frame(gray, kernel):
-    """高斯模糊。kernel 为 None 或任一分量为 0/负数时原样返回（关闭模糊）。"""
-    k = kernel
-    if not k or k[0] <= 0 or k[1] <= 0:
+def downscale(gray, factor):
+    """整数倍降采样；factor<=1 原样返回。
+
+    用 INTER_AREA（2×2 均值）而不是隔点取样：同样的调用次数，均值把反光噪点
+    压掉一半，胶带环更连续。降采样是"减少像素"的唯一手段，也是本链路提速的第一步。
+    """
+    f = int(factor)
+    if f <= 1:
         return gray
-    return cv2.GaussianBlur(gray, tuple(k), 0)
+    h, w = gray.shape[:2]
+    return cv2.resize(gray, (max(8, w // f), max(8, h // f)), interpolation=cv2.INTER_AREA)
 
 
-def edge_map(gray, low, high, close_kernel):
-    """Canny 边缘 + 闭运算：把细边连成能围出区域的轮廓。
+def auto_level(small, lo_pct=2.0, hi_pct=90.0, ratio=0.62, floor=45.0, ceil=160.0):
+    """自适应二值阈值：压在"胶带（暗）"与"纸面（亮）"之间。
 
-    阈值就是"过滤纸面图案"的旋钮：调高，浅色的印刷环直接消失，只剩胶带那种硬边；
-    调低，环会变成一堆小碎轮廓——它们面积小，后面按面积一筛就没了。
-    high <= 0 表示按中位数自动定阈值，适应曝光变化。
+    取 90 分位当亮面基准，阈值 = ratio × 它：纸面随曝光变暗时阈值同步下移，不会失效。
+    分位数只在 1/16 的像素上算（步长 4），两次 numpy 调用就够。
     """
-    src = gray.astype(np.uint8, copy=False)
-    if high <= 0:
-        med = float(np.median(src))
-        low = int(max(10.0, 0.66 * med))
-        high = int(min(255.0, 1.33 * med))
-    e = cv2.Canny(src, int(low), int(high))
-    k = int(close_kernel)
-    if k >= 3:
-        k |= 1
-        e = cv2.morphologyEx(e, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
-    return e
+    sub = small[::4, ::4]
+    lo = float(np.percentile(sub, lo_pct))
+    hi = float(np.percentile(sub, hi_pct))
+    return float(np.clip(ratio * hi, max(float(floor), lo + 15.0), float(ceil)))
 
 
-# ------------------------------------------------------------------ 灰度采样
-def bilinear(gray, xs, ys):
-    """双线性采样，越界夹到边缘。xs/ys 可为标量或任意形状数组。"""
-    g = gray.astype(np.float32, copy=False)
-    h, w = g.shape[:2]
-    x = np.clip(np.asarray(xs, np.float32), 0.0, w - 2.0)
-    y = np.clip(np.asarray(ys, np.float32), 0.0, h - 2.0)
-    x0 = np.floor(x).astype(np.int32)
-    y0 = np.floor(y).astype(np.int32)
-    fx = x - x0
-    fy = y - y0
-    return (g[y0, x0] * (1 - fx) * (1 - fy) + g[y0, x0 + 1] * fx * (1 - fy) +
-            g[y0 + 1, x0] * (1 - fx) * fy + g[y0 + 1, x0 + 1] * fx * fy)
+def dark_mask(small, level):
+    """暗于 level 的像素置 255。胶带、门缝、阴影都进来，靠后面的结构门筛掉。"""
+    return cv2.threshold(small, float(level), 255, cv2.THRESH_BINARY_INV)[1]
 
 
-def frame_edge_points(gray, a, b, center, samples=10, span=6.0, inward=30.0,
-                      rise=10.0, step=0.5):
-    """沿一条边 a→b 采样，返回 (外沿点, 内沿点) 两组亚像素坐标。
+_CLOSE_KERNELS = {}
 
-    判据是"胶带是一段连续暗带"，不是"哪里有梯度"：
-      外沿 = 从框外往框内走，第一段能持续 4 个采样的暗区起点；
-      内沿 = 这段暗区结束、回到纸面亮度的位置。
-    遮挡物（灰斑、阴影）比纸暗但远不如胶带黑，会被"暗带均值 < 0.6×亮区均值"挡掉。
 
-    实现上整批算：一次取 (samples × 剖面长度) 的灰度矩阵，再对行做向量化判断。
-    早期版本逐行 numpy 调用，在板上因为调用开销把单帧拖到 1.6 秒——这里必须整批。
+def close_mask(mask, size):
+    """闭运算：把运动模糊造成的细小断带桥接起来（size<3 时原样返回）。
+
+    核缓存进模块级 dict：核只跟 size 有关，逐帧重建纯浪费一次调用。
     """
-    a = np.asarray(a, np.float64)
-    b = np.asarray(b, np.float64)
-    c = np.asarray(center, np.float64)
-    d = b - a
-    length = float(np.hypot(d[0], d[1]))
-    if length < 8.0:
-        return np.empty((0, 2)), np.empty((0, 2))
-    d = d / length
-    nrm = np.array([-d[1], d[0]])
-    if float(nrm @ ((a + b) * 0.5 - c)) < 0.0:
-        nrm = -nrm
-
-    offs = np.arange(span, -inward - 1e-9, -step)
-    m = int(offs.size)
-    zero = int(round(span / step))
-    ts = np.linspace(0.15, 0.85, int(samples))
-    base = a[None, :] + ts[:, None] * (b - a)[None, :]
-    gx = base[:, 0:1] + nrm[0] * offs[None, :]
-    gy = base[:, 1:2] + nrm[1] * offs[None, :]
-    prof = bilinear(gray, gx, gy)                 # (samples, m) 一次取完
-    n = prof.shape[0]
-
-    lo = prof.min(axis=1)
-    hi = prof.max(axis=1)
-    ok = (hi - lo) >= float(rise)
-    if not np.any(ok):
-        return np.empty((0, 2)), np.empty((0, 2))
-    level = lo + 0.40 * (hi - lo)
-
-    dark = prof < level[:, None]
-    pad = np.zeros((n, 1), bool)
-    edge = np.diff(np.concatenate([pad, dark, pad], axis=1).astype(np.int8), axis=1)
-    started = edge == 1
-    ended = edge == -1
-    cols = np.arange(edge.shape[1])
-    rows = np.arange(n)
-
-    cost = np.where(started, np.abs(cols[None, :] - zero), 10 ** 6)
-    s0 = cost.argmin(axis=1)
-    valid = cost[rows, s0] < 10 ** 6
-    ecost = np.where(ended & (cols[None, :] > s0[:, None]), cols[None, :], 10 ** 6)
-    s1 = ecost.argmin(axis=1)
-    valid &= ecost[rows, s1] < 10 ** 6
-    valid &= (s0 < m - 2) & (s1 < m - 2)
-    valid &= (s1 - s0) >= 4
-    valid &= ok
-    if not np.any(valid):
-        return np.empty((0, 2)), np.empty((0, 2))
-
-    r = np.flatnonzero(valid)
-    pv = prof[r]
-    lv = level[r]
-    s0v, s1v = s0[r], s1[r]
-    rr = np.arange(r.size)
-
-    i0 = np.clip(s0v - 1, 0, m - 1)
-    a0, b0 = pv[rr, i0], pv[rr, s0v]
-    den0 = b0 - a0
-    t0 = np.where(np.abs(den0) > 1e-6,
-                  np.clip((lv - a0) / np.where(np.abs(den0) > 1e-6, den0, 1.0), 0.0, 1.0), 0.0)
-    pos_out = offs[i0] + t0 * (offs[s0v] - offs[i0])
-    pos_out = np.where(s0v > 0, pos_out, float(offs[0]))
-
-    i1 = np.clip(s1v - 1, 0, m - 1)
-    a1, b1 = pv[rr, i1], pv[rr, s1v]
-    den1 = b1 - a1
-    t1 = np.where(np.abs(den1) > 1e-6,
-                  np.clip((lv - a1) / np.where(np.abs(den1) > 1e-6, den1, 1.0), 0.0, 1.0), 0.0)
-    pos_in = offs[i1] + t1 * (offs[s1v] - offs[i1])
-
-    csum = np.concatenate([np.zeros((r.size, 1)), np.cumsum(pv, axis=1)], axis=1)
-    dark_cnt = np.maximum(1, s1v - s0v)
-    bright_cnt = np.maximum(1, m - s1v)
-    dark_mean = (csum[rr, s1v] - csum[rr, s0v]) / dark_cnt
-    bright_mean = (csum[rr, m] - csum[rr, s1v]) / bright_cnt
-
-    keep = (bright_mean >= 40.0) & (dark_mean <= 0.60 * bright_mean) & ((pos_out - pos_in) >= 2.0)
-    if not np.any(keep):
-        return np.empty((0, 2)), np.empty((0, 2))
-    sel = base[r][keep]
-    out_pts = sel + nrm[None, :] * pos_out[keep][:, None]
-    in_pts = sel + nrm[None, :] * pos_in[keep][:, None]
-    return out_pts, in_pts
+    k = int(size)
+    if k < 3:
+        return mask
+    k |= 1
+    kernel = _CLOSE_KERNELS.get(k)
+    if kernel is None:
+        kernel = np.ones((k, k), np.uint8)
+        _CLOSE_KERNELS[k] = kernel
+    return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
 
 
-def fit_line(points):
-    """总体最小二乘直线拟合，返回过 (p0) 与方向 p1 的两点式；点不足返回 None。"""
-    p = np.asarray(points, np.float32).reshape(-1, 2)
-    if p.shape[0] < 2:
-        return None
-    vx, vy, x0, y0 = cv2.fitLine(p, cv2.DIST_L2, 0, 0.01, 0.01).ravel()
-    if not np.isfinite((vx, vy, x0, y0)).all() or (abs(vx) < 1e-9 and abs(vy) < 1e-9):
-        return None
-    return (float(x0), float(y0)), (float(x0 + vx), float(y0 + vy))
+def components(mask):
+    """连通域统计：一次调用拿到所有块的 (x, y, w, h, 面积) 与质心。
 
-
-def quad_from_lines(lines):
-    """四条边线两两求交 → 四角。第 i 个角 = 第 i-1 条边与第 i 条边的交点。"""
-    if lines is None or len(lines) != 4 or any(l is None for l in lines):
-        return None
-    pts = []
-    for i in range(4):
-        p = line_cross(lines[i - 1][0], lines[i - 1][1], lines[i][0], lines[i][1])
-        if p is None:
-            return None
-        pts.append(p)
-    q = np.asarray(pts, np.float32)
-    if not np.isfinite(q).all():
-        return None
-    return order_quad(q)
-
-
-def refine_frame(gray, quad, samples=14, span=6.0, inward=30.0, rise=10.0, step=0.5):
-    """粗四边形 → (外框四角, 内框四角, 内沿命中点数)。任一框凑不齐四边返回 None。"""
-    q = order_quad(quad)
-    c = q.mean(axis=0)
-    outer_lines, inner_lines = [], []
-    inner_hits = 0
-    for i in range(4):
-        po, pi = frame_edge_points(gray, q[i], q[(i + 1) % 4], c,
-                                   samples, span, inward, rise, step)
-        inner_hits += int(pi.shape[0])
-        lo, li = fit_line(po), fit_line(pi)
-        if lo is not None:
-            outer_lines.append(lo)
-        if li is not None:
-            inner_lines.append(li)
-    return quad_from_lines(outer_lines), quad_from_lines(inner_lines), inner_hits
-
-
-# ------------------------------------------------------------------ 单应
-def _normalize_points(points):
-    """Hartley 归一化：重心到原点、平均距离到 √2。返回 (T, T⁻¹, 归一化点)。
-
-    不做这一步，8×8 的条件数会到 1e5 量级，像素坐标的舍入误差被放大成可见偏差。
+    比 findContours + 逐轮廓 boundingRect 快一个数量级 —— 板上每次 Python 级调用
+    约 1ms，几百个轮廓就是几百毫秒，而这里只有一次。
     """
-    p = np.asarray(points, np.float64).reshape(-1, 2)
-    center = p.mean(axis=0)
-    dist = float(np.sqrt(((p - center) ** 2).sum(axis=1)).mean())
-    scale = math.sqrt(2.0) / max(dist, 1e-9)
-    t = np.array([[scale, 0.0, -scale * center[0]],
-                  [0.0, scale, -scale * center[1]],
-                  [0.0, 0.0, 1.0]], np.float64)
-    t_inv = np.array([[1.0 / scale, 0.0, center[0]],
-                      [0.0, 1.0 / scale, center[1]],
-                      [0.0, 0.0, 1.0]], np.float64)
-    return t, t_inv, (p - center) * scale
+    n, _lab, stats, cent = cv2.connectedComponentsWithStats(mask, 8)
+    if n <= 1:
+        return np.zeros((0, 5), np.int32), np.zeros((0, 2), np.float64)
+    return stats[1:], cent[1:]
 
 
-def _solve8(a, b):
-    """8×8 高斯消元（列主元）。a、b 不被改动；奇异返回 None。"""
-    m = np.concatenate([np.asarray(a, np.float64), np.asarray(b, np.float64).reshape(8, 1)],
-                       axis=1)
-    for col in range(8):
-        pivot = int(np.argmax(np.abs(m[col:, col]))) + col
-        if abs(m[pivot, col]) < 1e-12:
-            return None
-        if pivot != col:
-            m[[col, pivot]] = m[[pivot, col]]
-        m[col] /= m[col, col]
-        for row in range(8):
-            if row != col and m[row, col] != 0.0:
-                m[row] -= m[row, col] * m[col]
-    return m[:, 8]
+# ------------------------------------------------------------------ 候选预筛
+def prefilter_boxes(stats, total, min_area, max_area_ratio, min_side,
+                    bbox_lo, bbox_hi, min_fill, max_fill):
+    """连通域 stats (N,5) → 通过预筛的候选 [(bbox面积, x, y, w, h), ...] 按面积降序。
 
+    **先预筛再排序**是真机帧的生死顺序：暗背景大块（fill~0.6）、立柱（fill~0.88）
+    的 bbox 面积都比靶环大，不先按形状筛掉，候选名额就被它们占光。
+    预筛窗刻意宽松：bbox 边比下限到 0.45——纸面旋转 45° 时 bbox 接近正方形，
+    这里误杀就再没有翻身机会；真正的形状判据在 ring_hole 的洞边比门（旋转不变）。
 
-def solve_homography(src, dst):
-    """图像点 src → 平面点 dst 的单应矩阵 (3×3)。
-
-    8 个自由度：每对点给 2 个方程，4 对点正好 8×8，高斯消元；多于 4 对时
-    正规方程 AᵀA h = Aᵀb 仍是 8×8，同一套消元，白捡最小二乘。
-    两侧都先归一化，最后把归一化变换剥掉。
+    stats.tolist() 一次调用 + 纯 Python 循环：小数组向量化 numpy 每次调用 ~1ms，
+    循环反而便宜。
     """
-    s = np.asarray(src, np.float64).reshape(-1, 2)
-    d = np.asarray(dst, np.float64).reshape(-1, 2)
-    n = int(min(len(s), len(d)))
-    if n < 4:
-        return None
-    s, d = s[:n], d[:n]
-    ts, ts_inv, sn = _normalize_points(s)
-    td, td_inv, dn = _normalize_points(d)
-    rows = np.zeros((2 * n, 8), np.float64)
-    rhs = np.zeros(2 * n, np.float64)
-    for k in range(n):
-        u, v = sn[k]
-        x, y = dn[k]
-        rows[2 * k] = (u, v, 1.0, 0.0, 0.0, 0.0, -x * u, -x * v)
-        rows[2 * k + 1] = (0.0, 0.0, 0.0, u, v, 1.0, -y * u, -y * v)
-        rhs[2 * k] = x
-        rhs[2 * k + 1] = y
-    h = _solve8(rows, rhs) if n == 4 else _solve8(rows.T @ rows, rows.T @ rhs)
-    if h is None:
-        return None
-    hn = np.array([[h[0], h[1], h[2]], [h[3], h[4], h[5]], [h[6], h[7], 1.0]], np.float64)
-    mat = td_inv @ hn @ ts
-    if not np.isfinite(mat).all() or abs(mat[2, 2]) < 1e-12:
-        return None
-    return mat / mat[2, 2]
-
-
-def apply_homography(mat, points):
-    """把 (N,2) 点按 3×3 单应投影过去。"""
-    p = np.asarray(points, np.float64).reshape(-1, 2)
-    q = np.concatenate([p, np.ones((p.shape[0], 1))], axis=1) @ np.asarray(mat, np.float64).T
-    w = q[:, 2:3]
-    return q[:, :2] / np.where(np.abs(w) < 1e-12, 1e-12, w)
-
-
-def invert_homography(mat):
-    """3×3 单应的解析逆（伴随矩阵 / 行列式）。奇异返回 None。"""
-    m = np.asarray(mat, np.float64)
-    a, b, c = m[0]
-    d, e, f = m[1]
-    g, h, i = m[2]
-    det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
-    if abs(det) < 1e-12:
-        return None
-    inv = np.array([[e * i - f * h, c * h - b * i, b * f - c * e],
-                    [f * g - d * i, a * i - c * g, c * d - a * f],
-                    [d * h - e * g, b * g - a * h, a * e - b * d]], np.float64) / det
-    return inv / inv[2, 2] if abs(inv[2, 2]) > 1e-12 else inv
-
-
-def plane_quad(width, height):
-    """纸面模型矩形（中心在原点、y 向下），顺序与 order_quad 一致：[左上,右上,右下,左下]。"""
-    hw, hh = float(width) * 0.5, float(height) * 0.5
-    return np.array([[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]], np.float32)
-
-
-# ------------------------------------------------------------------ 胶带带候选
-def quad_mix(outer, inner, t):
-    """两框对应角做线性混合：t=0 外框、t=1 内框、0.5 带中线（近似）。"""
-    o = np.asarray(outer, np.float32).reshape(4, 2)
-    i = np.asarray(inner, np.float32).reshape(4, 2)
-    return o * (1.0 - float(t)) + i * float(t)
-
-
-def band_evidence(gray, outer, inner):
-    """胶带带证据：带中线灰度 vs 纸面内区灰度，返回 (带灰, 纸灰, 纸-带)。"""
-    band = quad_mix(outer, inner, 0.5)
-    pts = []
-    for i in range(4):
-        for t in (0.25, 0.5, 0.75):
-            pts.append(band[i] + t * (band[(i + 1) % 4] - band[i]))
-    pts = np.asarray(pts, np.float32)
-    band_g = float(bilinear(gray, pts[:, 0], pts[:, 1]).mean())
-    paper = quad_mix(outer, inner, 1.0)
-    c = paper.mean(axis=0)
-    v = paper[2] - paper[0]
-    probe = c + np.array([[0.0, 0.0], [v[0] * 0.2, 0.0], [-v[0] * 0.2, 0.0],
-                          [0.0, v[1] * 0.2], [0.0, -v[1] * 0.2]], np.float32)
-    paper_g = float(bilinear(gray, probe[:, 0], probe[:, 1]).mean())
-    return band_g, paper_g, paper_g - band_g
-
-
-def find_frame_candidates(gray, edges, min_area, max_area_ratio, min_aspect, max_aspect,
-                          min_contrast, samples=14, span=6.0, inward=30.0, rise=10.0,
-                          step=0.5, max_candidates=8):
-    """从二值图提"胶带带"候选：轮廓 → 最小外接矩形 → 内外框精修 → 灰度对比度打分。
-
-    为什么用最小外接矩形而不是 approxPolyDP：胶带内角是圆的、边常被遮挡，
-    多边形逼近永远凑不出 4 个顶点（实测两档真机帧 eps 1%~8% 全为 0）；
-    外接矩形只要求"四个方向上取到极值点"，缺一个角依然成立。
-    记账等式：contours = area + shape + aspect + frame + candidates
-    """
-    h, w = edges.shape[:2]
-    total = float(h * w)
-    contours = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[-2]
-    stats = dict(contours=len(contours), area=0, shape=0, aspect=0, frame=0,
-                 candidates=0, capped=0)
-    # 第一遍只做最便宜的 boundingRect。边缘图上轮廓可达 300+，
-    # 每个都算 minAreaRect 会在板上把单帧拖到接近一秒。
-    prelim = []
-    for cnt in contours:
-        bx, by, bw, bh = cv2.boundingRect(cnt)
-        box_area = float(bw) * float(bh)
-        if min(bw, bh) < 12 or box_area < float(min_area) or box_area > total * float(max_area_ratio):
-            stats["area"] += 1
-            continue
-        prelim.append((box_area, cnt))
-    prelim.sort(key=lambda p: -p[0])
-    stats["capped"] = max(0, len(prelim) - int(max_candidates))
+    limit = float(total) * float(max_area_ratio)
+    min_area = float(min_area)
+    min_side = float(min_side)
     out = []
-    for box_area, cnt in prelim[:int(max_candidates)]:
-        rect = cv2.minAreaRect(cnt)
-        (cx, cy), (rw, rh), ang = rect
-        if min(rw, rh) < 12.0:
-            stats["shape"] += 1
+    for x, y, w, h, area in stats.tolist():
+        w = int(w)
+        h = int(h)
+        short = w if w < h else h
+        if short < min_side:
             continue
-        aspect = max(rw, rh) / max(1.0, min(rw, rh))
-        if aspect < float(min_aspect) or aspect > float(max_aspect):
-            stats["aspect"] += 1
+        box_area = float(w) * float(h)
+        if box_area < min_area or box_area > limit:
             continue
-        outer, inner, hits = refine_frame(gray, cv2.boxPoints(rect), samples, span,
-                                          inward, rise, step)
-        if outer is None or inner is None:
-            stats["frame"] += 1
+        long_ = w if w > h else h
+        aspect = long_ / short
+        if aspect < float(bbox_lo) or aspect > float(bbox_hi):
             continue
-        outer_area = abs(float(cv2.contourArea(outer.astype(np.float32))))
-        inner_area = abs(float(cv2.contourArea(inner.astype(np.float32))))
-        if outer_area <= 1.0 or not (0.25 <= inner_area / outer_area <= 0.95):
-            stats["frame"] += 1
+        fill = float(area) / box_area
+        if fill < float(min_fill) or fill > float(max_fill):
             continue
-        band_g, paper_g, contrast = band_evidence(gray, outer, inner)
+        out.append((box_area, int(x), int(y), w, h))
+    out.sort(key=lambda t: -t[0])
+    return out
+
+
+# ------------------------------------------------------------------ 环-洞结构
+def ring_hole(gray, box, margin, min_hole, max_hole, aspect_lo, aspect_hi,
+              band_cover, min_contrast, want_brightness=True, close_size=3,
+              want_mask=False):
+    """在 gray 的 box±margin 裁剪图里找「暗带环 + 它围出的亮洞」，结构判据全在这里。
+
+    阈值在裁剪图内做 **Otsu 自动分割**（暗带|亮面天然双峰），不做任何全局假设：
+    真机帧实测过"胶带灰度 118 比全局分位阈值 116 还亮"的翻车——纸面不一定是最亮的，
+    分位数会跟着背景 composition 漂。Otsu 在候选的小图里永远面对同一道二选一：
+    暗的胶带 vs 亮的面，两峰离得远时分得准；两峰糊在一起时结构门自然拒绝。
+
+    层级语义（RETR_CCOMP 只有两层）：
+        顶层（parent==-1）  = 各暗块的**外边界**；
+        第二层（某顶层的 child）= 该暗块围出的**洞**。
+        洞里的印刷图案/红点是又一层暗块 → 仍是**顶层**，是环的兄弟而非儿子，
+        所以"环的直接子轮廓"恰好就是纸洞，不会被洞内图案干扰。
+
+    判据（任一不过即返回 None，调用方拿到的就是"这块不是靶纸"）：
+        a. 环 = 顶层中 bbox 面积最大者（裁剪图本来就是候选块的位置）；
+        b. 环的直接子轮廓中面积最大者 = 洞。真机教训：暗框常与暗色背景连成
+           mega-blob（边框 35、墙 75，都低于阈值），此时 blob 的 bbox 远大于洞
+           ——所以判据不拿 bbox 作参照，靠下面 c/d 的绝对尺寸与洞周暗带封闭性；
+        c. 洞 minAreaRect：长边 ∈ [min_hole, max_hole]（定距下靶纸像素尺寸已知，
+           挡门框这类巨型假框与印刷环这类微型假框）、边比 ∈ [aspect_lo, aspect_hi]
+           （下限杀正方形/圆洞，上限给透视压缩留余量；旋转不变）；
+        d. 洞周暗带封闭性：洞边界向外一圈（厚度 ≈ 0.06×洞短边）必须基本是暗的
+           （暗占比 ≥ band_cover）。胶带环、显示器边框都过；印刷圆环线（3px 细线）
+           和"亮区被细丝勉强围住"的结构过不去；
+        e. want_brightness 时：洞内灰度均值 − Otsu 阈值 ≥ min_contrast（洞必须是亮纸面）。
+
+    返回 dict（坐标系 = 裁剪图局部，origin 带回全图偏移）：
+        hole      洞轮廓点（纯 Python list，供 hole_quad 拟线）
+        rect      洞的 minAreaRect ((cx,cy),(w,h),angle)
+        aspect    洞边比（长/短）
+        hole_area / outer_area / hole_perim   面积与周长（带宽 = (外-洞)/周长）
+        paper / contrast    洞内均值灰度与（均值 − Otsu 阈值），want_brightness=False 时为 None
+        level     本块实际使用的 Otsu 阈值（诊断用）
+        box       环外边界的 bbox（裁剪图局部）
+        origin    裁剪原点（全图坐标）
+        mask      want_mask=True 时返回二值图（调试用）
+    """
+    h, w = gray.shape[:2]
+    x, y, bw, bh = (int(v) for v in box)
+    m = int(margin)
+    x0 = max(0, x - m)
+    y0 = max(0, y - m)
+    x1 = min(w, x + bw + m)
+    y1 = min(h, y + bh + m)
+    if x1 - x0 < 16 or y1 - y0 < 16:
+        return None
+    crop = gray[y0:y1, x0:x1]
+    otsu, mask = cv2.threshold(crop, 0, 255,
+                               cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+    level = float(otsu)
+    mask = close_mask(mask, close_size)
+    res = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_NONE)
+    contours, hierarchy = res[-2], res[-1]
+    if hierarchy is None or not contours:
+        return None
+    hier = hierarchy[0].tolist()
+    ring_i = -1
+    ring_box = None
+    ring_bb = -1.0
+    for i, row in enumerate(hier):
+        if row[3] != -1:
+            continue
+        bx, by, bw2, bh2 = cv2.boundingRect(contours[i])
+        area_bb = float(bw2) * float(bh2)
+        if area_bb > ring_bb:
+            ring_bb = area_bb
+            ring_i = i
+            ring_box = (bx, by, bw2, bh2)
+    if ring_i < 0:
+        return None
+    hole_i = -1
+    hole_area = 0.0
+    j = hier[ring_i][2]
+    while j != -1:
+        a = abs(float(cv2.contourArea(contours[j])))
+        if a > hole_area:
+            hole_area = a
+            hole_i = j
+        j = hier[j][0]
+    if hole_i < 0:
+        return None
+    hole = contours[hole_i]
+    rect = cv2.minAreaRect(hole)
+    (_rcx, _rcy), (rw, rh), _ang = rect
+    long_ = max(rw, rh)
+    short_ = min(rw, rh)
+    if short_ <= 0 or long_ < float(min_hole) or long_ > float(max_hole):
+        return None
+    aspect = long_ / short_
+    if aspect < float(aspect_lo) or aspect > float(aspect_hi):
+        return None
+    outer_area = abs(float(cv2.contourArea(contours[ring_i])))
+    if outer_area <= 1.0:
+        return None
+    # 洞周暗带封闭性：洞向外一圈（厚度 ≈ 0.06×洞短边）必须基本是暗的。
+    # 洞的存在本身只保证"紧贴边界是暗的"（它被暗块围出来），细丝围亮区、
+    # 印刷细环这类结构靠这一道拦下；mega-blob（框连着暗墙）不受影响，
+    # 因为检查只看洞的近邻，与 blob 多大无关。
+    expand = max(3.0, 0.06 * short_)
+    k = int(2.0 * expand) | 1
+    kernel = _CLOSE_KERNELS.get(k)
+    if kernel is None:
+        kernel = np.ones((k, k), np.uint8)
+        _CLOSE_KERNELS[k] = kernel
+    hole_mask = np.zeros(crop.shape, np.uint8)
+    cv2.fillPoly(hole_mask, [hole], 255)
+    band = cv2.dilate(hole_mask, kernel)
+    cv2.fillPoly(band, [hole], 0)
+    if float(cv2.mean(mask, band)[0]) / 255.0 < float(band_cover):
+        return None
+    paper = None
+    contrast = None
+    if want_brightness:
+        paper = float(cv2.mean(crop, hole_mask)[0])
+        contrast = paper - level
         if contrast < float(min_contrast):
-            stats["frame"] += 1
-            continue
-        x, y, bw, bh = cv2.boundingRect(outer.astype(np.float32))
-        out.append(dict(outer=outer, inner=inner, score=float(contrast), area=box_area,
-                        aspect=float(aspect), bbox=(x, y, bw, bh),
-                        band_gray=band_g, paper_gray=paper_g, inner_hits=int(hits)))
-        stats["candidates"] += 1
-    out.sort(key=lambda c: c["score"], reverse=True)
-    return out[:int(max_candidates)], stats
+            return None
+    band_w = min((outer_area - hole_area) / max(float(cv2.arcLength(hole, True)), 1.0),
+                 0.12 * short_)
+    out = dict(hole=hole.reshape(-1, 2).tolist(), rect=rect, aspect=float(aspect),
+               hole_area=hole_area, outer_area=outer_area, band_w=float(band_w),
+               paper=paper, contrast=(None if contrast is None else float(contrast)),
+               level=level, box=ring_box, origin=(x0, y0), contours=len(contours))
+    if want_mask:
+        out["mask"] = mask
+    return out
 
 
-# ================================================================== 结果组装
+# ------------------------------------------------------------------ 洞 → 四角
+def _fit_line_dep(pts, trim_px=3.0, min_pts=3):
+    """闭式最小二乘拟线：x = a·y + b（x=法向坐标，y=沿边坐标）。
+
+    先整批拟一次，剔除法向残差 > trim_px 的外点（反光/毛边）再拟一次即收敛。
+    点数不足或退化（沿边坐标全相同）返回 None。
+    """
+    a = b = 0.0
+    for _ in range(2):
+        if len(pts) < min_pts:
+            return None
+        n = float(len(pts))
+        sx = sy = sxx = syy = sxy = 0.0
+        for xx, yy in pts:
+            sx += xx
+            sy += yy
+            sxx += xx * xx
+            syy += yy * yy
+            sxy += xx * yy
+        den = n * syy - sy * sy
+        if abs(den) < 1e-9:
+            return None
+        a = (n * sxy - sx * sy) / den
+        b = (sx - a * sy) / n
+        kept = [p for p in pts if abs(p[0] - (a * p[1] + b)) <= trim_px]
+        if len(kept) == len(pts):
+            return (a, b)
+        pts = kept
+    return (a, b) if len(pts) >= min_pts else None
 
 
+def _cross_uv(line_u, line_v):
+    """du = a·dv + b 与 dv = c·du + d 两线求交，返回 (du, dv)；近平行返回 None。"""
+    a, b = line_u
+    c, d = line_v
+    den = 1.0 - a * c
+    if abs(den) < 1e-9:
+        return None
+    du = (a * d + b) / den
+    return du, c * du + d
+
+
+def _rect_quad_from(rect):
+    """minAreaRect 的四角（环序，对角线 = 0-2 / 1-3）。仅作 hole_quad 的回退。"""
+    return cv2.boxPoints(rect).tolist()
+
+
+def _poly2_area(quad):
+    """鞋带公式算 2 倍有符号面积（纯 Python），用于凸性/退化防护。"""
+    total = 0.0
+    n = len(quad)
+    for i in range(n):
+        x0, y0 = quad[i]
+        x1, y1 = quad[(i + 1) % n]
+        total += float(x0) * float(y1) - float(x1) * float(y0)
+    return total
+
+
+def hole_quad(points, rect, min_pts=8, keep=0.75):
+    """洞轮廓点 + minAreaRect → 内框四角（环序，对角线 = 0-2 / 1-3）。
+
+    **全纯 Python**：热路径上小数组的 numpy 调用与循环同价，但每次多付 ~1ms。
+
+    步骤：
+      1) 把点投影到矩形两轴 (du, dv)（u 轴 = minAreaRect 的 angle 方向）；
+      2) 按 |du|/hu 与 |dv|/hv 的支配关系分四条边 —— 对角线平分角把圆角弧
+         自然分到两侧，随后每边只留沿边中段（|along| ≤ keep × 半长），
+         圆角与角点被丢弃，剩下的全是直边点；
+      3) 每边闭式最小二乘拟线（du = a·dv + b 型，斜边也不会除零）；
+      4) 相邻两边求交得四角，映射回图像坐标。
+    透视下每条边仍是直线，所以四线交角是精确解 —— 斜看成梯形也准。
+
+    任一边点数不足 / 拟线失败 / 四角退化 → 回退 minAreaRect 四角
+    （旋转精确、透视近似，比失败强）。返回 (quad, hits)：hits = 精拟边数
+    （4 = 全精拟，0 = 回退）。
+    """
+    (cx, cy), (rw, rh), ang = rect
+    cx = float(cx)
+    cy = float(cy)
+    a = math.radians(float(ang))
+    ux, uy = math.cos(a), math.sin(a)
+    vx, vy = -math.sin(a), math.cos(a)
+    hu = max(0.5 * float(rw), 1e-3)
+    hv = max(0.5 * float(rh), 1e-3)
+    sides = ([], [], [], [])          # 0:+u 1:-u 2:+v 3:-v
+    for x, y in points:
+        dx = float(x) - cx
+        dy = float(y) - cy
+        du = dx * ux + dy * uy
+        dv = dx * vx + dy * vy
+        if abs(du) / hu >= abs(dv) / hv:
+            sides[0 if du > 0 else 1].append((du, dv))
+        else:
+            sides[2 if dv > 0 else 3].append((du, dv))
+    lines = []
+    for idx, pts in enumerate(sides):
+        if idx < 2:                    # +u / -u 边：沿边 = dv，法向 = du
+            pts = [(du, dv) for du, dv in pts if abs(dv) <= keep * hv]
+            line = _fit_line_dep(pts, min_pts=min_pts)
+        else:                          # +v / -v 边：沿边 = du，法向 = dv
+            pts = [(dv, du) for du, dv in pts if abs(du) <= keep * hu]
+            line = _fit_line_dep(pts, min_pts=min_pts)
+        lines.append(line)
+    quad = None
+    if all(ln is not None for ln in lines):
+        quad = []
+        for ui, vi in ((0, 3), (0, 2), (1, 2), (1, 3)):
+            p = _cross_uv(lines[ui], lines[vi])
+            if p is None:
+                quad = None
+                break
+            du, dv = p
+            quad.append((cx + du * ux + dv * vx, cy + du * uy + dv * vy))
+        if quad is not None:
+            ok = abs(_poly2_area(quad)) >= 64.0
+            if ok:
+                for i in range(4):
+                    x0, y0 = quad[i]
+                    x1, y1 = quad[(i + 1) % 4]
+                    if math.hypot(x1 - x0, y1 - y0) < 8.0:
+                        ok = False
+                        break
+            if not ok:
+                quad = None
+    if quad is None:
+        return _rect_quad_from(rect), 0
+    return quad, 4
+
+
+def outer_from_inner(quad, band_w):
+    """内框四角沿"外角平分线"外推带宽 → 外框四角（纯 Python，零图像调用）。
+
+    只用于画图与记账，不进任何判据：外框受胶带不等宽影响，中心会偏出
+    半个带宽，所以靶心永远取内框的对角线交点。
+    """
+    quad = [(float(p[0]), float(p[1])) for p in quad]
+    band_w = float(band_w)
+    if band_w <= 0.0 or len(quad) != 4:
+        return list(quad)
+    out = []
+    for i in range(4):
+        px, py = quad[i]
+        qx, qy = quad[(i - 1) % 4]
+        rx, ry = quad[(i + 1) % 4]
+        e1x, e1y = px - qx, py - qy
+        e2x, e2y = rx - px, ry - py
+        l1 = math.hypot(e1x, e1y)
+        l2 = math.hypot(e2x, e2y)
+        if l1 < 1e-6 or l2 < 1e-6:
+            return list(quad)
+        u1x, u1y = e1x / l1, e1y / l1
+        u2x, u2y = e2x / l2, e2y / l2
+        bx = -(u1x + u2x)
+        by = -(u1y + u2y)
+        bl = math.hypot(bx, by)
+        if bl < 1e-6:
+            return list(quad)
+        bx /= bl
+        by /= bl
+        # 内角 θ = (−u1) 与 u2 的夹角；沿平分线外推 d = band_w / sin(θ/2)
+        # 时两条边都恰好外移 band_w（直角时 d = band_w·√2）。
+        cos_t = -(u1x * u2x + u1y * u2y)
+        cos_t = max(-1.0, min(1.0, cos_t))
+        sin_half = math.sqrt(max(1e-6, (1.0 - cos_t) * 0.5))
+        d = band_w / sin_half
+        out.append((px + bx * d, py + by * d))
+    return out
+
+
+# ================================================================== 偏差
 def deviation(laser, result, use_raw=False):
     """靶心相对光斑的偏差：dx>0 靶心在光斑右侧，dy>0 靶心在光斑下方。
 
