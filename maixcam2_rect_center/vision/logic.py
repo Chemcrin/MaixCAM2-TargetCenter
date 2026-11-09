@@ -36,7 +36,7 @@ from .output import (Preview, aligned_frame, apply_commands, display_result,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-10-fast-track-v8"
+BUILD_ID = "2026-11-10-fast-track-v9"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -109,6 +109,7 @@ class RectangleCenterDetector:
         self.hold_max = float(getattr(config, "RECT_HOLD_MAX_PX", 90.0))
         self.max_speed = float(getattr(config, "RECT_MAX_SPEED", 2500.0))
         self.gate = float(getattr(config, "RECT_TRACK_GATE", 0.45))
+        self.track_max_side = float(getattr(config, "RECT_TRACK_MAX_SIDE", 240.0))
         self.keep_stages = bool(getattr(config, "RECT_KEEP_STAGES", False))
         self.last = None
         self.last_stages = {}
@@ -121,10 +122,12 @@ class RectangleCenterDetector:
         self.measured = None        # 最近一次实测中心
         self.velocity = (0.0, 0.0)  # px/s
         self.box = None             # 最近一次 bbox（全分辨率）
+        self.ref = (0.0, 0.0)       # 锁定时的框尺寸，跟踪时作为尺寸基准
         self.offset = (0.0, 0.0)    # 纸边中心相对框心的偏移（按框尺寸归一）
         self.lost = 0
         self.tracking = False
         self._frames = 0
+        self._last_components = 0
         self._last_ts = None
         self._hit_ts = None
 
@@ -174,7 +177,7 @@ class RectangleCenterDetector:
             pcy = (paper[1] + paper[3]) * 0.5 * s
         else:
             pcx, pcy = bcx, bcy
-        return dict(center=(pcx, pcy), box=box, level=level,
+        return dict(center=(pcx, pcy), box=box, level=level, reacquire=True,
                     offset=((pcx - bcx) / max(1.0, box[2]),
                             (pcy - bcy) / max(1.0, box[3])),
                     area=c["area"] * s * s, aspect=c["aspect"], edge=c["edge"])
@@ -195,14 +198,24 @@ class RectangleCenterDetector:
         x1, y1 = (w if x1 > w else x1), (h if y1 > h else y1)
         if x1 - x0 < 24 or y1 - y0 < 24:
             return None
+        # 尺寸参考用"锁定时的尺寸"而不是上一帧的尺寸：逐帧比较会一步步缩到更小的
+        # 连通域（实测 250x180 -> 114x112 -> 50x52，最后锁到里面的圆环上）。
+        ref_w = max(8.0, self.ref[0])
+        ref_h = max(8.0, self.ref[1])
+        # 跟踪时的降采样按 ROI 尺寸自适应：把每帧送进连通域的像素量钉在固定上限，
+        # 否则目标一变大，连通域耗时就跟着涨（实测 3ms -> 34ms）。
+        span = max(x1 - x0, y1 - y0)
+        while span / s > self.track_max_side:
+            s += 1
         small = downscale(g[y0:y1, x0:x1], s)
         self._frames += 1
         if self.level is None or self._frames % self.level_refresh == 0:
             self.level = self._level_for(small)
         mask = dark_mask(small, self.level)
         comps, cent = components(mask)
+        self._last_components = int(comps.shape[0])
         c = nearest_component(comps, cent, ((pred[0] - x0) / s, (pred[1] - y0) / s),
-                              box[2] / s, box[3] / s, self.size_tol)
+                              ref_w / s, ref_h / s, self.size_tol)
         if c is None:
             return None
         # ROI 原点是原图坐标，只有块内坐标才乘缩放系数（乘错一次就差半个画面）。
@@ -244,6 +257,15 @@ class RectangleCenterDetector:
                            self.center[1] + k * (meas[1] - self.center[1]))
         self.measured = meas
         self.box = det["box"]
+        if det.get("reacquire"):
+            self.ref = (float(det["box"][2]), float(det["box"][3]))
+        else:
+            # 参考尺寸只允许慢速跟随（每帧 <=2%），这样"车在靠近"能跟上，
+            # "跳到别的小块上"跟不上。
+            self.ref = (self.ref[0] + max(-0.02 * self.ref[0], min(0.02 * self.ref[0],
+                                                                 det["box"][2] - self.ref[0])),
+                        self.ref[1] + max(-0.02 * self.ref[1], min(0.02 * self.ref[1],
+                                                                 det["box"][3] - self.ref[1])))
         self.offset = det["offset"]
         self.level = det["level"]
         self.lost = 0
@@ -290,6 +312,7 @@ class RectangleCenterDetector:
     def _detect(self, g, ts):
         timings = {}
         stats = dict(components=0)
+        self._last_components = 0
         det = None
         if self.tracking:
             t0 = time.perf_counter()
@@ -300,6 +323,8 @@ class RectangleCenterDetector:
             det = self._search(g, stats)
             timings["search"] = (time.perf_counter() - t0) * 1000.0
             timings.pop("track", None)
+        if self.tracking and det is not None and "search" not in timings:
+            stats["components"] = self._last_components
         result = self._on_hit(det, ts) if det is not None else self._on_missing(ts, stats)
         return result, stats, timings
 

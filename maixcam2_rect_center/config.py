@@ -86,9 +86,10 @@ class Config:
     RECT_MIN_EDGE = 0.20          # ★ 四条边最弱一条的暗像素占比下限。
     #   胶带环实测 0.27~0.45；"框住靶心的稀疏暗结构"（窗棂/柜门缝）只有 0.10。
     RECT_PAPER_ROUNDS = 2         # 从框心向外扫几条线迭代几次（2 次足够收敛）
-    RECT_TRACK_EXPAND = 1.60      # 跟踪 ROI = 上一帧框 × 该倍数
-    RECT_TRACK_MARGIN = 16.0      # 跟踪 ROI 额外边距（原图 px）
-    RECT_TRACK_SIZE_TOL = 0.55    # 跟踪时允许的尺寸变化（±55%）
+    RECT_TRACK_EXPAND = 1.35      # 跟踪 ROI = 上一帧框 × 该倍数（越小越快，太小会框不住运动）
+    RECT_TRACK_MARGIN = 10.0      # 跟踪 ROI 额外边距（原图 px）
+    RECT_TRACK_MAX_SIDE = 240.0   # 跟踪降采样后最长边上限；超过就再降一档，钉住每帧像素量
+    RECT_TRACK_SIZE_TOL = 0.25    # 跟踪时相对"锁定尺寸"的容差（±25%）
     RECT_HOLD_FRAMES = 6          # 跟丢后按速度外推继续输出的帧数（30fps ≈ 0.2s）
     RECT_HOLD_MAX_PX = 90.0       # 外推距离上限，防止甩飞
     RECT_MAX_SPEED = 2500.0       # 速度估计上限（px/s），防止小 dt 把速度除爆

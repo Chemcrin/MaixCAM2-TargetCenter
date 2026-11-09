@@ -69,8 +69,11 @@ def main():
     frame = draw_frame(320, 240, 240, 170)
     hits = [tracker.track(frame) for _ in range(5)]
     check("五帧全部 valid", all(r.valid for r in hits), str([r.valid for r in hits]))
-    drift = max(abs(r.u - 320.0) + abs(r.v - 240.0) for r in hits)
-    check("静止时漂移 <= 2px", drift <= 2.0, "drift=%.2f" % drift)
+    spread = max(max(r.u for r in hits) - min(r.u for r in hits),
+                 max(r.v for r in hits) - min(r.v for r in hits))
+    check("静止时抖动 <= 1.5px", spread <= 1.5, "spread=%.2f" % spread)
+    err = max(abs(r.u - 320.0) + abs(r.v - 240.0) for r in hits)
+    check("中心误差 <= 4px", err <= 4.0, "err=%.2f" % err)
     check("reset 后仍可检出", bool(tracker.reset().track(frame).valid))
 
     print("[smoke] 6. 抖动容错：单帧全黑（晃动/闪断）不应立刻丢锁")

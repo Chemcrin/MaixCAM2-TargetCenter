@@ -10,13 +10,13 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-09 15:42:25
-    config.py                    sha1=0a96000afe5d
+生成时间：2026-11-09 16:10:13
+    config.py                    sha1=069c98500e62
     main.py                      sha1=c2f5fb47aa9e
     target_api.py                sha1=228e453c656f
     vision/__init__.py           sha1=6e0b16db8298
     vision/algo.py               sha1=d6d35c8e0919
-    vision/logic.py              sha1=897df3ce2595
+    vision/logic.py              sha1=a82af088529b
     vision/output.py             sha1=2aaa4e52e0b8
     vision/poll.py               sha1=992056fd530e
 """
@@ -24,7 +24,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '0a96000afe5d1098d42fe2b845ffe7650d39d598', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'd6d35c8e0919875c6650996b8c776792e1092522', 'vision/output.py': '2aaa4e52e0b802cbba6ed6b469fa62c7107c848c', 'vision/logic.py': '897df3ce259561f65eec4dd161138a2ee956e774', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': '228e453c656f41797d4dc6099e2d87b96ffb53ed', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': '069c98500e620973444e05718297fdf66985d8d3', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'd6d35c8e0919875c6650996b8c776792e1092522', 'vision/output.py': '2aaa4e52e0b802cbba6ed6b469fa62c7107c848c', 'vision/logic.py': 'a82af088529b8e79c8f0de2af5e37d33b0482031', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': '228e453c656f41797d4dc6099e2d87b96ffb53ed', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -121,9 +121,10 @@ class Config:
     RECT_MIN_EDGE = 0.20          # ★ 四条边最弱一条的暗像素占比下限。
     #   胶带环实测 0.27~0.45；"框住靶心的稀疏暗结构"（窗棂/柜门缝）只有 0.10。
     RECT_PAPER_ROUNDS = 2         # 从框心向外扫几条线迭代几次（2 次足够收敛）
-    RECT_TRACK_EXPAND = 1.60      # 跟踪 ROI = 上一帧框 × 该倍数
-    RECT_TRACK_MARGIN = 16.0      # 跟踪 ROI 额外边距（原图 px）
-    RECT_TRACK_SIZE_TOL = 0.55    # 跟踪时允许的尺寸变化（±55%）
+    RECT_TRACK_EXPAND = 1.35      # 跟踪 ROI = 上一帧框 × 该倍数（越小越快，太小会框不住运动）
+    RECT_TRACK_MARGIN = 10.0      # 跟踪 ROI 额外边距（原图 px）
+    RECT_TRACK_MAX_SIDE = 240.0   # 跟踪降采样后最长边上限；超过就再降一档，钉住每帧像素量
+    RECT_TRACK_SIZE_TOL = 0.25    # 跟踪时相对"锁定尺寸"的容差（±25%）
     RECT_HOLD_FRAMES = 6          # 跟丢后按速度外推继续输出的帧数（30fps ≈ 0.2s）
     RECT_HOLD_MAX_PX = 90.0       # 外推距离上限，防止甩飞
     RECT_MAX_SPEED = 2500.0       # 速度估计上限（px/s），防止小 dt 把速度除爆
@@ -1636,7 +1637,7 @@ from .output import (Preview, aligned_frame, apply_commands, display_result,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-10-fast-track-v8"
+BUILD_ID = "2026-11-10-fast-track-v9"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -1709,6 +1710,7 @@ class RectangleCenterDetector:
         self.hold_max = float(getattr(config, "RECT_HOLD_MAX_PX", 90.0))
         self.max_speed = float(getattr(config, "RECT_MAX_SPEED", 2500.0))
         self.gate = float(getattr(config, "RECT_TRACK_GATE", 0.45))
+        self.track_max_side = float(getattr(config, "RECT_TRACK_MAX_SIDE", 240.0))
         self.keep_stages = bool(getattr(config, "RECT_KEEP_STAGES", False))
         self.last = None
         self.last_stages = {}
@@ -1721,10 +1723,12 @@ class RectangleCenterDetector:
         self.measured = None        # 最近一次实测中心
         self.velocity = (0.0, 0.0)  # px/s
         self.box = None             # 最近一次 bbox（全分辨率）
+        self.ref = (0.0, 0.0)       # 锁定时的框尺寸，跟踪时作为尺寸基准
         self.offset = (0.0, 0.0)    # 纸边中心相对框心的偏移（按框尺寸归一）
         self.lost = 0
         self.tracking = False
         self._frames = 0
+        self._last_components = 0
         self._last_ts = None
         self._hit_ts = None
 
@@ -1774,7 +1778,7 @@ class RectangleCenterDetector:
             pcy = (paper[1] + paper[3]) * 0.5 * s
         else:
             pcx, pcy = bcx, bcy
-        return dict(center=(pcx, pcy), box=box, level=level,
+        return dict(center=(pcx, pcy), box=box, level=level, reacquire=True,
                     offset=((pcx - bcx) / max(1.0, box[2]),
                             (pcy - bcy) / max(1.0, box[3])),
                     area=c["area"] * s * s, aspect=c["aspect"], edge=c["edge"])
@@ -1795,14 +1799,24 @@ class RectangleCenterDetector:
         x1, y1 = (w if x1 > w else x1), (h if y1 > h else y1)
         if x1 - x0 < 24 or y1 - y0 < 24:
             return None
+        # 尺寸参考用"锁定时的尺寸"而不是上一帧的尺寸：逐帧比较会一步步缩到更小的
+        # 连通域（实测 250x180 -> 114x112 -> 50x52，最后锁到里面的圆环上）。
+        ref_w = max(8.0, self.ref[0])
+        ref_h = max(8.0, self.ref[1])
+        # 跟踪时的降采样按 ROI 尺寸自适应：把每帧送进连通域的像素量钉在固定上限，
+        # 否则目标一变大，连通域耗时就跟着涨（实测 3ms -> 34ms）。
+        span = max(x1 - x0, y1 - y0)
+        while span / s > self.track_max_side:
+            s += 1
         small = downscale(g[y0:y1, x0:x1], s)
         self._frames += 1
         if self.level is None or self._frames % self.level_refresh == 0:
             self.level = self._level_for(small)
         mask = dark_mask(small, self.level)
         comps, cent = components(mask)
+        self._last_components = int(comps.shape[0])
         c = nearest_component(comps, cent, ((pred[0] - x0) / s, (pred[1] - y0) / s),
-                              box[2] / s, box[3] / s, self.size_tol)
+                              ref_w / s, ref_h / s, self.size_tol)
         if c is None:
             return None
         # ROI 原点是原图坐标，只有块内坐标才乘缩放系数（乘错一次就差半个画面）。
@@ -1844,6 +1858,15 @@ class RectangleCenterDetector:
                            self.center[1] + k * (meas[1] - self.center[1]))
         self.measured = meas
         self.box = det["box"]
+        if det.get("reacquire"):
+            self.ref = (float(det["box"][2]), float(det["box"][3]))
+        else:
+            # 参考尺寸只允许慢速跟随（每帧 <=2%），这样"车在靠近"能跟上，
+            # "跳到别的小块上"跟不上。
+            self.ref = (self.ref[0] + max(-0.02 * self.ref[0], min(0.02 * self.ref[0],
+                                                                 det["box"][2] - self.ref[0])),
+                        self.ref[1] + max(-0.02 * self.ref[1], min(0.02 * self.ref[1],
+                                                                 det["box"][3] - self.ref[1])))
         self.offset = det["offset"]
         self.level = det["level"]
         self.lost = 0
@@ -1890,6 +1913,7 @@ class RectangleCenterDetector:
     def _detect(self, g, ts):
         timings = {}
         stats = dict(components=0)
+        self._last_components = 0
         det = None
         if self.tracking:
             t0 = time.perf_counter()
@@ -1900,6 +1924,8 @@ class RectangleCenterDetector:
             det = self._search(g, stats)
             timings["search"] = (time.perf_counter() - t0) * 1000.0
             timings.pop("track", None)
+        if self.tracking and det is not None and "search" not in timings:
+            stats["components"] = self._last_components
         result = self._on_hit(det, ts) if det is not None else self._on_missing(ts, stats)
         return result, stats, timings
 
