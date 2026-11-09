@@ -10,13 +10,13 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-09 22:15:13
+生成时间：2026-11-09 22:16:05
     config.py                    sha1=091782dd60d8
     main.py                      sha1=c2f5fb47aa9e
     target_api.py                sha1=d0e2676568b1
     vision/__init__.py           sha1=6e0b16db8298
     vision/algo.py               sha1=865002e42eb2
-    vision/logic.py              sha1=5d15b41e0b58
+    vision/logic.py              sha1=3e0a9e11b666
     vision/maixvision_stream.py  sha1=c30d784f26a0
     vision/output.py             sha1=a408aa3996c7
     vision/poll.py               sha1=992056fd530e
@@ -25,7 +25,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '091782dd60d8b2eb21f7ed9c47b705f394669d48', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': '865002e42eb2daf1043cb1073f659b5bead03b3c', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'a408aa3996c737e0da67b945ecc4802d18bbc81a', 'vision/logic.py': '5d15b41e0b58dd564341a0f160e2b0b9d99ce672', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': 'd0e2676568b1585627e4ba8e2f5d9d2ea6c860b7', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': '091782dd60d8b2eb21f7ed9c47b705f394669d48', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': '865002e42eb2daf1043cb1073f659b5bead03b3c', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'a408aa3996c737e0da67b945ecc4802d18bbc81a', 'vision/logic.py': '3e0a9e11b666f8fcd8dd6a0e2eee56b67d5a6ec6', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': 'd0e2676568b1585627e4ba8e2f5d9d2ea6c860b7', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -2221,7 +2221,7 @@ from .output import (Preview, aligned_frame, apply_commands, display_result,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-09-quad-track-v10"
+BUILD_ID = "2026-11-09-quad-track-v11"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
