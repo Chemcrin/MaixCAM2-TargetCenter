@@ -19,7 +19,7 @@ class Config:
     SHOW_JPEG_QUALITY = 70
     VISION_ASYNC = True      # 后台识别，忙时只保留最新帧，不积压旧图
     SHOW_ASYNC = True        # 独立显示线程：show() 慢只掉预览帧，不拖识别/串口/闭环
-    RESULT_MAX_AGE_S = 0.25  # 以采图时刻计龄；过期结果不画框、不下发指令（30fps 下 0.25s 很宽了）
+    RESULT_MAX_AGE_S = 0.90  # 以采图时刻计龄；过期结果不画框、不下发指令（板上约 4fps，窗口要放宽）
     OPENCV_THREADS = 1
     LOG_INTERVAL = 2.0
 
@@ -51,8 +51,8 @@ class Config:
     COMMAND_INTERVAL_S = 0.08
 
     # ---- 闭环口径 ----
-    # False = 闭环用平滑后的 u/v（抑制抖动）；True = 用 raw_u/raw_v（未平滑）
-    AIM_USE_RAW = False
+    # True = 用 raw_u/raw_v 算 dx/dy：本链路无滤波，两者恒等；保留该开关以兼容闭环代码
+    AIM_USE_RAW = True
     JUMP_REJECT_PX = 400.0        # 离群拒收：先当误检丢掉
     JUMP_CONFIRM_FRAMES = 3       # 连续这么多帧才采信跳变
     COARSE_PX = 24.0              # |e| 超过它切粗调
@@ -69,39 +69,29 @@ class Config:
     UART_RX_MAX_BYTES = 256
     UART_RX_BUFFER_MAX_BYTES = 1024
 
-    # ---- 识别（降采样 → 自适应阈值 → 连通域 → 四边验框 → 弦中点定心）----
-    RECT_DOWNSCALE = 2            # 先降采样再找框；1 = 全分辨率（更慢，一般不必）
-    # 阈值 = RECT_LEVEL_RATIO × 画面 90 分位亮度，夹在 [FLOOR+p2, CEIL] 之间。
-    # ★ 这是唯一需要按现场调的识别参数：纸面偏暗就调低 RATIO。
-    RECT_LEVEL_RATIO = 0.62
-    # 自适应阈值（搜框/跟踪都用它）：block 要大于框带宽（半分辨率下框带 ~10px），
-    # C 是"比局部均值暗多少才算暗"。框找不到了先调这两个，别去动 LEVEL_RATIO。
-    RECT_ADAPT_BLOCK = 31
-    RECT_ADAPT_C = 12.0
-    RECT_LEVEL_FLOOR = 45.0
-    RECT_LEVEL_CEIL = 160.0
-    RECT_LEVEL_REFRESH = 15       # 跟踪时每 N 帧重算一次阈值（曝光慢变够用）
-    RECT_MIN_AREA = 1200          # 候选最小面积（原图 px2；内部按降采样折算）
-    RECT_MAX_AREA_RATIO = 0.55    # 外接框面积上限（占整幅比例），挡"锁到整面墙"
-    RECT_MIN_ASPECT = 1.05        # 外接框长短边比。外接框不是最小外接矩形，
-    RECT_MAX_ASPECT = 2.60        # 靶纸倾斜时它会变方，所以上限放宽到 2.6
-    RECT_MIN_FILL = 0.03          # 连通域面积 / 外接框面积：环是空心的，很小
-    RECT_MAX_FILL = 0.70          # 太满说明是实心块，不是框
-    RECT_MIN_BAND_CONTRAST = 30.0 # ★ 框内(中间40%)比框边亮多少灰度才认。
-    #   白纸压在深色板上实测 100+；洞洞板/显示器边框只有 10~30。
-    #   这一条决定"锁得到靶纸"还是"锁到洞洞板上"，是搜框最关键的一道门。
-    RECT_PAPER_ROUNDS = 2         # 从框心向外扫几条线迭代几次（2 次足够收敛）
-    RECT_TRACK_EXPAND = 1.35      # 跟踪 ROI = 上一帧框 × 该倍数（越小越快，太小会框不住运动）
-    RECT_TRACK_MARGIN = 10.0      # 跟踪 ROI 额外边距（原图 px）
-    RECT_TRACK_MAX_SIDE = 240.0   # 跟踪降采样后最长边上限；超过就再降一档，钉住每帧像素量
-    RECT_TRACK_SIZE_TOL = 0.25    # 跟踪时相对"锁定尺寸"的容差（±25%）
-    RECT_HOLD_FRAMES = 6          # 跟丢后按速度外推继续输出的帧数（30fps ≈ 0.2s）
-    RECT_HOLD_MAX_PX = 90.0       # 外推距离上限，防止甩飞
-    RECT_MAX_SPEED = 2500.0       # 速度估计上限（px/s），防止小 dt 把速度除爆
-    RECT_TRACK_GATE = 0.45        # 跟踪门：实测中心离预测超过 0.45×框边长就判本帧作废
-    RECT_SMOOTH = 0.55            # 中心一阶低通系数；1 = 不平滑
-    RECT_KEEP_STAGES = False      # 真：把 mask 留在 last_stages，供 --stage 导出
-    RECT_DEBUG_MAP = True         # 真：首帧把灰度图打成 64x32 字符画（现场调阈值用）
+    # ---- 识别（Canny 边缘 → 轮廓 → 矩形 → 内框四角）----
+    RECT_MIN_AREA = 300           # 最小轮廓面积（px2）
+    RECT_MAX_AREA_RATIO = 0.92    # 面积上限（占整幅比例），挡"锁到整面墙"
+    RECT_MIN_ASPECT = 1.10        # 矩形长短边比（按最小外接矩形算，与旋转无关）
+    RECT_MAX_ASPECT = 1.80
+    RECT_GAUSS_KERNEL = (5, 5)    # 边缘检测前的高斯核；(0, 0) = 跳过
+    # Canny 双阈值：0 / 0 = 按画面中位数自动定。★ 这是"过滤纸面图案"的主旋钮——
+    # 调高，浅色印刷环直接消失；调低，环会变成一堆小轮廓，被面积门筛掉。
+    RECT_CANNY_LOW = 0
+    RECT_CANNY_HIGH = 0
+    RECT_EDGE_CLOSE = 5           # 边缘图闭运算核：把断边连起来，奇数，<3 = 跳过
+    RECT_MAX_CANDIDATES = 2       # 精修候选上限；板上每多一个约 +190ms
+    RECT_KEEP_STAGES = False      # 真：把 blur/edges 留在 last_stages，供 --stage 导出
+
+    # ---- 内外框精修（黑胶带是一条带子，有内外两条边）----
+    # 靶心取**内框**（纸边）：胶带上下不等宽时，外框中心会偏出半个带宽，实测 8~11px。
+    RECT_MODEL_MM = (261.0, 174.0)  # 纸面模型尺寸；只影响 width_mm/height_mm，不影响靶心
+    RECT_REFINE_SAMPLES = 8       # 每条边取几个剖面；板上 numpy 单次调用约 1ms，别加大
+    RECT_REFINE_SPAN = 6.0        # 沿法线向外搜索的半宽（px）
+    RECT_REFINE_STEP = 0.5        # 剖面采样步长（px）
+    RECT_TAPE_MAX_PX = 30.0       # 从外沿向内找纸边的最远距离（px），须大于胶带带宽
+    RECT_EDGE_RISE = 10.0         # 判"暗带"的最小灰度落差
+    RECT_BAND_MIN_CONTRAST = 25.0 # 带内比纸面暗多少灰度才认
 
     # ---- 激光光斑读数（相机与激光固连，光斑位置近似固定）----
     # "fixed"：不检测，每帧只算"黑框中心 − 标定常量"，零开销（默认）

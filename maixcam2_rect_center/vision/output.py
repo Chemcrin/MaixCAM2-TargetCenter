@@ -268,7 +268,7 @@ class Preview:
             self.stream_on = bool(getattr(cfg, "SHOW_STREAM", True))
             # 本地屏一律用 MAIXVISION=0 建 Display：内置图传在"连接未就绪"时会在 C++ 里
             # 忙等 500ms 并占住解释器锁，把识别拖到 20 秒/帧。要 MaixVision 画面就走
-            # 下面的独立进程（`vision/maixvision_stream.py`），它不碰主线程。
+            # 下面的独立进程（vision/maixvision_stream.py），它不碰主线程。
             self.display = _open_display(display, False)
             self.width = int(self.display.width())
             self.height = int(self.display.height())
@@ -902,9 +902,8 @@ def perf_line(build_id, capture_fps, display_fps, display_low1, vision_fps,
     split = det.get("t_ms") or {}
     split_tag = ""
     if split:
-        split_tag = " det_path=%s det_split=%.1f/%.1f" % (
-            "track" if "track" in split else "search",
-            split.get("track", 0.0), split.get("search", 0.0))
+        split_tag = " det_split=%.1f/%.1f/%.1f" % (
+            split.get("blur", 0.0), split.get("bin", 0.0), split.get("cand", 0.0))
     return ("[perf] %s capture=%.1f disp=%.1f low1=%.1f detect_fps=%.1f "
             "valid=%s stage=%s | read=%.1f draw=%.1f loop=%.1f ms | "
             "show avg=%.1f p95=%.1f max=%.1fms n=%d | "

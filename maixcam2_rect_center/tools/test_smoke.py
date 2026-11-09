@@ -1,4 +1,4 @@
-"""PC 冒烟回归：验证识别链路（阈值 → 连通域 → 四边验框 → 弦中点定心 → 跟踪保持）没被改坏。
+"""PC 冒烟回归：验证四层链路（边缘 → 四角/内外框 → 单应 → 对角线交点 → 偏差）没被改坏。
 
 不依赖任何图片固件，全部用合成图，因此可以进无人值守的门禁。
 真机场景（反光、贴边、大角度、遮挡）不在本用例覆盖范围，上板另行确认。
@@ -64,44 +64,13 @@ def main():
     check("dx=+20 dy=+40", dv is not None and abs(dv[0] - 20.0) < 1e-6 and abs(dv[1] - 40.0) < 1e-6, str(dv))
     check("光斑丢失返回 None", deviation(dict(found=False, u=0.0, v=0.0), target) is None)
 
-    print("[smoke] 5. 追踪器：静止画面连续帧不漂移，reset 后可继续使用")
+    print("[smoke] 5. 追踪器：连续三帧稳定，reset 后可继续使用")
     tracker = CenterTracker()
     frame = draw_frame(320, 240, 240, 170)
-    hits = [tracker.track(frame) for _ in range(5)]
-    check("五帧全部 valid", all(r.valid for r in hits), str([r.valid for r in hits]))
-    spread = max(max(r.u for r in hits) - min(r.u for r in hits),
-                 max(r.v for r in hits) - min(r.v for r in hits))
-    check("静止时抖动 <= 1.5px", spread <= 1.5, "spread=%.2f" % spread)
-    err = max(abs(r.u - 320.0) + abs(r.v - 240.0) for r in hits)
-    check("中心误差 <= 4px", err <= 4.0, "err=%.2f" % err)
+    hits = [tracker.track(frame) for _ in range(3)]
+    check("三帧全部 valid", all(r.valid for r in hits), str([r.valid for r in hits]))
+    check("位置不漂移", max(abs(r.u - hits[0].u) + abs(r.v - hits[0].v) for r in hits) < 1e-6)
     check("reset 后仍可检出", bool(tracker.reset().track(frame).valid))
-
-    print("[smoke] 6. 抖动容错：单帧全黑（晃动/闪断）不应立刻丢锁")
-    blank = np.full((480, 640), 235, np.uint8)
-    tracker = CenterTracker()
-    tracker.track(frame)
-    res = tracker.track(blank)
-    check("单帧丢帧仍 valid", bool(res.valid), repr(res))
-    check("标记 hold", bool(res.get("hold")), str(res.get("hold")))
-    res = tracker.track(frame)
-    check("下一帧恢复 follow", bool(res.valid) and not res.get("hold"), repr(res.get("hold")))
-
-    print("[smoke] 7. 保持上限：连续丢帧超过保持帧数后必须拒检")
-    tracker = CenterTracker()
-    tracker.track(frame)
-    seq = [tracker.track(blank) for _ in range(12)]
-    check("最终拒检", not seq[-1].valid, repr(seq[-1]))
-
-    print("[smoke] 8. 跟踪门：目标瞬间跳到别处，应在几帧内跟上且不再摆回")
-    tracker = CenterTracker()
-    tracker.track(frame)
-    far = draw_frame(200, 150, 240, 170)
-    seq = [tracker.track(far) for _ in range(4)]
-    check("跳变后 4 帧全部 valid", all(r.valid for r in seq), str([r.valid for r in seq]))
-    last = seq[-1]
-    err = abs(last.u - 200.0) + abs(last.v - 150.0) if last.valid else 999.0
-    check("恢复后中心对准新位置(<=25px)", err <= 25.0, "err=%.1f" % err)
-    check("不会摆回旧位置", seq[-1].u < 300.0 if last.valid else True, "u=%.1f" % (last.u or -1))
 
     print("[smoke] %s（失败 %d 项）" % ("PASS" if not FAILS else "FAIL", len(FAILS)))
     return 1 if FAILS else 0

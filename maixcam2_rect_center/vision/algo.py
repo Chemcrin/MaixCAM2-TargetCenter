@@ -3,19 +3,17 @@
 四层之一，只有三类内容：
 
     几何  signed_area / order_quad / line_cross / quad_diagonal_center
-    图像  downscale / auto_level / dark_mask / components / frame_candidates
-          paper_rect / rect_quad / nearest_component
+    图像  blur_frame / binarize_frame / find_quad_candidates / select_largest
+          find_concentric（同心圆，独立成链）
     偏差  deviation（靶心 − 光斑，纯算术）
 
 四条刻意的设计约束（属于本层，不要在别处放宽）：
 
-1. **只认"四周被暗带围住的矩形"**：面积 → 长宽比 → 填充率 → 四边压暗带。
-   不做图案识别（纸面同心圆不参与），因此"亮面被暗边包住"的东西（屏幕、窗框）
-   在形状上可能被当成靶纸 —— 这是本方案的已知边界。
-2. **每次调用只做几次 cv2/numpy 运算**：板上一次 Python 级调用约 1ms，
-   本层的调用次数直接等于单帧耗时。禁止在这里写"逐轮廓 / 逐采样点"的循环。
-3. **中心取"框心向外扫四条线"的中点**，不取外接框中心 —— 阴影会让暗带在一侧变宽，
-   外接框中心会系统性偏移（实测 6~8px），过框心的弦中点则没有这个问题。
+1. **四边形判据只有三层**：面积 → 四边形近似 → 长宽比。不做胶带暗带证据、亚像素精修、
+   单应反算。画面里出现更大的深色矩形时会锁错，这是本方案的已知边界。
+2. **同心圆是并行证据，不是第四层判据**：`find_concentric` 走 RETR_LIST 独立成链，
+   命中即直接给出圆心；它不放宽上面三层，三层也不因它改变。
+3. **中心取四点的对角线交点**，不取正立外接矩形中心 —— 透视下无偏；同心圆路径取圆心。
 4. 参数全部由调用方传入，所以本层可以在 PC 上脱离 `Config` 单独断言。
 
 依赖方向：**本层不 import 其余三层**，只依赖 cv2 / numpy / math。
@@ -27,12 +25,15 @@ import numpy as np
 
 __all__ = [
     "signed_area", "order_quad", "line_cross", "quad_diagonal_center",
-    "downscale", "auto_level", "dark_mask", "adaptive_mask", "components",
-    "frame_candidates",
-    "nearest_component", "paper_rect", "rect_quad", "box_center", "deviation",
+    "blur_frame", "edge_map", "deviation",
+    "bilinear", "frame_edge_points", "fit_line", "quad_from_lines", "refine_frame",
+    "solve_homography", "apply_homography", "invert_homography", "plane_quad",
+    "quad_mix", "band_evidence",
+    "find_frame_candidates",
 ]
 
-# ================================================================== 几何
+# ================================================================== 纯函数
+# ------------------------------------------------------------------ 几何
 def signed_area(p):
     """带符号面积的 2 倍：>0 逆时针。用于把四角规整成统一方向。"""
     p = np.asarray(p, np.float64)
@@ -41,7 +42,10 @@ def signed_area(p):
 
 
 def order_quad(points):
-    """四角规整为 [左上, 右上, 右下, 左下]（逆时针）。"""
+    """四角规整为 [左上, 右上, 右下, 左下]（逆时针）。
+
+    顺序固定是对角线配对的前提：只有这样 q0-q2 与 q1-q3 才是对角线而不是相邻边。
+    """
     p = np.asarray(points, np.float32).reshape(4, 2)
     c = p.mean(axis=0)
     p = p[np.argsort(np.arctan2(p[:, 1] - c[1], p[:, 0] - c[0]))]
@@ -73,243 +77,404 @@ def quad_diagonal_center(quad):
     return p
 
 
-def rect_quad(left, top, right, bottom):
-    """轴对齐矩形 → 四角（顺序与 order_quad 一致）。"""
-    return np.array([[left, top], [right, top], [right, bottom], [left, bottom]], np.float32)
-
-
-def box_center(box):
-    """(x, y, w, h) → 中心点。"""
-    return (float(box[0]) + float(box[2]) * 0.5, float(box[1]) + float(box[3]) * 0.5)
-
-
-# ================================================================== 图像
-def downscale(gray, factor):
-    """整数倍降采样；factor<=1 原样返回。
-
-    用 INTER_AREA（2×2 均值）而不是隔点取样：同样的调用次数，均值把反光噪点
-    压掉一半，胶带环更连续。降采样是"减少像素"的唯一手段，也是本链路提速的第一步。
-    """
-    f = int(factor)
-    if f <= 1:
+# ------------------------------------------------------------------ 预处理
+def blur_frame(gray, kernel):
+    """高斯模糊。kernel 为 None 或任一分量为 0/负数时原样返回（关闭模糊）。"""
+    k = kernel
+    if not k or k[0] <= 0 or k[1] <= 0:
         return gray
-    h, w = gray.shape[:2]
-    return cv2.resize(gray, (max(8, w // f), max(8, h // f)), interpolation=cv2.INTER_AREA)
+    return cv2.GaussianBlur(gray, tuple(k), 0)
 
 
-def auto_level(small, lo_pct=2.0, hi_pct=90.0, ratio=0.62, floor=45.0, ceil=160.0):
-    """自适应二值阈值：压在"胶带（暗）"与"纸面（亮）"之间。
+def edge_map(gray, low, high, close_kernel):
+    """Canny 边缘 + 闭运算：把细边连成能围出区域的轮廓。
 
-    取 90 分位当亮面基准，阈值 = ratio × 它：实测纸面约 190、胶带约 50，
-    0.62×190≈118 正好卡在中间；纸面随曝光变暗时阈值同步下移，不会失效。
-    分位数只在 1/16 的像素上算（步长 4），两次 numpy 调用就够。
+    阈值就是"过滤纸面图案"的旋钮：调高，浅色的印刷环直接消失，只剩胶带那种硬边；
+    调低，环会变成一堆小碎轮廓——它们面积小，后面按面积一筛就没了。
+    high <= 0 表示按中位数自动定阈值，适应曝光变化。
     """
-    sub = small[::4, ::4]
-    lo = float(np.percentile(sub, lo_pct))
-    hi = float(np.percentile(sub, hi_pct))
-    return float(np.clip(ratio * hi, max(float(floor), lo + 15.0), float(ceil)))
+    src = gray.astype(np.uint8, copy=False)
+    if high <= 0:
+        med = float(np.median(src))
+        low = int(max(10.0, 0.66 * med))
+        high = int(min(255.0, 1.33 * med))
+    e = cv2.Canny(src, int(low), int(high))
+    k = int(close_kernel)
+    if k >= 3:
+        k |= 1
+        e = cv2.morphologyEx(e, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+    return e
 
 
-def dark_mask(small, level):
-    """暗于 level 的像素置 255。胶带、门缝、阴影都进来，靠后面的形状门筛掉。"""
-    return cv2.threshold(small, float(level), 255, cv2.THRESH_BINARY_INV)[1]
+# ------------------------------------------------------------------ 灰度采样
+def bilinear(gray, xs, ys):
+    """双线性采样，越界夹到边缘。xs/ys 可为标量或任意形状数组。"""
+    g = gray.astype(np.float32, copy=False)
+    h, w = g.shape[:2]
+    x = np.clip(np.asarray(xs, np.float32), 0.0, w - 2.0)
+    y = np.clip(np.asarray(ys, np.float32), 0.0, h - 2.0)
+    x0 = np.floor(x).astype(np.int32)
+    y0 = np.floor(y).astype(np.int32)
+    fx = x - x0
+    fy = y - y0
+    return (g[y0, x0] * (1 - fx) * (1 - fy) + g[y0, x0 + 1] * fx * (1 - fy) +
+            g[y0 + 1, x0] * (1 - fx) * fy + g[y0 + 1, x0 + 1] * fx * fy)
 
 
-def adaptive_mask(small, block=31, c=12.0):
-    """自适应二值：比"局部均值 − C"暗的像素置 255。
+def frame_edge_points(gray, a, b, center, samples=10, span=6.0, inward=30.0,
+                      rise=10.0, step=0.5):
+    """沿一条边 a→b 采样，返回 (外沿点, 内沿点) 两组亚像素坐标。
 
-    为什么不用全局阈值：框体的绝对灰度随曝光漂（白墙场景 ~110，暗室 ~50），
-    全局阈值永远在"框没变暗"和"背景影子被算进来"之间摇摆。
-    自适应只回答"这块是不是比它周围暗"—— 框夹在亮纸和亮墙之间，天然成立；
-    大片均匀的暗背景局部均值和它一样，不会被算成暗。
-    block 必须大于框带宽（半分辨率下框带 ~10px，取 31），否则框会被均值吃掉。
+    判据是"胶带是一段连续暗带"，不是"哪里有梯度"：
+      外沿 = 从框外往框内走，第一段能持续 4 个采样的暗区起点；
+      内沿 = 这段暗区结束、回到纸面亮度的位置。
+    遮挡物（灰斑、阴影）比纸暗但远不如胶带黑，会被"暗带均值 < 0.6×亮区均值"挡掉。
+
+    实现上整批算：一次取 (samples × 剖面长度) 的灰度矩阵，再对行做向量化判断。
+    早期版本逐行 numpy 调用，在板上因为调用开销把单帧拖到 1.6 秒——这里必须整批。
     """
-    k = int(block) | 1
-    return cv2.adaptiveThreshold(small, 255, cv2.ADAPTIVE_THRESH_MEAN_C,
-                                 cv2.THRESH_BINARY_INV, k, float(c))
+    a = np.asarray(a, np.float64)
+    b = np.asarray(b, np.float64)
+    c = np.asarray(center, np.float64)
+    d = b - a
+    length = float(np.hypot(d[0], d[1]))
+    if length < 8.0:
+        return np.empty((0, 2)), np.empty((0, 2))
+    d = d / length
+    nrm = np.array([-d[1], d[0]])
+    if float(nrm @ ((a + b) * 0.5 - c)) < 0.0:
+        nrm = -nrm
 
+    offs = np.arange(span, -inward - 1e-9, -step)
+    m = int(offs.size)
+    zero = int(round(span / step))
+    ts = np.linspace(0.15, 0.85, int(samples))
+    base = a[None, :] + ts[:, None] * (b - a)[None, :]
+    gx = base[:, 0:1] + nrm[0] * offs[None, :]
+    gy = base[:, 1:2] + nrm[1] * offs[None, :]
+    prof = bilinear(gray, gx, gy)                 # (samples, m) 一次取完
+    n = prof.shape[0]
 
-def components(mask):
-    """连通域统计：一次调用拿到所有块的 (x, y, w, h, 面积) 与质心。
-
-    比 findContours + 逐轮廓 boundingRect 快一个数量级 —— 板上每次 Python 级调用
-    约 1ms，几百个轮廓就是几百毫秒，而这里只有一次。
-    """
-    n, _lab, stats, cent = cv2.connectedComponentsWithStats(mask, 8)
-    if n <= 1:
-        return np.zeros((0, 5), np.int32), np.zeros((0, 2), np.float64)
-    return stats[1:], cent[1:]
-
-
-def frame_candidates(stats, cent, mask, gray, level, min_area, max_area_ratio,
-                     min_aspect, max_aspect, min_fill, max_fill, min_contrast,
-                     rounds, probe=8):
-    """挑"能从框心扫出一个内框、且框内明显比框体亮"的连通域。
-
-    三道门：形状（面积/长宽比/填充率） → **能扫出内框** → **框内比框体亮**。
-      · "能扫出内框"：从框心向四个方向找第一个"亮→暗"的跨越（见 `paper_rect`）。
-        这一步对倾斜免疫——只要结构是"暗带围住一块亮区"，扫线必然四向命中；
-        而窗棂、柜门缝、洞洞板这种稀疏暗结构扫不出一个占外接框大半的内框。
-        ★ 早期用"外接框四条边压暗带"当判据，靶纸一倾斜（约 10°）就整帧漏检，
-        因为斜框的外接框边缘大部分是亮背景。换成扫内框后不再依赖正置假设。
-      · "框内比框体亮"：区分"白纸压在深色板/胶带上"与"同灰度的暗背景"。
-        对比度取 内框灰度 − 框体灰度（框体=该连通域的暗像素均值），旋转无关。
-    返回**所有被扫描过的候选**（带 ok 标记与各项实测值），由调用方决定如何排序 ——
-    排序规则属于业务，不属于算法层。
-    """
-    h, w = mask.shape[:2]
-    total = float(h * w)
-    if stats.size == 0:
-        return []
-    sx = stats[:, 0].astype(np.float64)
-    sy = stats[:, 1].astype(np.float64)
-    bw = stats[:, 2].astype(np.float64)
-    bh = stats[:, 3].astype(np.float64)
-    area = stats[:, 4].astype(np.float64)
-    box = bw * bh
-    short = np.minimum(bw, bh)
-    aspect = np.maximum(bw, bh) / np.maximum(1.0, short)
-    fill = area / np.maximum(1.0, box)
-    keep = ((short >= 14.0) & (area >= float(min_area)) &
-            (box <= total * float(max_area_ratio)) &
-            (aspect >= float(min_aspect)) & (aspect <= float(max_aspect)) &
-            (fill >= float(min_fill)) & (fill <= float(max_fill)))
-    idx = np.flatnonzero(keep)
-    if idx.size == 0:
-        return []
-    idx = idx[np.argsort(-box[idx])][:int(probe)]
-    out = []
-    for i in idx:
-        x0, y0 = int(sx[i]), int(sy[i])
-        w0, h0 = int(bw[i]), int(bh[i])
-        inner = paper_rect(gray, (x0, y0, w0, h0), level, rounds)
-        if inner is None:
-            continue                     # 扫不出内框 → 不是"暗带围住亮区"的结构
-        ix0, iy0, ix1, iy1 = inner
-        rw = (ix1 - ix0) / max(1.0, float(w0))
-        rh = (iy1 - iy0) / max(1.0, float(h0))
-        if not (0.40 <= rw <= 0.98 and 0.40 <= rh <= 0.98):
-            continue                     # 内框太小/太偏：扫到的是内部某个暗点
-        crop = gray[y0:y0 + h0, x0:x0 + w0]
-        body = crop[mask[y0:y0 + h0, x0:x0 + w0] > 0]
-        comp_mean = float(body.mean()) if body.size else float(crop.mean())
-        paper = float(gray[iy0:iy1, ix0:ix1].mean())
-        contrast = max(0.0, paper - comp_mean)
-        ok = contrast >= float(min_contrast)
-        out.append(dict(x=x0, y=y0, w=w0, h=h0, area=float(area[i]),
-                        aspect=float(aspect[i]), fill=float(fill[i]),
-                        edge=min(rw, rh), paper=paper, body=comp_mean,
-                        contrast=contrast, ok=ok))
-    return out
-
-
-
-def nearest_component(stats, cent, target, ref_w, ref_h, size_tol=0.55, dist_ratio=1.2):
-    """在连通域里挑离预测中心最近、尺寸与上一帧相当的那块；没有则 None。
-
-    跟踪时用它：ROI 里通常只有胶带环这一块尺寸对得上，其它碎块要么太小、
-    要么离预测中心太远。尺寸容差 ±55% 覆盖"车在靠近/远离"的情况。
-    """
-    if stats.size == 0:
-        return None
-    dx = cent[:, 0] - float(target[0])
-    dy = cent[:, 1] - float(target[1])
-    dist = np.hypot(dx, dy)
-    wx = stats[:, 2] / max(1.0, float(ref_w))
-    hy = stats[:, 3] / max(1.0, float(ref_h))
-    ok = (wx > 1.0 - float(size_tol)) & (wx < 1.0 + float(size_tol)) & \
-         (hy > 1.0 - float(size_tol)) & (hy < 1.0 + float(size_tol))
-    ok &= dist < float(dist_ratio) * max(float(ref_w), float(ref_h))
+    lo = prof.min(axis=1)
+    hi = prof.max(axis=1)
+    ok = (hi - lo) >= float(rise)
     if not np.any(ok):
+        return np.empty((0, 2)), np.empty((0, 2))
+    level = lo + 0.40 * (hi - lo)
+
+    dark = prof < level[:, None]
+    pad = np.zeros((n, 1), bool)
+    edge = np.diff(np.concatenate([pad, dark, pad], axis=1).astype(np.int8), axis=1)
+    started = edge == 1
+    ended = edge == -1
+    cols = np.arange(edge.shape[1])
+    rows = np.arange(n)
+
+    cost = np.where(started, np.abs(cols[None, :] - zero), 10 ** 6)
+    s0 = cost.argmin(axis=1)
+    valid = cost[rows, s0] < 10 ** 6
+    ecost = np.where(ended & (cols[None, :] > s0[:, None]), cols[None, :], 10 ** 6)
+    s1 = ecost.argmin(axis=1)
+    valid &= ecost[rows, s1] < 10 ** 6
+    valid &= (s0 < m - 2) & (s1 < m - 2)
+    valid &= (s1 - s0) >= 4
+    valid &= ok
+    if not np.any(valid):
+        return np.empty((0, 2)), np.empty((0, 2))
+
+    r = np.flatnonzero(valid)
+    pv = prof[r]
+    lv = level[r]
+    s0v, s1v = s0[r], s1[r]
+    rr = np.arange(r.size)
+
+    i0 = np.clip(s0v - 1, 0, m - 1)
+    a0, b0 = pv[rr, i0], pv[rr, s0v]
+    den0 = b0 - a0
+    t0 = np.where(np.abs(den0) > 1e-6,
+                  np.clip((lv - a0) / np.where(np.abs(den0) > 1e-6, den0, 1.0), 0.0, 1.0), 0.0)
+    pos_out = offs[i0] + t0 * (offs[s0v] - offs[i0])
+    pos_out = np.where(s0v > 0, pos_out, float(offs[0]))
+
+    i1 = np.clip(s1v - 1, 0, m - 1)
+    a1, b1 = pv[rr, i1], pv[rr, s1v]
+    den1 = b1 - a1
+    t1 = np.where(np.abs(den1) > 1e-6,
+                  np.clip((lv - a1) / np.where(np.abs(den1) > 1e-6, den1, 1.0), 0.0, 1.0), 0.0)
+    pos_in = offs[i1] + t1 * (offs[s1v] - offs[i1])
+
+    csum = np.concatenate([np.zeros((r.size, 1)), np.cumsum(pv, axis=1)], axis=1)
+    dark_cnt = np.maximum(1, s1v - s0v)
+    bright_cnt = np.maximum(1, m - s1v)
+    dark_mean = (csum[rr, s1v] - csum[rr, s0v]) / dark_cnt
+    bright_mean = (csum[rr, m] - csum[rr, s1v]) / bright_cnt
+
+    keep = (bright_mean >= 40.0) & (dark_mean <= 0.60 * bright_mean) & ((pos_out - pos_in) >= 2.0)
+    if not np.any(keep):
+        return np.empty((0, 2)), np.empty((0, 2))
+    sel = base[r][keep]
+    out_pts = sel + nrm[None, :] * pos_out[keep][:, None]
+    in_pts = sel + nrm[None, :] * pos_in[keep][:, None]
+    return out_pts, in_pts
+
+
+def fit_line(points):
+    """总体最小二乘直线拟合，返回过 (p0) 与方向 p1 的两点式；点不足返回 None。"""
+    p = np.asarray(points, np.float32).reshape(-1, 2)
+    if p.shape[0] < 2:
         return None
-    idx = np.flatnonzero(ok)
-    k = int(idx[np.argmin(dist[idx])])
-    return dict(x=int(stats[k, 0]), y=int(stats[k, 1]),
-                w=int(stats[k, 2]), h=int(stats[k, 3]),
-                area=float(stats[k, 4]), cx=float(cent[k, 0]), cy=float(cent[k, 1]))
+    vx, vy, x0, y0 = cv2.fitLine(p, cv2.DIST_L2, 0, 0.01, 0.01).ravel()
+    if not np.isfinite((vx, vy, x0, y0)).all() or (abs(vx) < 1e-9 and abs(vy) < 1e-9):
+        return None
+    return (float(x0), float(y0)), (float(x0 + vx), float(y0 + vy))
 
 
-def _outer_dark(seg, level):
-    """一维剖面里最外圈暗游程的起点（相对 seg 起点的偏移）；没有暗则 None。
+def quad_from_lines(lines):
+    """四条边线两两求交 → 四角。第 i 个角 = 第 i-1 条边与第 i 条边的交点。"""
+    if lines is None or len(lines) != 4 or any(l is None for l in lines):
+        return None
+    pts = []
+    for i in range(4):
+        p = line_cross(lines[i - 1][0], lines[i - 1][1], lines[i][0], lines[i][1])
+        if p is None:
+            return None
+        pts.append(p)
+    q = np.asarray(pts, np.float32)
+    if not np.isfinite(q).all():
+        return None
+    return order_quad(q)
 
-    seg 从框心出发向外。暗游程按"相邻索引差 > 2"分组（1~2px 的反光断口不算新游程），
-    最后一组就是最靠外的暗带 —— 对"印刷环嵌在纸面里"的结构，它必然是框体本身，
-    其起点即纸边。
+
+def refine_frame(gray, quad, samples=14, span=6.0, inward=30.0, rise=10.0, step=0.5):
+    """粗四边形 → (外框四角, 内框四角, 内沿命中点数)。任一框凑不齐四边返回 None。"""
+    q = order_quad(quad)
+    c = q.mean(axis=0)
+    outer_lines, inner_lines = [], []
+    inner_hits = 0
+    for i in range(4):
+        po, pi = frame_edge_points(gray, q[i], q[(i + 1) % 4], c,
+                                   samples, span, inward, rise, step)
+        inner_hits += int(pi.shape[0])
+        lo, li = fit_line(po), fit_line(pi)
+        if lo is not None:
+            outer_lines.append(lo)
+        if li is not None:
+            inner_lines.append(li)
+    return quad_from_lines(outer_lines), quad_from_lines(inner_lines), inner_hits
+
+
+# ------------------------------------------------------------------ 单应
+def _normalize_points(points):
+    """Hartley 归一化：重心到原点、平均距离到 √2。返回 (T, T⁻¹, 归一化点)。
+
+    不做这一步，8×8 的条件数会到 1e5 量级，像素坐标的舍入误差被放大成可见偏差。
     """
-    idx = np.flatnonzero(seg < level)
-    if idx.size == 0:
-        return None
-    if idx.size == 1:
-        return int(idx[0])
-    gap = np.flatnonzero(np.diff(idx) > 2)
-    return int(idx[gap[-1] + 1]) if gap.size else int(idx[0])
+    p = np.asarray(points, np.float64).reshape(-1, 2)
+    center = p.mean(axis=0)
+    dist = float(np.sqrt(((p - center) ** 2).sum(axis=1)).mean())
+    scale = math.sqrt(2.0) / max(dist, 1e-9)
+    t = np.array([[scale, 0.0, -scale * center[0]],
+                  [0.0, scale, -scale * center[1]],
+                  [0.0, 0.0, 1.0]], np.float64)
+    t_inv = np.array([[1.0 / scale, 0.0, center[0]],
+                      [0.0, 1.0 / scale, center[1]],
+                      [0.0, 0.0, 1.0]], np.float64)
+    return t, t_inv, (p - center) * scale
 
 
-def paper_rect(gray, box, level, rounds=1):
-    """框心向外扫四条线，返回纸边 (left, top, right, bottom)；扫不到返回 None。
+def _solve8(a, b):
+    """8×8 高斯消元（列主元）。a、b 不被改动；奇异返回 None。"""
+    m = np.concatenate([np.asarray(a, np.float64), np.asarray(b, np.float64).reshape(8, 1)],
+                       axis=1)
+    for col in range(8):
+        pivot = int(np.argmax(np.abs(m[col:, col]))) + col
+        if abs(m[pivot, col]) < 1e-12:
+            return None
+        if pivot != col:
+            m[[col, pivot]] = m[[pivot, col]]
+        m[col] /= m[col, col]
+        for row in range(8):
+            if row != col and m[row, col] != 0.0:
+                m[row] -= m[row, col] * m[col]
+    return m[:, 8]
 
-    为什么从里往外扫：胶带环的外接框总是偏的（下缘常被阴影撑宽，实测偏 6~8px），
-    而纸面一定在框内。从框心向四个方向找第一个"亮→暗"的跨越，取左右/上下的中点 ——
-    对中心对称图形，过任意点的水平弦中点仍在中心线上，所以一轮就足以把偏差消掉。
+
+def solve_homography(src, dst):
+    """图像点 src → 平面点 dst 的单应矩阵 (3×3)。
+
+    8 个自由度：每对点给 2 个方程，4 对点正好 8×8，高斯消元；多于 4 对时
+    正规方程 AᵀA h = Aᵀb 仍是 8×8，同一套消元，白捡最小二乘。
+    两侧都先归一化，最后把归一化变换剥掉。
     """
-    x, y, w, h = int(box[0]), int(box[1]), int(box[2]), int(box[3])
-    if w < 12 or h < 12:
+    s = np.asarray(src, np.float64).reshape(-1, 2)
+    d = np.asarray(dst, np.float64).reshape(-1, 2)
+    n = int(min(len(s), len(d)))
+    if n < 4:
         return None
-    cx, cy = x + w // 2, y + h // 2
-    best = None
-    for _ in range(max(1, int(rounds))):
-        i, j = cx - x, cy - y
-        # 每个方向取相邻三条线的最小值再扫：胶带反光会让单独一行整段变亮，
-        # 三行取最小等于"只要有任意一行是暗的就算暗"，能跨过 1~2px 的断口。
-        row = gray[max(y, cy - 1):min(y + h, cy + 2), x:x + w].min(axis=0)
-        col = gray[y:y + h, max(x, cx - 1):min(x + w, cx + 2)].min(axis=1)
-        # 沿每个方向取"最外圈暗带的内侧边界"= 纸边。
-        # 不能取第一个暗点：纸面上印的同心环也是暗的，第一下就撞在环上，
-        # 内框会缩成一个点；也不能取最后一个暗像素：那会跑到框的外沿。
-        # 正确做法是按暗游程分组，取最后一组（最靠外的那圈）的起点。
-        # 某个方向完全扫不到暗（纸边贴着外接框）就退回用外接框那条边：
-        # 缺一角不该让整帧失败，缺的那条边本来就在外接框上。
-        # 比较电平用这条线自己的亮暗中点（p10/p90 的均值），不依赖全局阈值 ——
-        # 框的绝对灰度随曝光漂，但"框比纸暗"这件事不变。
-        lv_r = 0.5 * (float(np.percentile(row, 10)) + float(np.percentile(row, 90)))
-        lv_c = 0.5 * (float(np.percentile(col, 10)) + float(np.percentile(col, 90)))
-        step = _outer_dark(row[i:], lv_r)
-        right = x + w - 1 if step is None else x + i + step
-        step = _outer_dark(row[:i + 1][::-1], lv_r)
-        left = x if step is None else x + i - step
-        step = _outer_dark(col[j:], lv_c)
-        bottom = y + h - 1 if step is None else y + j + step
-        step = _outer_dark(col[:j + 1][::-1], lv_c)
-        top = y if step is None else y + j - step
-        if right - left < 12 or bottom - top < 12:
-            break
-        best = (left, top, right, bottom)
-        ncx, ncy = (left + right) // 2, (top + bottom) // 2
-        if abs(ncx - cx) <= 1 and abs(ncy - cy) <= 1:
-            break
-        cx, cy = ncx, ncy
-    return best
+    s, d = s[:n], d[:n]
+    ts, ts_inv, sn = _normalize_points(s)
+    td, td_inv, dn = _normalize_points(d)
+    rows = np.zeros((2 * n, 8), np.float64)
+    rhs = np.zeros(2 * n, np.float64)
+    for k in range(n):
+        u, v = sn[k]
+        x, y = dn[k]
+        rows[2 * k] = (u, v, 1.0, 0.0, 0.0, 0.0, -x * u, -x * v)
+        rows[2 * k + 1] = (0.0, 0.0, 0.0, u, v, 1.0, -y * u, -y * v)
+        rhs[2 * k] = x
+        rhs[2 * k + 1] = y
+    h = _solve8(rows, rhs) if n == 4 else _solve8(rows.T @ rows, rows.T @ rhs)
+    if h is None:
+        return None
+    hn = np.array([[h[0], h[1], h[2]], [h[3], h[4], h[5]], [h[6], h[7], 1.0]], np.float64)
+    mat = td_inv @ hn @ ts
+    if not np.isfinite(mat).all() or abs(mat[2, 2]) < 1e-12:
+        return None
+    return mat / mat[2, 2]
 
 
-# ================================================================== 偏差
+def apply_homography(mat, points):
+    """把 (N,2) 点按 3×3 单应投影过去。"""
+    p = np.asarray(points, np.float64).reshape(-1, 2)
+    q = np.concatenate([p, np.ones((p.shape[0], 1))], axis=1) @ np.asarray(mat, np.float64).T
+    w = q[:, 2:3]
+    return q[:, :2] / np.where(np.abs(w) < 1e-12, 1e-12, w)
+
+
+def invert_homography(mat):
+    """3×3 单应的解析逆（伴随矩阵 / 行列式）。奇异返回 None。"""
+    m = np.asarray(mat, np.float64)
+    a, b, c = m[0]
+    d, e, f = m[1]
+    g, h, i = m[2]
+    det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+    if abs(det) < 1e-12:
+        return None
+    inv = np.array([[e * i - f * h, c * h - b * i, b * f - c * e],
+                    [f * g - d * i, a * i - c * g, c * d - a * f],
+                    [d * h - e * g, b * g - a * h, a * e - b * d]], np.float64) / det
+    return inv / inv[2, 2] if abs(inv[2, 2]) > 1e-12 else inv
+
+
+def plane_quad(width, height):
+    """纸面模型矩形（中心在原点、y 向下），顺序与 order_quad 一致：[左上,右上,右下,左下]。"""
+    hw, hh = float(width) * 0.5, float(height) * 0.5
+    return np.array([[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]], np.float32)
+
+
+# ------------------------------------------------------------------ 胶带带候选
+def quad_mix(outer, inner, t):
+    """两框对应角做线性混合：t=0 外框、t=1 内框、0.5 带中线（近似）。"""
+    o = np.asarray(outer, np.float32).reshape(4, 2)
+    i = np.asarray(inner, np.float32).reshape(4, 2)
+    return o * (1.0 - float(t)) + i * float(t)
+
+
+def band_evidence(gray, outer, inner):
+    """胶带带证据：带中线灰度 vs 纸面内区灰度，返回 (带灰, 纸灰, 纸-带)。"""
+    band = quad_mix(outer, inner, 0.5)
+    pts = []
+    for i in range(4):
+        for t in (0.25, 0.5, 0.75):
+            pts.append(band[i] + t * (band[(i + 1) % 4] - band[i]))
+    pts = np.asarray(pts, np.float32)
+    band_g = float(bilinear(gray, pts[:, 0], pts[:, 1]).mean())
+    paper = quad_mix(outer, inner, 1.0)
+    c = paper.mean(axis=0)
+    v = paper[2] - paper[0]
+    probe = c + np.array([[0.0, 0.0], [v[0] * 0.2, 0.0], [-v[0] * 0.2, 0.0],
+                          [0.0, v[1] * 0.2], [0.0, -v[1] * 0.2]], np.float32)
+    paper_g = float(bilinear(gray, probe[:, 0], probe[:, 1]).mean())
+    return band_g, paper_g, paper_g - band_g
+
+
+def find_frame_candidates(gray, edges, min_area, max_area_ratio, min_aspect, max_aspect,
+                          min_contrast, samples=14, span=6.0, inward=30.0, rise=10.0,
+                          step=0.5, max_candidates=8):
+    """从二值图提"胶带带"候选：轮廓 → 最小外接矩形 → 内外框精修 → 灰度对比度打分。
+
+    为什么用最小外接矩形而不是 approxPolyDP：胶带内角是圆的、边常被遮挡，
+    多边形逼近永远凑不出 4 个顶点（实测两档真机帧 eps 1%~8% 全为 0）；
+    外接矩形只要求"四个方向上取到极值点"，缺一个角依然成立。
+    记账等式：contours = area + shape + aspect + frame + candidates
+    """
+    h, w = edges.shape[:2]
+    total = float(h * w)
+    contours = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[-2]
+    stats = dict(contours=len(contours), area=0, shape=0, aspect=0, frame=0,
+                 candidates=0, capped=0)
+    # 第一遍只做最便宜的 boundingRect。边缘图上轮廓可达 300+，
+    # 每个都算 minAreaRect 会在板上把单帧拖到接近一秒。
+    prelim = []
+    for cnt in contours:
+        bx, by, bw, bh = cv2.boundingRect(cnt)
+        box_area = float(bw) * float(bh)
+        if min(bw, bh) < 12 or box_area < float(min_area) or box_area > total * float(max_area_ratio):
+            stats["area"] += 1
+            continue
+        prelim.append((box_area, cnt))
+    prelim.sort(key=lambda p: -p[0])
+    stats["capped"] = max(0, len(prelim) - int(max_candidates))
+    out = []
+    for box_area, cnt in prelim[:int(max_candidates)]:
+        rect = cv2.minAreaRect(cnt)
+        (cx, cy), (rw, rh), ang = rect
+        if min(rw, rh) < 12.0:
+            stats["shape"] += 1
+            continue
+        aspect = max(rw, rh) / max(1.0, min(rw, rh))
+        if aspect < float(min_aspect) or aspect > float(max_aspect):
+            stats["aspect"] += 1
+            continue
+        outer, inner, hits = refine_frame(gray, cv2.boxPoints(rect), samples, span,
+                                          inward, rise, step)
+        if outer is None or inner is None:
+            stats["frame"] += 1
+            continue
+        outer_area = abs(float(cv2.contourArea(outer.astype(np.float32))))
+        inner_area = abs(float(cv2.contourArea(inner.astype(np.float32))))
+        if outer_area <= 1.0 or not (0.25 <= inner_area / outer_area <= 0.95):
+            stats["frame"] += 1
+            continue
+        band_g, paper_g, contrast = band_evidence(gray, outer, inner)
+        if contrast < float(min_contrast):
+            stats["frame"] += 1
+            continue
+        x, y, bw, bh = cv2.boundingRect(outer.astype(np.float32))
+        out.append(dict(outer=outer, inner=inner, score=float(contrast), area=box_area,
+                        aspect=float(aspect), bbox=(x, y, bw, bh),
+                        band_gray=band_g, paper_gray=paper_g, inner_hits=int(hits)))
+        stats["candidates"] += 1
+    out.sort(key=lambda c: c["score"], reverse=True)
+    return out[:int(max_candidates)], stats
+
+
+# ================================================================== 结果组装
+
+
 def deviation(laser, result, use_raw=False):
     """靶心相对光斑的偏差：dx>0 靶心在光斑右侧，dy>0 靶心在光斑下方。
 
-    约定：dx = u靶心 − u光斑；电机方向由各轴 DIR_SIGN 映射，像素误差为正不代表
-    固定的电机方向。激光丢失或黑框无效时返回 None。
+    约定：dx = u靶心 − u光斑，与后续串口直控云台同一套符号：
+    电机方向由各轴 DIR_SIGN 映射；像素误差为正不代表固定的电机方向。
+
+    use_raw：闭环取这一档（True）—— 取 result["raw_u"]/["raw_v"]。
+    result["u"]/["v"] 是识别输出中心；本链路无滤波，两者当前恒等，
+    保留双口径是为了将来加平滑时调用方不必改（平滑值会给闭环带来相位滞后）。
+    激光丢失或黑框无效时返回 None。
     """
     if not laser or not laser.get("found"):
         return None                        # ★ 必须先看 found：found=False 时 u/v 只是标称占位
     if not result or not result.get("valid"):
         return None
     if use_raw and result.get("raw_u") is not None and result.get("raw_v") is not None:
-        tx, ty = float(result["raw_u"]), float(result["raw_v"])
+        tx, ty = float(result["raw_u"]), float(result["raw_v"])   # 闭环档：未平滑中心
     else:
-        tx, ty = float(result["u"]), float(result["v"])
+        tx, ty = float(result["u"]), float(result["v"])           # 显示档：识别输出中心
     lu, lv = float(laser['u']), float(laser['v'])
     if not all(map(math.isfinite, (tx, ty, lu, lv))):
         return None
     size = result.get('image_size')
     if size is not None and not (0 <= lu < size[0] and 0 <= lv < size[1]):
         return None
-    return (tx - lu, ty - lv)
+    return (tx - lu, ty - lv)       # dx=靶心−光斑, dy 同理

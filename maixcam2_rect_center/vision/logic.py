@@ -3,7 +3,7 @@
 四层之一，装"决定该做什么"的全部代码，**一行副作用都不做**：
 
     结果契约   fail_result / success_result / locate_result / finish_result
-    检测器     RectangleCenterDetector（降采样搜框 + ROI 跟踪 + 速度预测）
+    检测器     RectangleCenterDetector（单帧全图搜索）
                LaserSpotDetector（光斑读数）
     闭环决策   GimbalAim（BOOT/COARSE/FINE/SETTLE/HOLD/FAULT）
                VisionControl（识别 → 偏差 → 决策；命令只填进 `self.commands`）
@@ -28,15 +28,14 @@ import time
 import cv2
 import numpy as np
 
-from .algo import (adaptive_mask, auto_level, box_center, components,
-                   dark_mask, deviation, downscale, frame_candidates,
-                   nearest_component, paper_rect, rect_quad)
+from .algo import (blur_frame, deviation, edge_map, find_frame_candidates,
+                  invert_homography, plane_quad, quad_diagonal_center, solve_homography)
 from .output import (Preview, aligned_frame, apply_commands, display_result,
                     draw_preview, estimate_move_seconds, perf_line, stop_motion,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-09-fast-track-v15"
+BUILD_ID = "2026-11-09-plane-frame-v7"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -52,6 +51,40 @@ def fail_result(stage, fail_stage, reason):
     return dict(valid=False, stage=stage, fail_stage=fail_stage, fail_reason=reason)
 
 
+def plane_result(best, homography, model):
+    """胶带带候选 → 成功结果。
+
+    靶心 = **内框**对角线交点。为什么必须是内框：胶带上下宽度不等时，外框中心
+    会比真实靶心偏出半个带宽（真实帧实测 8~11px），而纸边与印刷图案同心。
+
+    本链路只回答"黑框（胶带带）在哪"，**不看纸面图案**：同心圆是另一条独立能力，
+    不参与这里的任何判据。代价是"亮面被暗边包住"的东西（屏幕、窗框）可能在
+    形状上被当成靶纸——这是四边形链路固有的边界，交给上层或别的证据去解决。
+    """
+    inner = best.get("inner")
+    outer = best.get("outer")
+    center = quad_diagonal_center(inner) if inner is not None else None
+    if center is None:
+        return fail_result(STAGE_PLANE, "plane", "degenerate")
+    width_mm, height_mm = float(model[0]), float(model[1])
+    plane_to_image = invert_homography(homography) if homography is not None else None
+    confidence = min(1.0, float(best.get("score", 0.0)) / 90.0)
+    return dict(valid=True, stage=STAGE_PLANE,
+                u=float(center[0]), v=float(center[1]),
+                raw_u=float(center[0]), raw_v=float(center[1]),
+                quad=outer, inner_quad=inner, detected_quad=outer, outer_inferred=False,
+                center_ref="inner",
+                circle=None,
+                area=float(best.get("area", 0.0)), aspect=float(best.get("aspect", 0.0)),
+                bbox=best.get("bbox"),
+                partial=False, refined_edges=4, weak_edges=0, clipped_edges=0,
+                rect_to_image=plane_to_image, circle_points=None,
+                width_mm=width_mm, height_mm=height_mm,
+                band=dict(gray=best.get("band_gray"), paper=best.get("paper_gray"),
+                          contrast=best.get("score")),
+                confidence=float(confidence))
+
+
 def finish_result(result, timestamp, image_size, started):
     """补齐时间戳、图像尺寸、耗时。"""
     result.update(captured_at=timestamp, image_size=image_size,
@@ -59,359 +92,93 @@ def finish_result(result, timestamp, image_size, started):
     return result
 
 
-def _inner_quad(box, offset):
-    """由外接框与"纸边相对框心的偏移比例"还原纸边矩形（只用于绘制与核对）。"""
-    x, y, w, h = (float(v) for v in box)
-    ox, oy = float(offset[0]), float(offset[1])
-    iw = max(4.0, w * (1.0 - 2.0 * abs(ox)))
-    ih = max(4.0, h * (1.0 - 2.0 * abs(oy)))
-    cx = x + w * 0.5 + ox * w
-    cy = y + h * 0.5 + oy * h
-    return rect_quad(cx - iw * 0.5, cy - ih * 0.5, cx + iw * 0.5, cy + ih * 0.5)
-
-
 # ================================================================== 编排
 class RectangleCenterDetector:
-    """黑框检测 + 跨帧跟踪。一帧只有十来次 cv2/numpy 调用。
-
-    为什么这样组织（每一条都是板上实测出来的）：
-
-    - **降采样 2 倍**再找框：像素少四倍，胶带环在 1/2 图上依旧连续。
-    - **自适应阈值**（90 分位 × 0.62）：压在胶带与纸面之间，曝光变了阈值跟着变。
-    - **连通域**而不是 findContours：一次调用拿到所有块，省掉几百次 Python 级调用。
-    - **锁定后只在 ROI 里找**：ROI 约为框的 1.6 倍，像素只有全图的 1/6。
-    - **速度预测 + 短暂保持**：画面晃一下、或者某一帧阈值没抓住，用上一帧的速度
-      外推继续输出，不再立刻掉进 HOLD。
-    - **中心取"框心向外扫四条线"的中点**：外接框中心会被阴影带偏 6~8px，
-      弦中点不会（见 `algo.paper_rect`）。
-    """
+    """只保存参数并编排上面那些函数；本身不做像素运算。"""
 
     def __init__(self, config):
         self.cfg = config
-        self.scale = int(getattr(config, "RECT_DOWNSCALE", 2))
-        self.level_ratio = float(getattr(config, "RECT_LEVEL_RATIO", 0.62))
-        self.level_floor = float(getattr(config, "RECT_LEVEL_FLOOR", 45.0))
-        self.level_ceil = float(getattr(config, "RECT_LEVEL_CEIL", 160.0))
-        self.level_refresh = int(getattr(config, "RECT_LEVEL_REFRESH", 15))
-        self.min_area = float(getattr(config, "RECT_MIN_AREA", 300))
-        self.max_area_ratio = float(getattr(config, "RECT_MAX_AREA_RATIO", 0.55))
-        self.min_aspect = float(getattr(config, "RECT_MIN_ASPECT", 1.05))
-        self.max_aspect = float(getattr(config, "RECT_MAX_ASPECT", 2.60))
-        self.min_fill = float(getattr(config, "RECT_MIN_FILL", 0.03))
-        self.max_fill = float(getattr(config, "RECT_MAX_FILL", 0.70))
-        self.paper_rounds = int(getattr(config, "RECT_PAPER_ROUNDS", 2))
-        self.track_expand = float(getattr(config, "RECT_TRACK_EXPAND", 1.60))
-        self.track_margin = float(getattr(config, "RECT_TRACK_MARGIN", 16.0))
-        self.size_tol = float(getattr(config, "RECT_TRACK_SIZE_TOL", 0.55))
-        self.hold = int(getattr(config, "RECT_HOLD_FRAMES", 6))
-        self.smooth = float(getattr(config, "RECT_SMOOTH", 0.55))
-        self.hold_max = float(getattr(config, "RECT_HOLD_MAX_PX", 90.0))
-        self.max_speed = float(getattr(config, "RECT_MAX_SPEED", 2500.0))
-        self.gate = float(getattr(config, "RECT_TRACK_GATE", 0.45))
-        self.track_max_side = float(getattr(config, "RECT_TRACK_MAX_SIDE", 240.0))
-        self.min_contrast = float(getattr(config, "RECT_MIN_BAND_CONTRAST", 30.0))
-        self.adapt_block = int(getattr(config, "RECT_ADAPT_BLOCK", 31))
-        self.adapt_c = float(getattr(config, "RECT_ADAPT_C", 12.0))
-        self.prior = (
-            float(getattr(config, "LASER_U_NOMINAL", 0.0)) if getattr(config, "ENABLE_LASER", False) else -1.0,
-            float(getattr(config, "LASER_V_NOMINAL", 0.0)))
-        if not getattr(config, "ENABLE_LASER", False):
-            self.prior = (-1.0, -1.0)
-        self._last_log = -1e9
-        self.debug_map = bool(getattr(config, "RECT_DEBUG_MAP", False))
-        self._printed_map = False
-        self.keep_stages = bool(getattr(config, "RECT_KEEP_STAGES", False))
         self.last = None
         self.last_stages = {}
-        self.reset()
+        # 参数全部允许缺省，config 未同步时也不至于抛 AttributeError。
+        self.min_area = float(getattr(config, "RECT_MIN_AREA", 300))
+        self.max_area_ratio = float(getattr(config, "RECT_MAX_AREA_RATIO", 0.92))
+        self.min_aspect = float(getattr(config, "RECT_MIN_ASPECT", 1.1))
+        self.max_aspect = float(getattr(config, "RECT_MAX_ASPECT", 1.8))
+        self.kernel = tuple(getattr(config, "RECT_GAUSS_KERNEL", (5, 5)))
+        self.canny_low = int(getattr(config, "RECT_CANNY_LOW", 0))
+        self.canny_high = int(getattr(config, "RECT_CANNY_HIGH", 0))
+        self.edge_close = int(getattr(config, "RECT_EDGE_CLOSE", 5))
+        self.max_candidates = int(getattr(config, "RECT_MAX_CANDIDATES", 6))
+        self.keep_stages = bool(getattr(config, "RECT_KEEP_STAGES", False))
+        self.model = tuple(getattr(config, "RECT_MODEL_MM", (261.0, 174.0)))
+        self.refine_samples = int(getattr(config, "RECT_REFINE_SAMPLES", 14))
+        self.refine_span = float(getattr(config, "RECT_REFINE_SPAN", 4.0))
+        self.refine_step = float(getattr(config, "RECT_REFINE_STEP", 0.5))
+        self.tape_max_px = float(getattr(config, "RECT_TAPE_MAX_PX", 26.0))
+        self.edge_rise = float(getattr(config, "RECT_EDGE_RISE", 10.0))
+        self.band_min_contrast = float(getattr(config, "RECT_BAND_MIN_CONTRAST", 25.0))
 
     def reset(self):
-        """清空跟踪状态。无历史帧时等价于"从头开始搜框"。"""
-        self.level = None
-        self.center = None          # 平滑后的中心（全分辨率）
-        self.measured = None        # 最近一次实测中心
-        self.velocity = (0.0, 0.0)  # px/s
-        self.box = None             # 最近一次 bbox（全分辨率）
-        self.ref = (0.0, 0.0)       # 锁定时的框尺寸，跟踪时作为尺寸基准
-        self.offset = (0.0, 0.0)    # 纸边中心相对框心的偏移（按框尺寸归一）
-        self.lost = 0
-        self.tracking = False
-        self._frames = 0
-        self._last_components = 0
-        self._printed_map = False
-        self._last_ts = None
-        self._hit_ts = None
-
-    # ------------------------------------------------------------- 内部工具
-    def _debug_map(self, small, level):
-        """把降采样后的灰度图打成 64×32 的十六进制字符画（一次搜索只打一次）。
-
-        现场调阈值时，这是唯一能"看见板子看到什么"的手段：每格是一个十六进制位
-        （0=最暗 f=最亮），配合 lv 就能判断阈值该往上还是往下。
-        """
-        if not self.debug_map or self._printed_map:
-            return
-        self._printed_map = True
-        m = cv2.resize(small, (64, 32), interpolation=cv2.INTER_AREA)
-        print("[map] ---- level=%.0f (0=dark f=bright)" % level)
-        for row in m:
-            print("[map] " + "".join("%X" % (v >> 4) for v in row))
-
-    def _log_candidates(self, cands, s, level, level_b=None):
-        """搜框时把候选打一行日志（限频 1s），现场排障靠它，别删。"""
-        now = time.perf_counter()
-        if now - self._last_log < 1.0:
-            return
-        self._last_log = now
-        parts = []
-        for c in cands[:5]:
-            parts.append("%s(%d,%d %dx%d e=%.2f con=%.0f%s)" % (
-                "D",
-                c["x"] * s, c["y"] * s, c["w"] * s, c["h"] * s, c["edge"],
-                c["contrast"], "" if c["ok"] else "/x"))
-        print("[cand] lv=%.0f lvb=%.0f n=%d %s"
-              % (level, -1.0 if level_b is None else level_b, len(cands),
-                 " ".join(parts) or "-"))
-
-    def _level_for(self, img):
-        return auto_level(img, 2.0, 90.0, self.level_ratio,
-                          self.level_floor, self.level_ceil)
-
-    def _predict(self, ts):
-        """按速度外推当前位置；限幅防止甩飞。"""
-        if self.center is None:
-            return None
-        dt = 0.0 if self._last_ts is None else float(ts) - self._last_ts
-        dt = 0.0 if dt < 0.0 else (0.25 if dt > 0.25 else dt)
-        px = self.center[0] + self.velocity[0] * dt
-        py = self.center[1] + self.velocity[1] * dt
-        lo_x, hi_x = self.center[0] - self.hold_max, self.center[0] + self.hold_max
-        lo_y, hi_y = self.center[1] - self.hold_max, self.center[1] + self.hold_max
-        return (lo_x if px < lo_x else (hi_x if px > hi_x else px),
-                lo_y if py < lo_y else (hi_y if py > hi_y else py))
+        """接口兼容用。本检测器无跨帧状态，清空只影响调试缓存。"""
+        self.last = None
+        self.last_stages = {}
 
     @staticmethod
     def _fail_reason(stats):
-        if not stats.get("components"):
+        """按淘汰的层给失败原因，和 [perf] 的 det_fail 口径一致。"""
+        if stats["contours"] == 0:
             return "no_proposal"
+        if stats["area"] == stats["contours"]:
+            return "all_area"
         return "all_filtered"
 
-    # ------------------------------------------------------------- 全图搜框
-    def _search(self, g, stats):
-        s = self.scale
-        small = downscale(g, s)
-        level = self._level_for(small)
-        mask = adaptive_mask(small, self.adapt_block, self.adapt_c)
-        self._debug_map(small, level)
-        comps, _cent = components(mask)
-        stats["components"] = int(comps.shape[0])
-        area_min = self.min_area / float(s * s)
-        # 暗环法：背景比纸亮（亮墙 + 黑胶带）时才成立。
-        dark = frame_candidates(comps, _cent, mask, small, level, area_min,
-                                self.max_area_ratio, self.min_aspect, self.max_aspect,
-                                self.min_fill, self.max_fill, self.min_contrast,
-                                self.paper_rounds)
-        cands = dark
-        cands = dark
-        self._log_candidates(cands, s, level)
-        good = [c for c in cands if c["ok"]]
-        if not good:
-            return None
-        # 通过全部判据的候选按"离预期瞄准点最近"排序：操作手把相机对准靶纸，
-        # 所以离光斑标称位置最近的那一个才是靶纸。面积最大不代表最像靶纸 ——
-        # 实测洞洞板面积更大、四边也有暗孔，只有"框内比框边亮"能把它筛掉。
-        px, py = self.prior
-        if px < 0.0 or py < 0.0:
-            px, py = g.shape[1] * 0.5, g.shape[0] * 0.5
-        good.sort(key=lambda c: (abs((c["x"] + c["w"] * 0.5) * s - px) +
-                                 abs((c["y"] + c["h"] * 0.5) * s - py),
-                                 -c["contrast"]))
-        c = good[0]
-        paper = paper_rect(small, (c["x"], c["y"], c["w"], c["h"]), level,
-                           self.paper_rounds)
-        box = (c["x"] * s, c["y"] * s, c["w"] * s, c["h"] * s)
-        bcx, bcy = box_center(box)
-        if paper is not None:
-            pcx = (paper[0] + paper[2]) * 0.5 * s
-            pcy = (paper[1] + paper[3]) * 0.5 * s
+    def _plane(self, gray, edges):
+        """边缘 → 轮廓 → 矩形 → 内框四角 → 对角线交点。"""
+        t0 = time.perf_counter()
+        cands, stats = find_frame_candidates(
+            gray, edges, self.min_area, self.max_area_ratio, self.min_aspect,
+            self.max_aspect, self.band_min_contrast, self.refine_samples,
+            self.refine_span, self.tape_max_px, self.edge_rise, self.refine_step,
+            self.max_candidates)
+        t1 = time.perf_counter()
+        if cands:
+            best = cands[0]
+            homography = solve_homography(best["inner"], plane_quad(*self.model))
+            out = plane_result(best, homography, self.model)
         else:
-            pcx, pcy = bcx, bcy
-        return dict(center=(pcx, pcy), box=box, level=level, reacquire=True,
-                    offset=((pcx - bcx) / max(1.0, box[2]),
-                            (pcy - bcy) / max(1.0, box[3])),
-                    area=c["area"] * s * s, aspect=c["aspect"], edge=c["edge"],
-                    contrast=c["contrast"])
+            out = fail_result(STAGE_NONE, "plane", self._fail_reason(stats))
+        out["t_ms"] = dict(cand=(t1 - t0) * 1000.0)
+        return out, stats
 
-    # ------------------------------------------------------------- ROI 跟踪
-    def _track(self, g, ts):
-        box = self.box
-        pred = self._predict(ts)
-        if box is None or pred is None:
-            return None
-        s = self.scale
-        h, w = g.shape[:2]
-        hw = box[2] * self.track_expand * 0.5 + self.track_margin
-        hh = box[3] * self.track_expand * 0.5 + self.track_margin
-        x0, y0 = int(pred[0] - hw), int(pred[1] - hh)
-        x1, y1 = int(pred[0] + hw), int(pred[1] + hh)
-        x0, y0 = (0 if x0 < 0 else x0), (0 if y0 < 0 else y0)
-        x1, y1 = (w if x1 > w else x1), (h if y1 > h else y1)
-        if x1 - x0 < 24 or y1 - y0 < 24:
-            return None
-        # 尺寸参考用"锁定时的尺寸"而不是上一帧的尺寸：逐帧比较会一步步缩到更小的
-        # 连通域（实测 250x180 -> 114x112 -> 50x52，最后锁到里面的圆环上）。
-        ref_w = max(8.0, self.ref[0])
-        ref_h = max(8.0, self.ref[1])
-        # 跟踪时的降采样按 ROI 尺寸自适应：把每帧送进连通域的像素量钉在固定上限，
-        # 否则目标一变大，连通域耗时就跟着涨（实测 3ms -> 34ms）。
-        span = max(x1 - x0, y1 - y0)
-        while span / s > self.track_max_side:
-            s += 1
-        small = downscale(g[y0:y1, x0:x1], s)
-        self._frames += 1
-        if self.level is None or self._frames % self.level_refresh == 0:
-            self.level = self._level_for(small)
-        mask = adaptive_mask(small, self.adapt_block, self.adapt_c)
-        comps, cent = components(mask)
-        self._last_components = int(comps.shape[0])
-        c = nearest_component(comps, cent, ((pred[0] - x0) / s, (pred[1] - y0) / s),
-                              ref_w / s, ref_h / s, self.size_tol)
-        if c is None:
-            return None
-        # ROI 原点是原图坐标，只有块内坐标才乘缩放系数（乘错一次就差半个画面）。
-        fbox = (x0 + c["x"] * s, y0 + c["y"] * s, c["w"] * s, c["h"] * s)
-        bcx, bcy = box_center(fbox)
-        cx = bcx + self.offset[0] * fbox[2]
-        cy = bcy + self.offset[1] * fbox[3]
-        # 跟踪门：测量值离预测太远说明锁到了别的东西（或上帧预测跑飞），当帧作废。
-        gate = self.gate * max(box[2], box[3])
-        if abs(cx - pred[0]) > gate or abs(cy - pred[1]) > gate:
-            return None
-        return dict(center=(cx, cy),
-                    box=fbox, level=self.level, offset=self.offset,
-                    area=c["area"] * s * s,
-                    aspect=max(fbox[2], fbox[3]) / max(1.0, min(fbox[2], fbox[3])),
-                    edge=None)
-
-    # ------------------------------------------------------------- 状态推进
-    def _on_hit(self, det, ts):
-        meas = det["center"]
-        # 速度只在帧间隔足够长时更新：连拍两帧 dt≈0.2ms，除出来是天文数字，
-        # 外推会把 ROI 甩到画面另一头（实测会锁到墙上的别的东西）。
-        if self.measured is not None and self._hit_ts is not None:
-            dt = ts - self._hit_ts
-            if 0.004 <= dt <= 0.25:
-                a = 0.55
-                vx = self.velocity[0] * (1.0 - a) + (meas[0] - self.measured[0]) / dt * a
-                vy = self.velocity[1] * (1.0 - a) + (meas[1] - self.measured[1]) / dt * a
-                speed = (vx * vx + vy * vy) ** 0.5
-                if speed > self.max_speed:
-                    vx *= self.max_speed / speed
-                    vy *= self.max_speed / speed
-                self.velocity = (vx, vy)
-        # 重新捕获：直接对齐，不做低通。判定"重新捕获"的标准是全图搜框回来的
-        # 结果离当前中心超过半个框 —— 这种情况多半是换场景/换靶，旧中心已经没意义。
-        jumped = (det.get("reacquire") and self.center is not None and
-                  abs(meas[0] - self.center[0]) + abs(meas[1] - self.center[1]) >
-                  0.6 * max(det["box"][2], det["box"][3]))
-        if self.center is None or self.lost > 0 or jumped:
-            self.center = meas
-        else:
-            k = self.smooth
-            self.center = (self.center[0] + k * (meas[0] - self.center[0]),
-                           self.center[1] + k * (meas[1] - self.center[1]))
-        self.measured = meas
-        self.box = det["box"]
-        if det.get("reacquire"):
-            self.ref = (float(det["box"][2]), float(det["box"][3]))
-        else:
-            # 参考尺寸只允许慢速跟随（每帧 <=2%），这样"车在靠近"能跟上，
-            # "跳到别的小块上"跟不上。
-            self.ref = (self.ref[0] + max(-0.02 * self.ref[0], min(0.02 * self.ref[0],
-                                                                 det["box"][2] - self.ref[0])),
-                        self.ref[1] + max(-0.02 * self.ref[1], min(0.02 * self.ref[1],
-                                                                 det["box"][3] - self.ref[1])))
-        self.offset = det["offset"]
-        self.level = det["level"]
-        self.lost = 0
-        self.tracking = True
-        self._hit_ts = ts
-        self._last_ts = ts
-        return self._make_result(det, hold=False)
-
-    def _on_missing(self, ts, stats):
-        if self.center is None or self.box is None or self.lost >= self.hold:
-            self.tracking = False
-            return fail_result(STAGE_NONE, "plane", self._fail_reason(stats))
-        self.lost += 1
-        self.velocity = (self.velocity[0] * 0.7, self.velocity[1] * 0.7)
-        pred = self._predict(ts)
-        self.center = pred
-        self._last_ts = ts
-        det = dict(center=pred, box=self.box, offset=self.offset, level=self.level,
-                   area=0.0, aspect=0.0, edge=None)
-        return self._make_result(det, hold=True)
-
-    def _make_result(self, det, hold):
-        box = det["box"]
-        cx, cy = self.center
-        outer = rect_quad(box[0], box[1], box[0] + box[2], box[1] + box[3])
-        edge = det.get("edge")
-        return dict(valid=True, stage=STAGE_PLANE,
-                    u=float(cx), v=float(cy),
-                    raw_u=float(det["center"][0]), raw_v=float(det["center"][1]),
-                    quad=outer, inner_quad=_inner_quad(box, det["offset"]),
-                    detected_quad=outer, outer_inferred=False,
-                    center_ref="paper",
-                    area=float(det.get("area") or 0.0),
-                    aspect=float(det.get("aspect") or 0.0),
-                    bbox=(int(box[0]), int(box[1]), int(box[2]), int(box[3])),
-                    partial=bool(hold), hold=bool(hold), lost=int(self.lost),
-                    refined_edges=4, weak_edges=0, clipped_edges=0,
-                    rect_to_image=None, circle_points=None,
-                    band=dict(level=det.get("level"), edge=edge,
-                              paper=det.get("paper"), body=det.get("body"),
-                              contrast=float(det.get("contrast") or 0.0)),
-                    confidence=float(1.0 if not hold else
-                                     max(0.2, 1.0 - self.lost / float(max(1, self.hold)))))
-
-    def _detect(self, g, ts):
-        timings = {}
-        stats = dict(components=0)
-        self._last_components = 0
-        det = None
-        if self.tracking:
-            t0 = time.perf_counter()
-            det = self._track(g, ts)
-            timings["track"] = (time.perf_counter() - t0) * 1000.0
-        if det is None:
-            t0 = time.perf_counter()
-            det = self._search(g, stats)
-            timings["search"] = (time.perf_counter() - t0) * 1000.0
-            timings.pop("track", None)
-        if self.tracking and det is not None and "search" not in timings:
-            stats["components"] = self._last_components
-        result = self._on_hit(det, ts) if det is not None else self._on_missing(ts, stats)
-        return result, stats, timings
-
-    # ------------------------------------------------------------- 对外入口
     def process(self, gray, timestamp=None):
         started = time.perf_counter()
         ts = started if timestamp is None else float(timestamp)
         if not np.isfinite(ts):
             raise ValueError("non-finite timestamp")
+
         g = to_gray_frame(gray)
         if g.size == 0:
-            result, stats, timings = fail_result("empty_frame", "none", "empty"), \
-                dict(components=0), {}
+            result = fail_result("empty_frame", "none", "empty")
+            stats = dict(contours=0, area=0, quad=0, aspect=0, candidates=0)
         else:
-            result, stats, timings = self._detect(g, ts)
-        result.update(masks=1, proposals=stats.get("components", 0), search_count=1,
-                      reject=dict(stats), threshold=self.level, build=BUILD_ID)
-        result["t_ms"] = timings
-        self.last = finish_result(result, ts,
-                                  (int(g.shape[1]), int(g.shape[0])) if g.size else (0, 0),
-                                  started)
+            t0 = time.perf_counter()
+            blur = blur_frame(g, self.kernel)
+            t1 = time.perf_counter()
+            edges = edge_map(blur, self.canny_low, self.canny_high, self.edge_close)
+            t2 = time.perf_counter()
+            result, stats = self._plane(g, edges)
+            # 分段耗时给板端日志用：哪一段贵，一眼能看出来，不用再猜。
+            split = result.get("t_ms") or {}
+            split.update(blur=(t1 - t0) * 1000.0, bin=(t2 - t1) * 1000.0)
+            result["t_ms"] = split
+            if self.keep_stages:
+                self.last_stages = dict(blur=blur, binary=edges)
+
+        result.update(masks=1, proposals=stats["contours"], search_count=1,
+                      reject=dict(stats), threshold=None, build=BUILD_ID)
+        self.last = finish_result(result, ts, (int(g.shape[1]), int(g.shape[0]))
+                                  if g.size else (0, 0), started)
         return self.last
 
 
@@ -960,8 +727,8 @@ def run():
         controller = state['controller'] = VisionControl(cfg, state['link'], state['aim'], clock=clock)
         worker = state['worker'] = LatestFrameWorker(controller.process, controller.idle,
                                                     cfg.VISION_ASYNC, clock=clock)
-        print('[rect-center] %s scale=1/%d adapt=%d/%.0f display_width=%d display_fps=%d' %
-              (BUILD_ID, cfg.RECT_DOWNSCALE, cfg.RECT_ADAPT_BLOCK, cfg.RECT_ADAPT_C,
+        print('[rect-center] %s canny=%d/%d close=%d display_width=%d display_fps=%d' %
+              (BUILD_ID, cfg.RECT_CANNY_LOW, cfg.RECT_CANNY_HIGH, cfg.RECT_EDGE_CLOSE,
                preview.render_width, cfg.SHOW_FPS))
         print('[preview] async=%s canvas=%dx%d' % (cfg.SHOW_ASYNC, preview.render_width, preview.render_height))
         print('[vision] latest-frame worker=%s max_result_age=%.0fms' % (cfg.VISION_ASYNC, cfg.RESULT_MAX_AGE_S*1000))
