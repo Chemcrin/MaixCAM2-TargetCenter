@@ -10,13 +10,13 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-09 22:34:13
+生成时间：2026-11-09 22:53:00
     config.py                    sha1=0bb3dba2f8ea
     main.py                      sha1=c2f5fb47aa9e
     target_api.py                sha1=d0e2676568b1
     vision/__init__.py           sha1=6e0b16db8298
-    vision/algo.py               sha1=24420a1cb500
-    vision/logic.py              sha1=bbaa76142192
+    vision/algo.py               sha1=183056042269
+    vision/logic.py              sha1=71a84eceeea2
     vision/maixvision_stream.py  sha1=c30d784f26a0
     vision/output.py             sha1=a408aa3996c7
     vision/poll.py               sha1=992056fd530e
@@ -25,7 +25,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '0bb3dba2f8ea393661f470f936749c39b22c0a1f', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': '24420a1cb500f0695af279e500023c22f61bb1b8', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'a408aa3996c737e0da67b945ecc4802d18bbc81a', 'vision/logic.py': 'bbaa76142192cf294981e3007d31cc1ad9d5a6e7', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': 'd0e2676568b1585627e4ba8e2f5d9d2ea6c860b7', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': '0bb3dba2f8ea393661f470f936749c39b22c0a1f', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': '18305604226960aa223a4356c612581583889d43', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'a408aa3996c737e0da67b945ecc4802d18bbc81a', 'vision/logic.py': '71a84eceeea2f4f7c053548e25145f75e90e187a', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': 'd0e2676568b1585627e4ba8e2f5d9d2ea6c860b7', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -611,7 +611,7 @@ def prefilter_boxes(stats, total, min_area, max_area_ratio, min_side,
 # ------------------------------------------------------------------ 环-洞结构
 def ring_hole(gray, box, margin, min_hole, max_hole, aspect_lo, aspect_hi,
               band_cover, min_contrast, want_brightness=True, close_size=3,
-              want_mask=False):
+              want_mask=False, model_aspect=1.5):
     """在 gray 的 box±margin 裁剪图里找「暗带环 + 它围出的亮洞」，结构判据全在这里。
 
     阈值在裁剪图内做 **Otsu 自动分割**（暗带|亮面天然双峰），不做任何全局假设：
@@ -677,83 +677,84 @@ def ring_hole(gray, box, margin, min_hole, max_hole, aspect_lo, aspect_hi,
     if len(tops) > 8:
         tops.sort(key=lambda i: -len(contours[i]))
         tops = tops[:8]
-    ring_i = -1
-    ring_box = None
-    ring_bb = -1.0
-    for i in tops:
-        bx, by, bw2, bh2 = cv2.boundingRect(contours[i])
-        area_bb = float(bw2) * float(bh2)
-        if area_bb > ring_bb:
-            ring_bb = area_bb
-            ring_i = i
-            ring_box = (bx, by, bw2, bh2)
-    if ring_i < 0:
-        return None
-    hole_i = -1
-    hole_area = 0.0
-    j = hier[ring_i][2]
-    while j != -1:
-        a = abs(float(cv2.contourArea(contours[j])))
-        if a > hole_area:
-            hole_area = a
-            hole_i = j
-        j = hier[j][0]
-    if hole_i < 0:
-        return None
-    hole = contours[hole_i]
-    rect = cv2.minAreaRect(hole)
-    (_rcx, _rcy), (rw, rh), _ang = rect
-    long_ = max(rw, rh)
-    short_ = min(rw, rh)
-    if short_ <= 0 or long_ < float(min_hole) or long_ > float(max_hole):
-        return None
-    aspect = long_ / short_
-    if aspect < float(aspect_lo) or aspect > float(aspect_hi):
-        return None
-    outer_area = abs(float(cv2.contourArea(contours[ring_i])))
-    if outer_area <= 1.0:
-        return None
-    # 洞周暗带封闭性：洞向外一圈（厚度 ≈ 0.06×洞短边）必须基本是暗的。
-    # 洞的存在本身只保证"紧贴边界是暗的"（它被暗块围出来），细丝围亮区、
-    # 印刷细环这类结构靠这一道拦下；mega-blob（框连着暗墙）不受影响，
-    # 因为检查只看洞的近邻，与 blob 多大无关。
-    # 膨胀只在洞 bbox±k 的邻域里做：全幅 640×480 上开大核膨胀要几十毫秒。
-    expand = max(3.0, 0.06 * short_)
-    k = int(2.0 * expand) | 1
-    kernel = _CLOSE_KERNELS.get(k)
-    if kernel is None:
-        kernel = np.ones((k, k), np.uint8)
-        _CLOSE_KERNELS[k] = kernel
-    bx, by, bw2, bh2 = cv2.boundingRect(hole)
-    gx0 = max(0, bx - k)
-    gy0 = max(0, by - k)
-    gx1 = min(crop.shape[1], bx + bw2 + k)
-    gy1 = min(crop.shape[0], by + bh2 + k)
-    sub = mask[gy0:gy1, gx0:gx1]
-    hole_mask = np.zeros(sub.shape, np.uint8)
-    shifted = hole - np.array([gx0, gy0], np.int32)
-    cv2.fillPoly(hole_mask, [shifted], 255)
-    band = cv2.dilate(hole_mask, kernel)
-    cv2.fillPoly(band, [shifted], 0)
-    if float(cv2.mean(sub, band)[0]) / 255.0 < float(band_cover):
-        return None
-    paper = None
-    contrast = None
-    if want_brightness:
-        # 洞内亮度：直接在洞邻域子图上求均值（hole_mask 已是子图坐标）
-        paper = float(cv2.mean(crop[gy0:gy1, gx0:gx1], hole_mask)[0])
-        contrast = paper - level
-        if contrast < float(min_contrast):
-            return None
-    band_w = min((outer_area - hole_area) / max(float(cv2.arcLength(hole, True)), 1.0),
-                 0.12 * short_)
-    out = dict(hole=hole.reshape(-1, 2).tolist(), rect=rect, aspect=float(aspect),
-               hole_area=hole_area, outer_area=outer_area, band_w=float(band_w),
-               paper=paper, contrast=(None if contrast is None else float(contrast)),
-               level=level, box=ring_box, origin=(x0, y0), contours=len(contours))
-    if want_mask:
-        out["mask"] = mask
-    return out
+    best = None
+    # 逐个顶层轮廓尝试"它围出的最大子洞"：真靶纸的环不一定挂在这个裁剪图
+    # 最大的暗块下面 —— 真机实测暗地板把环并进整幅 mega-blob 后，环自己是
+    # 第二大的顶层轮廓，它的洞才是纸面。谁家的洞先过门谁赢。
+    for ring_i in tops:
+        ring_box = cv2.boundingRect(contours[ring_i])
+        # 该环的候选洞：周长前 3 的子洞逐个试（周长是 O(1) 的面积代理，但
+        # 破碎阴影缝的周长会虚高，只看一个会漏掉真纸洞）。
+        kids = []
+        j = hier[ring_i][2]
+        while j != -1:
+            kids.append((len(contours[j]), j))
+            j = hier[j][0]
+        kids.sort(key=lambda t: -t[0])
+        for _per, hole_i in kids[:5]:
+            hole = contours[hole_i]
+            rect = cv2.minAreaRect(hole)
+            (_rcx, _rcy), (rw, rh), _ang = rect
+            long_ = max(rw, rh)
+            short_ = min(rw, rh)
+            if short_ <= 0 or long_ < float(min_hole) or long_ > float(max_hole):
+                continue
+            aspect = long_ / short_
+            if aspect < float(aspect_lo) or aspect > float(aspect_hi):
+                continue
+            hole_area = abs(float(cv2.contourArea(hole)))
+            outer_area = abs(float(cv2.contourArea(contours[ring_i])))
+            if outer_area <= 1.0:
+                continue
+            # 洞周暗带封闭性：洞向外一圈（厚度 ≈ 0.06×洞短边）必须基本是暗的。
+            # 洞的存在本身只保证"紧贴边界是暗的"（它被暗块围出来），细丝围亮区、
+            # 印刷细环这类结构靠这一道拦下；mega-blob（框连着暗墙）不受影响，
+            # 因为检查只看洞的近邻，与 blob 多大无关。
+            # 膨胀只在洞 bbox±k 的邻域里做：全幅 640×480 上开大核膨胀要几十毫秒。
+            expand = max(3.0, 0.06 * short_)
+            k = int(2.0 * expand) | 1
+            kernel = _CLOSE_KERNELS.get(k)
+            if kernel is None:
+                kernel = np.ones((k, k), np.uint8)
+                _CLOSE_KERNELS[k] = kernel
+            bx, by, bw2, bh2 = cv2.boundingRect(hole)
+            gx0 = max(0, bx - k)
+            gy0 = max(0, by - k)
+            gx1 = min(crop.shape[1], bx + bw2 + k)
+            gy1 = min(crop.shape[0], by + bh2 + k)
+            sub = mask[gy0:gy1, gx0:gx1]
+            hole_mask = np.zeros(sub.shape, np.uint8)
+            shifted = hole - np.array([gx0, gy0], np.int32)
+            cv2.fillPoly(hole_mask, [shifted], 255)
+            band = cv2.dilate(hole_mask, kernel)
+            cv2.fillPoly(band, [shifted], 0)
+            if float(cv2.mean(sub, band)[0]) / 255.0 < float(band_cover):
+                continue
+            paper = None
+            contrast = None
+            if want_brightness:
+                # 洞内亮度：直接在洞邻域子图上求均值（hole_mask 已是子图坐标）
+                paper = float(cv2.mean(crop[gy0:gy1, gx0:gx1], hole_mask)[0])
+                contrast = paper - level
+                if contrast < float(min_contrast):
+                    continue
+            band_w = min((outer_area - hole_area) / max(float(cv2.arcLength(hole, True)), 1.0),
+                         0.12 * short_)
+            # 打分制而非先到先得：柜门/墙缝的洞也能过结构门（边比擦线 2.7），
+            # 但真纸洞的边比贴近纸面模型（261/174≈1.5）、对比度更高 ——
+            # score = 对比度 − 40×|边比−模型比|，全场取最高分。
+            score = (0.0 if contrast is None else contrast) - 40.0 * abs(aspect - float(model_aspect))
+            if best is None or score > best["score"]:
+                best = dict(score=float(score),
+                            hole=hole.reshape(-1, 2).tolist(), rect=rect,
+                            aspect=float(aspect), hole_area=hole_area,
+                            outer_area=outer_area, band_w=float(band_w),
+                            paper=paper,
+                            contrast=(None if contrast is None else float(contrast)),
+                            level=level, box=ring_box, origin=(x0, y0),
+                            contours=len(contours),
+                            mask=(mask if want_mask else None))
+    return best
 
 
 # ------------------------------------------------------------------ 洞 → 四角
@@ -2269,7 +2270,7 @@ from .output import (Preview, aligned_frame, apply_commands, display_result,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-09-quad-track-v13"
+BUILD_ID = "2026-11-09-quad-track-v15"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -2402,7 +2403,8 @@ class RectangleCenterDetector:
         t1 = time.perf_counter()
         rh = ring_hole(g, box, self.measure_margin, self.hole_min, self.hole_max,
                        self.min_aspect, self.max_aspect, self.band_cover,
-                       self.min_contrast, True, self.close_size, False)
+                       self.min_contrast, True, self.close_size, False,
+                       self.model[0] / max(1.0, self.model[1]))
         if rh is None:
             stats["structural"] = stats.get("structural", 0) + 1
             return None
@@ -2488,7 +2490,8 @@ class RectangleCenterDetector:
         # 阈值由 ring_hole 在 ROI 内 Otsu 自定，与搜索态同一条链路。
         rh = ring_hole(small, (0, 0, small.shape[1], small.shape[0]), 0.0,
                        self.hole_min / s, self.hole_max / s, 1.0, 3.5,
-                       self.band_cover, 0.0, False, self.close_size, self.keep_stages)
+                       self.band_cover, 0.0, False, self.close_size, self.keep_stages,
+                       self.model[0] / max(1.0, self.model[1]))
         if rh is None:
             return None
         t2 = time.perf_counter()

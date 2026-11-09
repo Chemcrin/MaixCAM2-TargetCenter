@@ -167,7 +167,7 @@ def prefilter_boxes(stats, total, min_area, max_area_ratio, min_side,
 # ------------------------------------------------------------------ 环-洞结构
 def ring_hole(gray, box, margin, min_hole, max_hole, aspect_lo, aspect_hi,
               band_cover, min_contrast, want_brightness=True, close_size=3,
-              want_mask=False):
+              want_mask=False, model_aspect=1.5):
     """在 gray 的 box±margin 裁剪图里找「暗带环 + 它围出的亮洞」，结构判据全在这里。
 
     阈值在裁剪图内做 **Otsu 自动分割**（暗带|亮面天然双峰），不做任何全局假设：
@@ -233,83 +233,84 @@ def ring_hole(gray, box, margin, min_hole, max_hole, aspect_lo, aspect_hi,
     if len(tops) > 8:
         tops.sort(key=lambda i: -len(contours[i]))
         tops = tops[:8]
-    ring_i = -1
-    ring_box = None
-    ring_bb = -1.0
-    for i in tops:
-        bx, by, bw2, bh2 = cv2.boundingRect(contours[i])
-        area_bb = float(bw2) * float(bh2)
-        if area_bb > ring_bb:
-            ring_bb = area_bb
-            ring_i = i
-            ring_box = (bx, by, bw2, bh2)
-    if ring_i < 0:
-        return None
-    hole_i = -1
-    hole_area = 0.0
-    j = hier[ring_i][2]
-    while j != -1:
-        a = abs(float(cv2.contourArea(contours[j])))
-        if a > hole_area:
-            hole_area = a
-            hole_i = j
-        j = hier[j][0]
-    if hole_i < 0:
-        return None
-    hole = contours[hole_i]
-    rect = cv2.minAreaRect(hole)
-    (_rcx, _rcy), (rw, rh), _ang = rect
-    long_ = max(rw, rh)
-    short_ = min(rw, rh)
-    if short_ <= 0 or long_ < float(min_hole) or long_ > float(max_hole):
-        return None
-    aspect = long_ / short_
-    if aspect < float(aspect_lo) or aspect > float(aspect_hi):
-        return None
-    outer_area = abs(float(cv2.contourArea(contours[ring_i])))
-    if outer_area <= 1.0:
-        return None
-    # 洞周暗带封闭性：洞向外一圈（厚度 ≈ 0.06×洞短边）必须基本是暗的。
-    # 洞的存在本身只保证"紧贴边界是暗的"（它被暗块围出来），细丝围亮区、
-    # 印刷细环这类结构靠这一道拦下；mega-blob（框连着暗墙）不受影响，
-    # 因为检查只看洞的近邻，与 blob 多大无关。
-    # 膨胀只在洞 bbox±k 的邻域里做：全幅 640×480 上开大核膨胀要几十毫秒。
-    expand = max(3.0, 0.06 * short_)
-    k = int(2.0 * expand) | 1
-    kernel = _CLOSE_KERNELS.get(k)
-    if kernel is None:
-        kernel = np.ones((k, k), np.uint8)
-        _CLOSE_KERNELS[k] = kernel
-    bx, by, bw2, bh2 = cv2.boundingRect(hole)
-    gx0 = max(0, bx - k)
-    gy0 = max(0, by - k)
-    gx1 = min(crop.shape[1], bx + bw2 + k)
-    gy1 = min(crop.shape[0], by + bh2 + k)
-    sub = mask[gy0:gy1, gx0:gx1]
-    hole_mask = np.zeros(sub.shape, np.uint8)
-    shifted = hole - np.array([gx0, gy0], np.int32)
-    cv2.fillPoly(hole_mask, [shifted], 255)
-    band = cv2.dilate(hole_mask, kernel)
-    cv2.fillPoly(band, [shifted], 0)
-    if float(cv2.mean(sub, band)[0]) / 255.0 < float(band_cover):
-        return None
-    paper = None
-    contrast = None
-    if want_brightness:
-        # 洞内亮度：直接在洞邻域子图上求均值（hole_mask 已是子图坐标）
-        paper = float(cv2.mean(crop[gy0:gy1, gx0:gx1], hole_mask)[0])
-        contrast = paper - level
-        if contrast < float(min_contrast):
-            return None
-    band_w = min((outer_area - hole_area) / max(float(cv2.arcLength(hole, True)), 1.0),
-                 0.12 * short_)
-    out = dict(hole=hole.reshape(-1, 2).tolist(), rect=rect, aspect=float(aspect),
-               hole_area=hole_area, outer_area=outer_area, band_w=float(band_w),
-               paper=paper, contrast=(None if contrast is None else float(contrast)),
-               level=level, box=ring_box, origin=(x0, y0), contours=len(contours))
-    if want_mask:
-        out["mask"] = mask
-    return out
+    best = None
+    # 逐个顶层轮廓尝试"它围出的最大子洞"：真靶纸的环不一定挂在这个裁剪图
+    # 最大的暗块下面 —— 真机实测暗地板把环并进整幅 mega-blob 后，环自己是
+    # 第二大的顶层轮廓，它的洞才是纸面。谁家的洞先过门谁赢。
+    for ring_i in tops:
+        ring_box = cv2.boundingRect(contours[ring_i])
+        # 该环的候选洞：周长前 3 的子洞逐个试（周长是 O(1) 的面积代理，但
+        # 破碎阴影缝的周长会虚高，只看一个会漏掉真纸洞）。
+        kids = []
+        j = hier[ring_i][2]
+        while j != -1:
+            kids.append((len(contours[j]), j))
+            j = hier[j][0]
+        kids.sort(key=lambda t: -t[0])
+        for _per, hole_i in kids[:5]:
+            hole = contours[hole_i]
+            rect = cv2.minAreaRect(hole)
+            (_rcx, _rcy), (rw, rh), _ang = rect
+            long_ = max(rw, rh)
+            short_ = min(rw, rh)
+            if short_ <= 0 or long_ < float(min_hole) or long_ > float(max_hole):
+                continue
+            aspect = long_ / short_
+            if aspect < float(aspect_lo) or aspect > float(aspect_hi):
+                continue
+            hole_area = abs(float(cv2.contourArea(hole)))
+            outer_area = abs(float(cv2.contourArea(contours[ring_i])))
+            if outer_area <= 1.0:
+                continue
+            # 洞周暗带封闭性：洞向外一圈（厚度 ≈ 0.06×洞短边）必须基本是暗的。
+            # 洞的存在本身只保证"紧贴边界是暗的"（它被暗块围出来），细丝围亮区、
+            # 印刷细环这类结构靠这一道拦下；mega-blob（框连着暗墙）不受影响，
+            # 因为检查只看洞的近邻，与 blob 多大无关。
+            # 膨胀只在洞 bbox±k 的邻域里做：全幅 640×480 上开大核膨胀要几十毫秒。
+            expand = max(3.0, 0.06 * short_)
+            k = int(2.0 * expand) | 1
+            kernel = _CLOSE_KERNELS.get(k)
+            if kernel is None:
+                kernel = np.ones((k, k), np.uint8)
+                _CLOSE_KERNELS[k] = kernel
+            bx, by, bw2, bh2 = cv2.boundingRect(hole)
+            gx0 = max(0, bx - k)
+            gy0 = max(0, by - k)
+            gx1 = min(crop.shape[1], bx + bw2 + k)
+            gy1 = min(crop.shape[0], by + bh2 + k)
+            sub = mask[gy0:gy1, gx0:gx1]
+            hole_mask = np.zeros(sub.shape, np.uint8)
+            shifted = hole - np.array([gx0, gy0], np.int32)
+            cv2.fillPoly(hole_mask, [shifted], 255)
+            band = cv2.dilate(hole_mask, kernel)
+            cv2.fillPoly(band, [shifted], 0)
+            if float(cv2.mean(sub, band)[0]) / 255.0 < float(band_cover):
+                continue
+            paper = None
+            contrast = None
+            if want_brightness:
+                # 洞内亮度：直接在洞邻域子图上求均值（hole_mask 已是子图坐标）
+                paper = float(cv2.mean(crop[gy0:gy1, gx0:gx1], hole_mask)[0])
+                contrast = paper - level
+                if contrast < float(min_contrast):
+                    continue
+            band_w = min((outer_area - hole_area) / max(float(cv2.arcLength(hole, True)), 1.0),
+                         0.12 * short_)
+            # 打分制而非先到先得：柜门/墙缝的洞也能过结构门（边比擦线 2.7），
+            # 但真纸洞的边比贴近纸面模型（261/174≈1.5）、对比度更高 ——
+            # score = 对比度 − 40×|边比−模型比|，全场取最高分。
+            score = (0.0 if contrast is None else contrast) - 40.0 * abs(aspect - float(model_aspect))
+            if best is None or score > best["score"]:
+                best = dict(score=float(score),
+                            hole=hole.reshape(-1, 2).tolist(), rect=rect,
+                            aspect=float(aspect), hole_area=hole_area,
+                            outer_area=outer_area, band_w=float(band_w),
+                            paper=paper,
+                            contrast=(None if contrast is None else float(contrast)),
+                            level=level, box=ring_box, origin=(x0, y0),
+                            contours=len(contours),
+                            mask=(mask if want_mask else None))
+    return best
 
 
 # ------------------------------------------------------------------ 洞 → 四角

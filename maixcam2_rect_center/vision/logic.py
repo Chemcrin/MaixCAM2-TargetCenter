@@ -36,7 +36,7 @@ from .output import (Preview, aligned_frame, apply_commands, display_result,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-09-quad-track-v13"
+BUILD_ID = "2026-11-09-quad-track-v15"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -169,7 +169,8 @@ class RectangleCenterDetector:
         t1 = time.perf_counter()
         rh = ring_hole(g, box, self.measure_margin, self.hole_min, self.hole_max,
                        self.min_aspect, self.max_aspect, self.band_cover,
-                       self.min_contrast, True, self.close_size, False)
+                       self.min_contrast, True, self.close_size, False,
+                       self.model[0] / max(1.0, self.model[1]))
         if rh is None:
             stats["structural"] = stats.get("structural", 0) + 1
             return None
@@ -255,7 +256,8 @@ class RectangleCenterDetector:
         # 阈值由 ring_hole 在 ROI 内 Otsu 自定，与搜索态同一条链路。
         rh = ring_hole(small, (0, 0, small.shape[1], small.shape[0]), 0.0,
                        self.hole_min / s, self.hole_max / s, 1.0, 3.5,
-                       self.band_cover, 0.0, False, self.close_size, self.keep_stages)
+                       self.band_cover, 0.0, False, self.close_size, self.keep_stages,
+                       self.model[0] / max(1.0, self.model[1]))
         if rh is None:
             return None
         t2 = time.perf_counter()
