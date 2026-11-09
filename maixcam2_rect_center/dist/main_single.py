@@ -10,13 +10,13 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-09 22:26:13
-    config.py                    sha1=7cf88aedd4a3
+生成时间：2026-11-09 22:34:13
+    config.py                    sha1=0bb3dba2f8ea
     main.py                      sha1=c2f5fb47aa9e
     target_api.py                sha1=d0e2676568b1
     vision/__init__.py           sha1=6e0b16db8298
-    vision/algo.py               sha1=0af8f1bb3c16
-    vision/logic.py              sha1=4ca02851de1f
+    vision/algo.py               sha1=24420a1cb500
+    vision/logic.py              sha1=bbaa76142192
     vision/maixvision_stream.py  sha1=c30d784f26a0
     vision/output.py             sha1=a408aa3996c7
     vision/poll.py               sha1=992056fd530e
@@ -25,7 +25,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '7cf88aedd4a3740ae3735c8abdf46879a8eb1683', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': '0af8f1bb3c167237f067222aeea1a822e82e6de4', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'a408aa3996c737e0da67b945ecc4802d18bbc81a', 'vision/logic.py': '4ca02851de1fc7b4e3e0967e2c5335448457ea72', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': 'd0e2676568b1585627e4ba8e2f5d9d2ea6c860b7', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': '0bb3dba2f8ea393661f470f936749c39b22c0a1f', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': '24420a1cb500f0695af279e500023c22f61bb1b8', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'a408aa3996c737e0da67b945ecc4802d18bbc81a', 'vision/logic.py': 'bbaa76142192cf294981e3007d31cc1ad9d5a6e7', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': 'd0e2676568b1585627e4ba8e2f5d9d2ea6c860b7', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -121,7 +121,8 @@ class Config:
     RECT_BBOX_ASPECT_MAX = 3.4
     RECT_MIN_FILL = 0.04          # 连通域填充率窗：环是空心的，fill 天然偏低
     RECT_MAX_FILL = 0.75          # 上限挡实心块（真机立柱实测 0.88）
-    RECT_MAX_CANDIDATES = 2       # 精测候选上限（板上每候选约十几次调用）
+    RECT_MAX_CANDIDATES = 4       # 精测候选上限：真靶纸在杂乱场景里可能只排第 3（暗门/
+                                  # 暗墙 bbox 更大），前 2 名全灭就轮不到它；搜索态瞬态开销可接受
     RECT_MIN_ASPECT = 1.05        # 洞（纸面）边比窗：下限杀正方形/圆洞；上限给透视留余量
     RECT_MAX_ASPECT = 3.2
     RECT_HOLE_MIN_PX = 70         # 洞长边尺寸窗（靶纸放低/后仰时洞会缩小，下限要容得住；
@@ -716,22 +717,31 @@ def ring_hole(gray, box, margin, min_hole, max_hole, aspect_lo, aspect_hi,
     # 洞的存在本身只保证"紧贴边界是暗的"（它被暗块围出来），细丝围亮区、
     # 印刷细环这类结构靠这一道拦下；mega-blob（框连着暗墙）不受影响，
     # 因为检查只看洞的近邻，与 blob 多大无关。
+    # 膨胀只在洞 bbox±k 的邻域里做：全幅 640×480 上开大核膨胀要几十毫秒。
     expand = max(3.0, 0.06 * short_)
     k = int(2.0 * expand) | 1
     kernel = _CLOSE_KERNELS.get(k)
     if kernel is None:
         kernel = np.ones((k, k), np.uint8)
         _CLOSE_KERNELS[k] = kernel
-    hole_mask = np.zeros(crop.shape, np.uint8)
-    cv2.fillPoly(hole_mask, [hole], 255)
+    bx, by, bw2, bh2 = cv2.boundingRect(hole)
+    gx0 = max(0, bx - k)
+    gy0 = max(0, by - k)
+    gx1 = min(crop.shape[1], bx + bw2 + k)
+    gy1 = min(crop.shape[0], by + bh2 + k)
+    sub = mask[gy0:gy1, gx0:gx1]
+    hole_mask = np.zeros(sub.shape, np.uint8)
+    shifted = hole - np.array([gx0, gy0], np.int32)
+    cv2.fillPoly(hole_mask, [shifted], 255)
     band = cv2.dilate(hole_mask, kernel)
-    cv2.fillPoly(band, [hole], 0)
-    if float(cv2.mean(mask, band)[0]) / 255.0 < float(band_cover):
+    cv2.fillPoly(band, [shifted], 0)
+    if float(cv2.mean(sub, band)[0]) / 255.0 < float(band_cover):
         return None
     paper = None
     contrast = None
     if want_brightness:
-        paper = float(cv2.mean(crop, hole_mask)[0])
+        # 洞内亮度：直接在洞邻域子图上求均值（hole_mask 已是子图坐标）
+        paper = float(cv2.mean(crop[gy0:gy1, gx0:gx1], hole_mask)[0])
         contrast = paper - level
         if contrast < float(min_contrast):
             return None
@@ -2259,7 +2269,7 @@ from .output import (Preview, aligned_frame, apply_commands, display_result,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-09-quad-track-v12"
+BUILD_ID = "2026-11-09-quad-track-v13"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0

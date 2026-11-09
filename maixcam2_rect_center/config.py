@@ -85,7 +85,8 @@ class Config:
     RECT_BBOX_ASPECT_MAX = 3.4
     RECT_MIN_FILL = 0.04          # 连通域填充率窗：环是空心的，fill 天然偏低
     RECT_MAX_FILL = 0.75          # 上限挡实心块（真机立柱实测 0.88）
-    RECT_MAX_CANDIDATES = 2       # 精测候选上限（板上每候选约十几次调用）
+    RECT_MAX_CANDIDATES = 4       # 精测候选上限：真靶纸在杂乱场景里可能只排第 3（暗门/
+                                  # 暗墙 bbox 更大），前 2 名全灭就轮不到它；搜索态瞬态开销可接受
     RECT_MIN_ASPECT = 1.05        # 洞（纸面）边比窗：下限杀正方形/圆洞；上限给透视留余量
     RECT_MAX_ASPECT = 3.2
     RECT_HOLE_MIN_PX = 70         # 洞长边尺寸窗（靶纸放低/后仰时洞会缩小，下限要容得住；

@@ -273,22 +273,31 @@ def ring_hole(gray, box, margin, min_hole, max_hole, aspect_lo, aspect_hi,
     # 洞的存在本身只保证"紧贴边界是暗的"（它被暗块围出来），细丝围亮区、
     # 印刷细环这类结构靠这一道拦下；mega-blob（框连着暗墙）不受影响，
     # 因为检查只看洞的近邻，与 blob 多大无关。
+    # 膨胀只在洞 bbox±k 的邻域里做：全幅 640×480 上开大核膨胀要几十毫秒。
     expand = max(3.0, 0.06 * short_)
     k = int(2.0 * expand) | 1
     kernel = _CLOSE_KERNELS.get(k)
     if kernel is None:
         kernel = np.ones((k, k), np.uint8)
         _CLOSE_KERNELS[k] = kernel
-    hole_mask = np.zeros(crop.shape, np.uint8)
-    cv2.fillPoly(hole_mask, [hole], 255)
+    bx, by, bw2, bh2 = cv2.boundingRect(hole)
+    gx0 = max(0, bx - k)
+    gy0 = max(0, by - k)
+    gx1 = min(crop.shape[1], bx + bw2 + k)
+    gy1 = min(crop.shape[0], by + bh2 + k)
+    sub = mask[gy0:gy1, gx0:gx1]
+    hole_mask = np.zeros(sub.shape, np.uint8)
+    shifted = hole - np.array([gx0, gy0], np.int32)
+    cv2.fillPoly(hole_mask, [shifted], 255)
     band = cv2.dilate(hole_mask, kernel)
-    cv2.fillPoly(band, [hole], 0)
-    if float(cv2.mean(mask, band)[0]) / 255.0 < float(band_cover):
+    cv2.fillPoly(band, [shifted], 0)
+    if float(cv2.mean(sub, band)[0]) / 255.0 < float(band_cover):
         return None
     paper = None
     contrast = None
     if want_brightness:
-        paper = float(cv2.mean(crop, hole_mask)[0])
+        # 洞内亮度：直接在洞邻域子图上求均值（hole_mask 已是子图坐标）
+        paper = float(cv2.mean(crop[gy0:gy1, gx0:gx1], hole_mask)[0])
         contrast = paper - level
         if contrast < float(min_contrast):
             return None
