@@ -1,0 +1,118 @@
+GPT-Replay 历史恢复版验证，2026-11-09
+AST: all Python sources parse successfully
+Runtime: 3.11.4 (tags/v3.11.4:d2340ef, Jun  7 2023, 05:45:37) [MSC v.1934 64 bit (AMD64)]
+Executable: D:\Python311\python.exe
+
+$ python -B tools/check_app.py --manifest --strict
+==============================================================================
+MaixCAM 应用门禁  root = C:\Users\CloudyRain\Desktop\待办\电赛\25Efork\GPT-Replay\maixcam2_rect_center
+==============================================================================
+
+[OK  ] C1  app.yaml 存在、字段齐全、id 等于目录名、version 形如 x.y.z
+      OK   6 项通过
+
+[OK  ] C10  包内清单无禁入类型，合计体积在预算内
+      OK   1 项通过
+
+[OK  ] C2  icon 存在、是 PNG、尺寸/体积在建议范围内
+      OK   1 项通过
+
+[OK  ] C3  main.py / config.py 存在，vision/ 有 __init__.py
+      OK   3 项通过
+
+[OK  ] C4  所有将进包的 .py 语法编译通过
+      OK   5 项通过
+
+[OK  ] C5  AST 扫描：桌面 API 禁止清单、顶层 maix 导入、帧循环内无条件落盘
+      OK   1 项通过
+
+[OK  ] C6  将进包的文件均为 UTF-8 无 BOM 且纯 LF
+      OK   12 项通过
+
+[OK  ] C7  源码字符串里无绝对 Windows 路径
+      OK   5 项通过
+
+[OK  ] C8  BUILD_ID 存在且被打印；有 dist/main_single.py 时核对一致
+      OK   1 项通过
+
+[OK  ] C9  exclude 覆盖 .md / tools / dist / __pycache__ / 调试截图；报告失效条目
+      OK   6 项通过
+
+------------------------------------------------------------------------------
+应用包内文件清单（7 项）
+------------------------------------------------------------------------------
+       373  maixcam2_rect_center/app.yaml
+      2247  maixcam2_rect_center/config.py
+      6046  maixcam2_rect_center/main.py
+      1938  maixcam2_rect_center/assets/icon.png
+        93  maixcam2_rect_center/vision/__init__.py
+      9113  maixcam2_rect_center/vision/aiming.py
+     24145  maixcam2_rect_center/vision/rectangle_center.py
+     43955  TOTAL
+
+被排除的目录（1）: tools
+被排除的文件（1）: README.md
+
+==============================================================================
+汇总: OK=41  WARN=0  FAIL=0   ->  通过
+==============================================================================
+
+exit_code=0
+
+$ python -B tools/test_aiming.py
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.079s
+
+OK
+
+exit_code=0
+
+$ python -B tools/test_replay.py
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.042s
+
+OK
+[rect-center] 2026-10-06-laser-spot-v1 search_width=320 display_width=480 display_fps=15
+[rect-center] 四边窄带跟踪 / 失锁后低分辨率搜索 / 72 点逆投影
+[aim] 激光参考=(209.0, 144.0) 标定图=(453, 333) calibrated=False UART=aim; dx向右为正 dy向下为正
+
+exit_code=0
+
+$ python -B tools/test_performance.py
+{
+  "fixtures": 30,
+  "detected": 29,
+  "failed": [
+    2
+  ],
+  "max_center_error_px": 0.803,
+  "negative_cases": 5,
+  "false_positives": 0,
+  "motion_max_error_px": 0.637,
+  "motion_stages": [
+    "track",
+    "track",
+    "track",
+    "track",
+    "track",
+    "track",
+    "track",
+    "track",
+    "track",
+    "track",
+    "roi_search",
+    "track",
+    "track"
+  ],
+  "lost_valid": false,
+  "reacquired": true,
+  "optimized": {
+    "median_ms": 0.766,
+    "p95_ms": 1.03,
+    "tracked": 60
+  }
+}
+
+exit_code=0

@@ -1,0 +1,24 @@
+{
+  "restored_on": "2026-11-09",
+  "build_id": "2026-10-06-laser-spot-v1",
+  "kind": "historical_git_plus_conversation_reconstruction",
+  "byte_identical_original_snapshot": false,
+  "current_application_modified": false,
+  "source_commits": {
+    "fe530c8": "fe530c88bade560ddf2481a54cb2854c38b5042c",
+    "d2f36e7": "d2f36e7149e653eb540bd091496963fbfa49008e",
+    "bfff85a": "bfff85ae1a5b693f8cd1dddce19372c714cc85b3"
+  },
+  "reconstructed_from_conversation": [
+    "main.py",
+    "vision/aiming.py",
+    "tools/test_aiming.py",
+    "laser configuration"
+  ],
+  "historical_baseline": {
+    "positive_cases": 30,
+    "detected": 29,
+    "known_miss_index": 2,
+    "max_error_px": 0.803
+  }
+}
