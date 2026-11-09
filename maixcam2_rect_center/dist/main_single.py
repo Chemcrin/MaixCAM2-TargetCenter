@@ -10,21 +10,21 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-09 13:47:37
-    config.py                    sha1=f1ee85b2d6f0
+生成时间：2026-11-09 15:42:25
+    config.py                    sha1=0a96000afe5d
     main.py                      sha1=c2f5fb47aa9e
     target_api.py                sha1=228e453c656f
     vision/__init__.py           sha1=6e0b16db8298
-    vision/algo.py               sha1=b65095e3b248
-    vision/logic.py              sha1=4417677a52dc
-    vision/output.py             sha1=3fde3164f35b
+    vision/algo.py               sha1=d6d35c8e0919
+    vision/logic.py              sha1=897df3ce2595
+    vision/output.py             sha1=2aaa4e52e0b8
     vision/poll.py               sha1=992056fd530e
 """
 
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': 'f1ee85b2d6f036841eb2213aee5296a20b75d63d', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'b65095e3b248089f31b694b499316a958cec6e35', 'vision/output.py': '3fde3164f35b6b25eb370cd8c6ab122e9e746e7b', 'vision/logic.py': '4417677a52dccc3d6e9caa63c1f7da759c64df6e', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': '228e453c656f41797d4dc6099e2d87b96ffb53ed', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': '0a96000afe5d1098d42fe2b845ffe7650d39d598', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'd6d35c8e0919875c6650996b8c776792e1092522', 'vision/output.py': '2aaa4e52e0b802cbba6ed6b469fa62c7107c848c', 'vision/logic.py': '897df3ce259561f65eec4dd161138a2ee956e774', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': '228e453c656f41797d4dc6099e2d87b96ffb53ed', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -54,7 +54,7 @@ class Config:
     SHOW_JPEG_QUALITY = 70
     VISION_ASYNC = True      # 后台识别，忙时只保留最新帧，不积压旧图
     SHOW_ASYNC = True        # 独立显示线程：show() 慢只掉预览帧，不拖识别/串口/闭环
-    RESULT_MAX_AGE_S = 0.90  # 以采图时刻计龄；过期结果不画框、不下发指令（板上约 4fps，窗口要放宽）
+    RESULT_MAX_AGE_S = 0.25  # 以采图时刻计龄；过期结果不画框、不下发指令（30fps 下 0.25s 很宽了）
     OPENCV_THREADS = 1
     LOG_INTERVAL = 2.0
 
@@ -86,8 +86,8 @@ class Config:
     COMMAND_INTERVAL_S = 0.08
 
     # ---- 闭环口径 ----
-    # True = 用 raw_u/raw_v 算 dx/dy：本链路无滤波，两者恒等；保留该开关以兼容闭环代码
-    AIM_USE_RAW = True
+    # False = 闭环用平滑后的 u/v（抑制抖动）；True = 用 raw_u/raw_v（未平滑）
+    AIM_USE_RAW = False
     JUMP_REJECT_PX = 400.0        # 离群拒收：先当误检丢掉
     JUMP_CONFIRM_FRAMES = 3       # 连续这么多帧才采信跳变
     COARSE_PX = 24.0              # |e| 超过它切粗调
@@ -104,29 +104,32 @@ class Config:
     UART_RX_MAX_BYTES = 256
     UART_RX_BUFFER_MAX_BYTES = 1024
 
-    # ---- 识别（Canny 边缘 → 轮廓 → 矩形 → 内框四角）----
-    RECT_MIN_AREA = 300           # 最小轮廓面积（px2）
-    RECT_MAX_AREA_RATIO = 0.92    # 面积上限（占整幅比例），挡"锁到整面墙"
-    RECT_MIN_ASPECT = 1.10        # 矩形长短边比（按最小外接矩形算，与旋转无关）
-    RECT_MAX_ASPECT = 1.80
-    RECT_GAUSS_KERNEL = (5, 5)    # 边缘检测前的高斯核；(0, 0) = 跳过
-    # Canny 双阈值：0 / 0 = 按画面中位数自动定。★ 这是"过滤纸面图案"的主旋钮——
-    # 调高，浅色印刷环直接消失；调低，环会变成一堆小轮廓，被面积门筛掉。
-    RECT_CANNY_LOW = 0
-    RECT_CANNY_HIGH = 0
-    RECT_EDGE_CLOSE = 5           # 边缘图闭运算核：把断边连起来，奇数，<3 = 跳过
-    RECT_MAX_CANDIDATES = 2       # 精修候选上限；板上每多一个约 +190ms
-    RECT_KEEP_STAGES = False      # 真：把 blur/edges 留在 last_stages，供 --stage 导出
-
-    # ---- 内外框精修（黑胶带是一条带子，有内外两条边）----
-    # 靶心取**内框**（纸边）：胶带上下不等宽时，外框中心会偏出半个带宽，实测 8~11px。
-    RECT_MODEL_MM = (261.0, 174.0)  # 纸面模型尺寸；只影响 width_mm/height_mm，不影响靶心
-    RECT_REFINE_SAMPLES = 8       # 每条边取几个剖面；板上 numpy 单次调用约 1ms，别加大
-    RECT_REFINE_SPAN = 6.0        # 沿法线向外搜索的半宽（px）
-    RECT_REFINE_STEP = 0.5        # 剖面采样步长（px）
-    RECT_TAPE_MAX_PX = 30.0       # 从外沿向内找纸边的最远距离（px），须大于胶带带宽
-    RECT_EDGE_RISE = 10.0         # 判"暗带"的最小灰度落差
-    RECT_BAND_MIN_CONTRAST = 25.0 # 带内比纸面暗多少灰度才认
+    # ---- 识别（降采样 → 自适应阈值 → 连通域 → 四边验框 → 弦中点定心）----
+    RECT_DOWNSCALE = 2            # 先降采样再找框；1 = 全分辨率（更慢，一般不必）
+    # 阈值 = RECT_LEVEL_RATIO × 画面 90 分位亮度，夹在 [FLOOR+p2, CEIL] 之间。
+    # ★ 这是唯一需要按现场调的识别参数：纸面偏暗就调低 RATIO。
+    RECT_LEVEL_RATIO = 0.62
+    RECT_LEVEL_FLOOR = 45.0
+    RECT_LEVEL_CEIL = 160.0
+    RECT_LEVEL_REFRESH = 15       # 跟踪时每 N 帧重算一次阈值（曝光慢变够用）
+    RECT_MIN_AREA = 1200          # 候选最小面积（原图 px2；内部按降采样折算）
+    RECT_MAX_AREA_RATIO = 0.55    # 外接框面积上限（占整幅比例），挡"锁到整面墙"
+    RECT_MIN_ASPECT = 1.05        # 外接框长短边比。外接框不是最小外接矩形，
+    RECT_MAX_ASPECT = 2.60        # 靶纸倾斜时它会变方，所以上限放宽到 2.6
+    RECT_MIN_FILL = 0.03          # 连通域面积 / 外接框面积：环是空心的，很小
+    RECT_MAX_FILL = 0.70          # 太满说明是实心块，不是框
+    RECT_MIN_EDGE = 0.20          # ★ 四条边最弱一条的暗像素占比下限。
+    #   胶带环实测 0.27~0.45；"框住靶心的稀疏暗结构"（窗棂/柜门缝）只有 0.10。
+    RECT_PAPER_ROUNDS = 2         # 从框心向外扫几条线迭代几次（2 次足够收敛）
+    RECT_TRACK_EXPAND = 1.60      # 跟踪 ROI = 上一帧框 × 该倍数
+    RECT_TRACK_MARGIN = 16.0      # 跟踪 ROI 额外边距（原图 px）
+    RECT_TRACK_SIZE_TOL = 0.55    # 跟踪时允许的尺寸变化（±55%）
+    RECT_HOLD_FRAMES = 6          # 跟丢后按速度外推继续输出的帧数（30fps ≈ 0.2s）
+    RECT_HOLD_MAX_PX = 90.0       # 外推距离上限，防止甩飞
+    RECT_MAX_SPEED = 2500.0       # 速度估计上限（px/s），防止小 dt 把速度除爆
+    RECT_TRACK_GATE = 0.45        # 跟踪门：实测中心离预测超过 0.45×框边长就判本帧作废
+    RECT_SMOOTH = 0.55            # 中心一阶低通系数；1 = 不平滑
+    RECT_KEEP_STAGES = False      # 真：把 mask 留在 last_stages，供 --stage 导出
 
     # ---- 激光光斑读数（相机与激光固连，光斑位置近似固定）----
     # "fixed"：不检测，每帧只算"黑框中心 − 标定常量"，零开销（默认）
@@ -431,17 +434,19 @@ _MOD_SRC['vision.algo'] = r'''
 四层之一，只有三类内容：
 
     几何  signed_area / order_quad / line_cross / quad_diagonal_center
-    图像  blur_frame / binarize_frame / find_quad_candidates / select_largest
-          find_concentric（同心圆，独立成链）
+    图像  downscale / auto_level / dark_mask / components / frame_candidates
+          paper_rect / rect_quad / nearest_component
     偏差  deviation（靶心 − 光斑，纯算术）
 
 四条刻意的设计约束（属于本层，不要在别处放宽）：
 
-1. **四边形判据只有三层**：面积 → 四边形近似 → 长宽比。不做胶带暗带证据、亚像素精修、
-   单应反算。画面里出现更大的深色矩形时会锁错，这是本方案的已知边界。
-2. **同心圆是并行证据，不是第四层判据**：`find_concentric` 走 RETR_LIST 独立成链，
-   命中即直接给出圆心；它不放宽上面三层，三层也不因它改变。
-3. **中心取四点的对角线交点**，不取正立外接矩形中心 —— 透视下无偏；同心圆路径取圆心。
+1. **只认"四周被暗带围住的矩形"**：面积 → 长宽比 → 填充率 → 四边压暗带。
+   不做图案识别（纸面同心圆不参与），因此"亮面被暗边包住"的东西（屏幕、窗框）
+   在形状上可能被当成靶纸 —— 这是本方案的已知边界。
+2. **每次调用只做几次 cv2/numpy 运算**：板上一次 Python 级调用约 1ms，
+   本层的调用次数直接等于单帧耗时。禁止在这里写"逐轮廓 / 逐采样点"的循环。
+3. **中心取"框心向外扫四条线"的中点**，不取外接框中心 —— 阴影会让暗带在一侧变宽，
+   外接框中心会系统性偏移（实测 6~8px），过框心的弦中点则没有这个问题。
 4. 参数全部由调用方传入，所以本层可以在 PC 上脱离 `Config` 单独断言。
 
 依赖方向：**本层不 import 其余三层**，只依赖 cv2 / numpy / math。
@@ -453,15 +458,11 @@ import numpy as np
 
 __all__ = [
     "signed_area", "order_quad", "line_cross", "quad_diagonal_center",
-    "blur_frame", "edge_map", "deviation",
-    "bilinear", "frame_edge_points", "fit_line", "quad_from_lines", "refine_frame",
-    "solve_homography", "apply_homography", "invert_homography", "plane_quad",
-    "quad_mix", "band_evidence",
-    "find_frame_candidates",
+    "downscale", "auto_level", "dark_mask", "components", "frame_candidates",
+    "nearest_component", "paper_rect", "rect_quad", "box_center", "deviation",
 ]
 
-# ================================================================== 纯函数
-# ------------------------------------------------------------------ 几何
+# ================================================================== 几何
 def signed_area(p):
     """带符号面积的 2 倍：>0 逆时针。用于把四角规整成统一方向。"""
     p = np.asarray(p, np.float64)
@@ -470,10 +471,7 @@ def signed_area(p):
 
 
 def order_quad(points):
-    """四角规整为 [左上, 右上, 右下, 左下]（逆时针）。
-
-    顺序固定是对角线配对的前提：只有这样 q0-q2 与 q1-q3 才是对角线而不是相邻边。
-    """
+    """四角规整为 [左上, 右上, 右下, 左下]（逆时针）。"""
     p = np.asarray(points, np.float32).reshape(4, 2)
     c = p.mean(axis=0)
     p = p[np.argsort(np.arctan2(p[:, 1] - c[1], p[:, 0] - c[0]))]
@@ -505,407 +503,190 @@ def quad_diagonal_center(quad):
     return p
 
 
-# ------------------------------------------------------------------ 预处理
-def blur_frame(gray, kernel):
-    """高斯模糊。kernel 为 None 或任一分量为 0/负数时原样返回（关闭模糊）。"""
-    k = kernel
-    if not k or k[0] <= 0 or k[1] <= 0:
+def rect_quad(left, top, right, bottom):
+    """轴对齐矩形 → 四角（顺序与 order_quad 一致）。"""
+    return np.array([[left, top], [right, top], [right, bottom], [left, bottom]], np.float32)
+
+
+def box_center(box):
+    """(x, y, w, h) → 中心点。"""
+    return (float(box[0]) + float(box[2]) * 0.5, float(box[1]) + float(box[3]) * 0.5)
+
+
+# ================================================================== 图像
+def downscale(gray, factor):
+    """整数倍降采样；factor<=1 原样返回。
+
+    用 INTER_AREA（2×2 均值）而不是隔点取样：同样的调用次数，均值把反光噪点
+    压掉一半，胶带环更连续。降采样是"减少像素"的唯一手段，也是本链路提速的第一步。
+    """
+    f = int(factor)
+    if f <= 1:
         return gray
-    return cv2.GaussianBlur(gray, tuple(k), 0)
+    h, w = gray.shape[:2]
+    return cv2.resize(gray, (max(8, w // f), max(8, h // f)), interpolation=cv2.INTER_AREA)
 
 
-def edge_map(gray, low, high, close_kernel):
-    """Canny 边缘 + 闭运算：把细边连成能围出区域的轮廓。
+def auto_level(small, lo_pct=2.0, hi_pct=90.0, ratio=0.62, floor=45.0, ceil=160.0):
+    """自适应二值阈值：压在"胶带（暗）"与"纸面（亮）"之间。
 
-    阈值就是"过滤纸面图案"的旋钮：调高，浅色的印刷环直接消失，只剩胶带那种硬边；
-    调低，环会变成一堆小碎轮廓——它们面积小，后面按面积一筛就没了。
-    high <= 0 表示按中位数自动定阈值，适应曝光变化。
+    取 90 分位当亮面基准，阈值 = ratio × 它：实测纸面约 190、胶带约 50，
+    0.62×190≈118 正好卡在中间；纸面随曝光变暗时阈值同步下移，不会失效。
+    分位数只在 1/16 的像素上算（步长 4），两次 numpy 调用就够。
     """
-    src = gray.astype(np.uint8, copy=False)
-    if high <= 0:
-        med = float(np.median(src))
-        low = int(max(10.0, 0.66 * med))
-        high = int(min(255.0, 1.33 * med))
-    e = cv2.Canny(src, int(low), int(high))
-    k = int(close_kernel)
-    if k >= 3:
-        k |= 1
-        e = cv2.morphologyEx(e, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
-    return e
+    sub = small[::4, ::4]
+    lo = float(np.percentile(sub, lo_pct))
+    hi = float(np.percentile(sub, hi_pct))
+    return float(np.clip(ratio * hi, max(float(floor), lo + 15.0), float(ceil)))
 
 
-# ------------------------------------------------------------------ 灰度采样
-def bilinear(gray, xs, ys):
-    """双线性采样，越界夹到边缘。xs/ys 可为标量或任意形状数组。"""
-    g = gray.astype(np.float32, copy=False)
-    h, w = g.shape[:2]
-    x = np.clip(np.asarray(xs, np.float32), 0.0, w - 2.0)
-    y = np.clip(np.asarray(ys, np.float32), 0.0, h - 2.0)
-    x0 = np.floor(x).astype(np.int32)
-    y0 = np.floor(y).astype(np.int32)
-    fx = x - x0
-    fy = y - y0
-    return (g[y0, x0] * (1 - fx) * (1 - fy) + g[y0, x0 + 1] * fx * (1 - fy) +
-            g[y0 + 1, x0] * (1 - fx) * fy + g[y0 + 1, x0 + 1] * fx * fy)
+def dark_mask(small, level):
+    """暗于 level 的像素置 255。胶带、门缝、阴影都进来，靠后面的形状门筛掉。"""
+    return cv2.threshold(small, float(level), 255, cv2.THRESH_BINARY_INV)[1]
 
 
-def frame_edge_points(gray, a, b, center, samples=10, span=6.0, inward=30.0,
-                      rise=10.0, step=0.5):
-    """沿一条边 a→b 采样，返回 (外沿点, 内沿点) 两组亚像素坐标。
+def components(mask):
+    """连通域统计：一次调用拿到所有块的 (x, y, w, h, 面积) 与质心。
 
-    判据是"胶带是一段连续暗带"，不是"哪里有梯度"：
-      外沿 = 从框外往框内走，第一段能持续 4 个采样的暗区起点；
-      内沿 = 这段暗区结束、回到纸面亮度的位置。
-    遮挡物（灰斑、阴影）比纸暗但远不如胶带黑，会被"暗带均值 < 0.6×亮区均值"挡掉。
-
-    实现上整批算：一次取 (samples × 剖面长度) 的灰度矩阵，再对行做向量化判断。
-    早期版本逐行 numpy 调用，在板上因为调用开销把单帧拖到 1.6 秒——这里必须整批。
+    比 findContours + 逐轮廓 boundingRect 快一个数量级 —— 板上每次 Python 级调用
+    约 1ms，几百个轮廓就是几百毫秒，而这里只有一次。
     """
-    a = np.asarray(a, np.float64)
-    b = np.asarray(b, np.float64)
-    c = np.asarray(center, np.float64)
-    d = b - a
-    length = float(np.hypot(d[0], d[1]))
-    if length < 8.0:
-        return np.empty((0, 2)), np.empty((0, 2))
-    d = d / length
-    nrm = np.array([-d[1], d[0]])
-    if float(nrm @ ((a + b) * 0.5 - c)) < 0.0:
-        nrm = -nrm
-
-    offs = np.arange(span, -inward - 1e-9, -step)
-    m = int(offs.size)
-    zero = int(round(span / step))
-    ts = np.linspace(0.15, 0.85, int(samples))
-    base = a[None, :] + ts[:, None] * (b - a)[None, :]
-    gx = base[:, 0:1] + nrm[0] * offs[None, :]
-    gy = base[:, 1:2] + nrm[1] * offs[None, :]
-    prof = bilinear(gray, gx, gy)                 # (samples, m) 一次取完
-    n = prof.shape[0]
-
-    lo = prof.min(axis=1)
-    hi = prof.max(axis=1)
-    ok = (hi - lo) >= float(rise)
-    if not np.any(ok):
-        return np.empty((0, 2)), np.empty((0, 2))
-    level = lo + 0.40 * (hi - lo)
-
-    dark = prof < level[:, None]
-    pad = np.zeros((n, 1), bool)
-    edge = np.diff(np.concatenate([pad, dark, pad], axis=1).astype(np.int8), axis=1)
-    started = edge == 1
-    ended = edge == -1
-    cols = np.arange(edge.shape[1])
-    rows = np.arange(n)
-
-    cost = np.where(started, np.abs(cols[None, :] - zero), 10 ** 6)
-    s0 = cost.argmin(axis=1)
-    valid = cost[rows, s0] < 10 ** 6
-    ecost = np.where(ended & (cols[None, :] > s0[:, None]), cols[None, :], 10 ** 6)
-    s1 = ecost.argmin(axis=1)
-    valid &= ecost[rows, s1] < 10 ** 6
-    valid &= (s0 < m - 2) & (s1 < m - 2)
-    valid &= (s1 - s0) >= 4
-    valid &= ok
-    if not np.any(valid):
-        return np.empty((0, 2)), np.empty((0, 2))
-
-    r = np.flatnonzero(valid)
-    pv = prof[r]
-    lv = level[r]
-    s0v, s1v = s0[r], s1[r]
-    rr = np.arange(r.size)
-
-    i0 = np.clip(s0v - 1, 0, m - 1)
-    a0, b0 = pv[rr, i0], pv[rr, s0v]
-    den0 = b0 - a0
-    t0 = np.where(np.abs(den0) > 1e-6,
-                  np.clip((lv - a0) / np.where(np.abs(den0) > 1e-6, den0, 1.0), 0.0, 1.0), 0.0)
-    pos_out = offs[i0] + t0 * (offs[s0v] - offs[i0])
-    pos_out = np.where(s0v > 0, pos_out, float(offs[0]))
-
-    i1 = np.clip(s1v - 1, 0, m - 1)
-    a1, b1 = pv[rr, i1], pv[rr, s1v]
-    den1 = b1 - a1
-    t1 = np.where(np.abs(den1) > 1e-6,
-                  np.clip((lv - a1) / np.where(np.abs(den1) > 1e-6, den1, 1.0), 0.0, 1.0), 0.0)
-    pos_in = offs[i1] + t1 * (offs[s1v] - offs[i1])
-
-    csum = np.concatenate([np.zeros((r.size, 1)), np.cumsum(pv, axis=1)], axis=1)
-    dark_cnt = np.maximum(1, s1v - s0v)
-    bright_cnt = np.maximum(1, m - s1v)
-    dark_mean = (csum[rr, s1v] - csum[rr, s0v]) / dark_cnt
-    bright_mean = (csum[rr, m] - csum[rr, s1v]) / bright_cnt
-
-    keep = (bright_mean >= 40.0) & (dark_mean <= 0.60 * bright_mean) & ((pos_out - pos_in) >= 2.0)
-    if not np.any(keep):
-        return np.empty((0, 2)), np.empty((0, 2))
-    sel = base[r][keep]
-    out_pts = sel + nrm[None, :] * pos_out[keep][:, None]
-    in_pts = sel + nrm[None, :] * pos_in[keep][:, None]
-    return out_pts, in_pts
+    n, _lab, stats, cent = cv2.connectedComponentsWithStats(mask, 8)
+    if n <= 1:
+        return np.zeros((0, 5), np.int32), np.zeros((0, 2), np.float64)
+    return stats[1:], cent[1:]
 
 
-def fit_line(points):
-    """总体最小二乘直线拟合，返回过 (p0) 与方向 p1 的两点式；点不足返回 None。"""
-    p = np.asarray(points, np.float32).reshape(-1, 2)
-    if p.shape[0] < 2:
-        return None
-    vx, vy, x0, y0 = cv2.fitLine(p, cv2.DIST_L2, 0, 0.01, 0.01).ravel()
-    if not np.isfinite((vx, vy, x0, y0)).all() or (abs(vx) < 1e-9 and abs(vy) < 1e-9):
-        return None
-    return (float(x0), float(y0)), (float(x0 + vx), float(y0 + vy))
+def frame_candidates(stats, cent, mask, min_area, max_area_ratio, min_aspect,
+                     max_aspect, min_fill, max_fill, min_edge, probe=6):
+    """从连通域里挑"四周被暗带围住的矩形"，返回第一个通过全部判据的候选。
 
-
-def quad_from_lines(lines):
-    """四条边线两两求交 → 四角。第 i 个角 = 第 i-1 条边与第 i 条边的交点。"""
-    if lines is None or len(lines) != 4 or any(l is None for l in lines):
-        return None
-    pts = []
-    for i in range(4):
-        p = line_cross(lines[i - 1][0], lines[i - 1][1], lines[i][0], lines[i][1])
-        if p is None:
-            return None
-        pts.append(p)
-    q = np.asarray(pts, np.float32)
-    if not np.isfinite(q).all():
-        return None
-    return order_quad(q)
-
-
-def refine_frame(gray, quad, samples=14, span=6.0, inward=30.0, rise=10.0, step=0.5):
-    """粗四边形 → (外框四角, 内框四角, 内沿命中点数)。任一框凑不齐四边返回 None。"""
-    q = order_quad(quad)
-    c = q.mean(axis=0)
-    outer_lines, inner_lines = [], []
-    inner_hits = 0
-    for i in range(4):
-        po, pi = frame_edge_points(gray, q[i], q[(i + 1) % 4], c,
-                                   samples, span, inward, rise, step)
-        inner_hits += int(pi.shape[0])
-        lo, li = fit_line(po), fit_line(pi)
-        if lo is not None:
-            outer_lines.append(lo)
-        if li is not None:
-            inner_lines.append(li)
-    return quad_from_lines(outer_lines), quad_from_lines(inner_lines), inner_hits
-
-
-# ------------------------------------------------------------------ 单应
-def _normalize_points(points):
-    """Hartley 归一化：重心到原点、平均距离到 √2。返回 (T, T⁻¹, 归一化点)。
-
-    不做这一步，8×8 的条件数会到 1e5 量级，像素坐标的舍入误差被放大成可见偏差。
+    四道门：面积 → 长宽比 → 填充率 → **四条边都压着暗带**。
+    最后一道是关键：画面里"框住靶心的稀疏暗结构"（窗棂、柜门缝、桌沿）外接框
+    也含靶心，但它没有四条边；胶带环四条边都有暗带，缺一个角也不影响
+    （缺角只让那一条边的暗率下降，不会归零）。
     """
-    p = np.asarray(points, np.float64).reshape(-1, 2)
-    center = p.mean(axis=0)
-    dist = float(np.sqrt(((p - center) ** 2).sum(axis=1)).mean())
-    scale = math.sqrt(2.0) / max(dist, 1e-9)
-    t = np.array([[scale, 0.0, -scale * center[0]],
-                  [0.0, scale, -scale * center[1]],
-                  [0.0, 0.0, 1.0]], np.float64)
-    t_inv = np.array([[1.0 / scale, 0.0, center[0]],
-                      [0.0, 1.0 / scale, center[1]],
-                      [0.0, 0.0, 1.0]], np.float64)
-    return t, t_inv, (p - center) * scale
-
-
-def _solve8(a, b):
-    """8×8 高斯消元（列主元）。a、b 不被改动；奇异返回 None。"""
-    m = np.concatenate([np.asarray(a, np.float64), np.asarray(b, np.float64).reshape(8, 1)],
-                       axis=1)
-    for col in range(8):
-        pivot = int(np.argmax(np.abs(m[col:, col]))) + col
-        if abs(m[pivot, col]) < 1e-12:
-            return None
-        if pivot != col:
-            m[[col, pivot]] = m[[pivot, col]]
-        m[col] /= m[col, col]
-        for row in range(8):
-            if row != col and m[row, col] != 0.0:
-                m[row] -= m[row, col] * m[col]
-    return m[:, 8]
-
-
-def solve_homography(src, dst):
-    """图像点 src → 平面点 dst 的单应矩阵 (3×3)。
-
-    8 个自由度：每对点给 2 个方程，4 对点正好 8×8，高斯消元；多于 4 对时
-    正规方程 AᵀA h = Aᵀb 仍是 8×8，同一套消元，白捡最小二乘。
-    两侧都先归一化，最后把归一化变换剥掉。
-    """
-    s = np.asarray(src, np.float64).reshape(-1, 2)
-    d = np.asarray(dst, np.float64).reshape(-1, 2)
-    n = int(min(len(s), len(d)))
-    if n < 4:
-        return None
-    s, d = s[:n], d[:n]
-    ts, ts_inv, sn = _normalize_points(s)
-    td, td_inv, dn = _normalize_points(d)
-    rows = np.zeros((2 * n, 8), np.float64)
-    rhs = np.zeros(2 * n, np.float64)
-    for k in range(n):
-        u, v = sn[k]
-        x, y = dn[k]
-        rows[2 * k] = (u, v, 1.0, 0.0, 0.0, 0.0, -x * u, -x * v)
-        rows[2 * k + 1] = (0.0, 0.0, 0.0, u, v, 1.0, -y * u, -y * v)
-        rhs[2 * k] = x
-        rhs[2 * k + 1] = y
-    h = _solve8(rows, rhs) if n == 4 else _solve8(rows.T @ rows, rows.T @ rhs)
-    if h is None:
-        return None
-    hn = np.array([[h[0], h[1], h[2]], [h[3], h[4], h[5]], [h[6], h[7], 1.0]], np.float64)
-    mat = td_inv @ hn @ ts
-    if not np.isfinite(mat).all() or abs(mat[2, 2]) < 1e-12:
-        return None
-    return mat / mat[2, 2]
-
-
-def apply_homography(mat, points):
-    """把 (N,2) 点按 3×3 单应投影过去。"""
-    p = np.asarray(points, np.float64).reshape(-1, 2)
-    q = np.concatenate([p, np.ones((p.shape[0], 1))], axis=1) @ np.asarray(mat, np.float64).T
-    w = q[:, 2:3]
-    return q[:, :2] / np.where(np.abs(w) < 1e-12, 1e-12, w)
-
-
-def invert_homography(mat):
-    """3×3 单应的解析逆（伴随矩阵 / 行列式）。奇异返回 None。"""
-    m = np.asarray(mat, np.float64)
-    a, b, c = m[0]
-    d, e, f = m[1]
-    g, h, i = m[2]
-    det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
-    if abs(det) < 1e-12:
-        return None
-    inv = np.array([[e * i - f * h, c * h - b * i, b * f - c * e],
-                    [f * g - d * i, a * i - c * g, c * d - a * f],
-                    [d * h - e * g, b * g - a * h, a * e - b * d]], np.float64) / det
-    return inv / inv[2, 2] if abs(inv[2, 2]) > 1e-12 else inv
-
-
-def plane_quad(width, height):
-    """纸面模型矩形（中心在原点、y 向下），顺序与 order_quad 一致：[左上,右上,右下,左下]。"""
-    hw, hh = float(width) * 0.5, float(height) * 0.5
-    return np.array([[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]], np.float32)
-
-
-# ------------------------------------------------------------------ 胶带带候选
-def quad_mix(outer, inner, t):
-    """两框对应角做线性混合：t=0 外框、t=1 内框、0.5 带中线（近似）。"""
-    o = np.asarray(outer, np.float32).reshape(4, 2)
-    i = np.asarray(inner, np.float32).reshape(4, 2)
-    return o * (1.0 - float(t)) + i * float(t)
-
-
-def band_evidence(gray, outer, inner):
-    """胶带带证据：带中线灰度 vs 纸面内区灰度，返回 (带灰, 纸灰, 纸-带)。"""
-    band = quad_mix(outer, inner, 0.5)
-    pts = []
-    for i in range(4):
-        for t in (0.25, 0.5, 0.75):
-            pts.append(band[i] + t * (band[(i + 1) % 4] - band[i]))
-    pts = np.asarray(pts, np.float32)
-    band_g = float(bilinear(gray, pts[:, 0], pts[:, 1]).mean())
-    paper = quad_mix(outer, inner, 1.0)
-    c = paper.mean(axis=0)
-    v = paper[2] - paper[0]
-    probe = c + np.array([[0.0, 0.0], [v[0] * 0.2, 0.0], [-v[0] * 0.2, 0.0],
-                          [0.0, v[1] * 0.2], [0.0, -v[1] * 0.2]], np.float32)
-    paper_g = float(bilinear(gray, probe[:, 0], probe[:, 1]).mean())
-    return band_g, paper_g, paper_g - band_g
-
-
-def find_frame_candidates(gray, edges, min_area, max_area_ratio, min_aspect, max_aspect,
-                          min_contrast, samples=14, span=6.0, inward=30.0, rise=10.0,
-                          step=0.5, max_candidates=8):
-    """从二值图提"胶带带"候选：轮廓 → 最小外接矩形 → 内外框精修 → 灰度对比度打分。
-
-    为什么用最小外接矩形而不是 approxPolyDP：胶带内角是圆的、边常被遮挡，
-    多边形逼近永远凑不出 4 个顶点（实测两档真机帧 eps 1%~8% 全为 0）；
-    外接矩形只要求"四个方向上取到极值点"，缺一个角依然成立。
-    记账等式：contours = area + shape + aspect + frame + candidates
-    """
-    h, w = edges.shape[:2]
+    h, w = mask.shape[:2]
     total = float(h * w)
-    contours = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[-2]
-    stats = dict(contours=len(contours), area=0, shape=0, aspect=0, frame=0,
-                 candidates=0, capped=0)
-    # 第一遍只做最便宜的 boundingRect。边缘图上轮廓可达 300+，
-    # 每个都算 minAreaRect 会在板上把单帧拖到接近一秒。
-    prelim = []
-    for cnt in contours:
-        bx, by, bw, bh = cv2.boundingRect(cnt)
-        box_area = float(bw) * float(bh)
-        if min(bw, bh) < 12 or box_area < float(min_area) or box_area > total * float(max_area_ratio):
-            stats["area"] += 1
+    if stats.size == 0:
+        return []
+    sx = stats[:, 0].astype(np.float64)
+    sy = stats[:, 1].astype(np.float64)
+    bw = stats[:, 2].astype(np.float64)
+    bh = stats[:, 3].astype(np.float64)
+    area = stats[:, 4].astype(np.float64)
+    box = bw * bh
+    short = np.minimum(bw, bh)
+    aspect = np.maximum(bw, bh) / np.maximum(1.0, short)
+    fill = area / np.maximum(1.0, box)
+    keep = ((short >= 14.0) & (area >= float(min_area)) &
+            (box <= total * float(max_area_ratio)) &
+            (aspect >= float(min_aspect)) & (aspect <= float(max_aspect)) &
+            (fill >= float(min_fill)) & (fill <= float(max_fill)))
+    idx = np.flatnonzero(keep)
+    if idx.size == 0:
+        return []
+    idx = idx[np.argsort(-box[idx])][:int(probe)]
+    for i in idx:
+        x0, y0 = int(sx[i]), int(sy[i])
+        w0, h0 = int(bw[i]), int(bh[i])
+        band = 3 if min(w0, h0) > 6 else 1
+        edge = min(float(mask[y0:y0 + band, x0:x0 + w0].mean()),
+                   float(mask[y0 + h0 - band:y0 + h0, x0:x0 + w0].mean()),
+                   float(mask[y0:y0 + h0, x0:x0 + band].mean()),
+                   float(mask[y0:y0 + h0, x0 + w0 - band:x0 + w0].mean())) / 255.0
+        if edge < float(min_edge):
             continue
-        prelim.append((box_area, cnt))
-    prelim.sort(key=lambda p: -p[0])
-    stats["capped"] = max(0, len(prelim) - int(max_candidates))
-    out = []
-    for box_area, cnt in prelim[:int(max_candidates)]:
-        rect = cv2.minAreaRect(cnt)
-        (cx, cy), (rw, rh), ang = rect
-        if min(rw, rh) < 12.0:
-            stats["shape"] += 1
-            continue
-        aspect = max(rw, rh) / max(1.0, min(rw, rh))
-        if aspect < float(min_aspect) or aspect > float(max_aspect):
-            stats["aspect"] += 1
-            continue
-        outer, inner, hits = refine_frame(gray, cv2.boxPoints(rect), samples, span,
-                                          inward, rise, step)
-        if outer is None or inner is None:
-            stats["frame"] += 1
-            continue
-        outer_area = abs(float(cv2.contourArea(outer.astype(np.float32))))
-        inner_area = abs(float(cv2.contourArea(inner.astype(np.float32))))
-        if outer_area <= 1.0 or not (0.25 <= inner_area / outer_area <= 0.95):
-            stats["frame"] += 1
-            continue
-        band_g, paper_g, contrast = band_evidence(gray, outer, inner)
-        if contrast < float(min_contrast):
-            stats["frame"] += 1
-            continue
-        x, y, bw, bh = cv2.boundingRect(outer.astype(np.float32))
-        out.append(dict(outer=outer, inner=inner, score=float(contrast), area=box_area,
-                        aspect=float(aspect), bbox=(x, y, bw, bh),
-                        band_gray=band_g, paper_gray=paper_g, inner_hits=int(hits)))
-        stats["candidates"] += 1
-    out.sort(key=lambda c: c["score"], reverse=True)
-    return out[:int(max_candidates)], stats
+        return [dict(x=x0, y=y0, w=w0, h=h0, area=float(area[i]),
+                     aspect=float(aspect[i]), fill=float(fill[i]), edge=edge)]
+    return []
 
 
-# ================================================================== 结果组装
+def nearest_component(stats, cent, target, ref_w, ref_h, size_tol=0.55, dist_ratio=1.2):
+    """在连通域里挑离预测中心最近、尺寸与上一帧相当的那块；没有则 None。
+
+    跟踪时用它：ROI 里通常只有胶带环这一块尺寸对得上，其它碎块要么太小、
+    要么离预测中心太远。尺寸容差 ±55% 覆盖"车在靠近/远离"的情况。
+    """
+    if stats.size == 0:
+        return None
+    dx = cent[:, 0] - float(target[0])
+    dy = cent[:, 1] - float(target[1])
+    dist = np.hypot(dx, dy)
+    wx = stats[:, 2] / max(1.0, float(ref_w))
+    hy = stats[:, 3] / max(1.0, float(ref_h))
+    ok = (wx > 1.0 - float(size_tol)) & (wx < 1.0 + float(size_tol)) & \
+         (hy > 1.0 - float(size_tol)) & (hy < 1.0 + float(size_tol))
+    ok &= dist < float(dist_ratio) * max(float(ref_w), float(ref_h))
+    if not np.any(ok):
+        return None
+    idx = np.flatnonzero(ok)
+    k = int(idx[np.argmin(dist[idx])])
+    return dict(x=int(stats[k, 0]), y=int(stats[k, 1]),
+                w=int(stats[k, 2]), h=int(stats[k, 3]),
+                area=float(stats[k, 4]), cx=float(cent[k, 0]), cy=float(cent[k, 1]))
 
 
+def paper_rect(gray, box, level, rounds=1):
+    """框心向外扫四条线，返回纸边 (left, top, right, bottom)；扫不到返回 None。
+
+    为什么从里往外扫：胶带环的外接框总是偏的（下缘常被阴影撑宽，实测偏 6~8px），
+    而纸面一定在框内。从框心向四个方向找第一个"亮→暗"的跨越，取左右/上下的中点 ——
+    对中心对称图形，过任意点的水平弦中点仍在中心线上，所以一轮就足以把偏差消掉。
+    """
+    x, y, w, h = int(box[0]), int(box[1]), int(box[2]), int(box[3])
+    if w < 12 or h < 12:
+        return None
+    cx, cy = x + w // 2, y + h // 2
+    best = None
+    for _ in range(max(1, int(rounds))):
+        i, j = cx - x, cy - y
+        # 每个方向取相邻三条线的最小值再扫：胶带反光会让单独一行整段变亮，
+        # 三行取最小等于"只要有任意一行是暗的就算暗"，能跨过 1~2px 的断口。
+        row = gray[max(y, cy - 1):min(y + h, cy + 2), x:x + w].min(axis=0)
+        col = gray[y:y + h, max(x, cx - 1):min(x + w, cx + 2)].min(axis=1)
+        r = np.flatnonzero(row[i:] < level)
+        l = np.flatnonzero(row[:i + 1][::-1] < level)
+        d = np.flatnonzero(col[j:] < level)
+        u = np.flatnonzero(col[:j + 1][::-1] < level)
+        if not (r.size and l.size and d.size and u.size):
+            break                     # 本轮扫不到（通常会撞到框边），保留上一轮的结果
+        left = x + i - int(l[0])
+        right = x + i + int(r[0])
+        top = y + j - int(u[0])
+        bottom = y + j + int(d[0])
+        if right - left < 12 or bottom - top < 12:
+            break
+        best = (left, top, right, bottom)
+        ncx, ncy = (left + right) // 2, (top + bottom) // 2
+        if abs(ncx - cx) <= 1 and abs(ncy - cy) <= 1:
+            break
+        cx, cy = ncx, ncy
+    return best
+
+
+# ================================================================== 偏差
 def deviation(laser, result, use_raw=False):
     """靶心相对光斑的偏差：dx>0 靶心在光斑右侧，dy>0 靶心在光斑下方。
 
-    约定：dx = u靶心 − u光斑，与后续串口直控云台同一套符号：
-    电机方向由各轴 DIR_SIGN 映射；像素误差为正不代表固定的电机方向。
-
-    use_raw：闭环取这一档（True）—— 取 result["raw_u"]/["raw_v"]。
-    result["u"]/["v"] 是识别输出中心；本链路无滤波，两者当前恒等，
-    保留双口径是为了将来加平滑时调用方不必改（平滑值会给闭环带来相位滞后）。
-    激光丢失或黑框无效时返回 None。
+    约定：dx = u靶心 − u光斑；电机方向由各轴 DIR_SIGN 映射，像素误差为正不代表
+    固定的电机方向。激光丢失或黑框无效时返回 None。
     """
     if not laser or not laser.get("found"):
         return None                        # ★ 必须先看 found：found=False 时 u/v 只是标称占位
     if not result or not result.get("valid"):
         return None
     if use_raw and result.get("raw_u") is not None and result.get("raw_v") is not None:
-        tx, ty = float(result["raw_u"]), float(result["raw_v"])   # 闭环档：未平滑中心
+        tx, ty = float(result["raw_u"]), float(result["raw_v"])
     else:
-        tx, ty = float(result["u"]), float(result["v"])           # 显示档：识别输出中心
+        tx, ty = float(result["u"]), float(result["v"])
     lu, lv = float(laser['u']), float(laser['v'])
     if not all(map(math.isfinite, (tx, ty, lu, lv))):
         return None
     size = result.get('image_size')
     if size is not None and not (0 <= lu < size[0] and 0 <= lv < size[1]):
         return None
-    return (tx - lu, ty - lv)       # dx=靶心−光斑, dy 同理
+    return (tx - lu, ty - lv)
 '''
 
 # ===== vision.output  (vision/output.py) =====
@@ -1786,8 +1567,9 @@ def perf_line(build_id, capture_fps, display_fps, display_low1, vision_fps,
     split = det.get("t_ms") or {}
     split_tag = ""
     if split:
-        split_tag = " det_split=%.1f/%.1f/%.1f" % (
-            split.get("blur", 0.0), split.get("bin", 0.0), split.get("cand", 0.0))
+        split_tag = " det_path=%s det_split=%.1f/%.1f" % (
+            "track" if "track" in split else "search",
+            split.get("track", 0.0), split.get("search", 0.0))
     return ("[perf] %s capture=%.1f disp=%.1f low1=%.1f detect_fps=%.1f "
             "valid=%s stage=%s | read=%.1f draw=%.1f loop=%.1f ms | "
             "show avg=%.1f p95=%.1f max=%.1fms n=%d | "
@@ -1821,7 +1603,7 @@ _MOD_SRC['vision.logic'] = r'''
 四层之一，装"决定该做什么"的全部代码，**一行副作用都不做**：
 
     结果契约   fail_result / success_result / locate_result / finish_result
-    检测器     RectangleCenterDetector（单帧全图搜索）
+    检测器     RectangleCenterDetector（降采样搜框 + ROI 跟踪 + 速度预测）
                LaserSpotDetector（光斑读数）
     闭环决策   GimbalAim（BOOT/COARSE/FINE/SETTLE/HOLD/FAULT）
                VisionControl（识别 → 偏差 → 决策；命令只填进 `self.commands`）
@@ -1846,14 +1628,15 @@ import time
 import cv2
 import numpy as np
 
-from .algo import (blur_frame, deviation, edge_map, find_frame_candidates,
-                  invert_homography, plane_quad, quad_diagonal_center, solve_homography)
+from .algo import (auto_level, box_center, components, dark_mask, deviation,
+                   downscale, frame_candidates, nearest_component, paper_rect,
+                   rect_quad)
 from .output import (Preview, aligned_frame, apply_commands, display_result,
                     draw_preview, estimate_move_seconds, perf_line, stop_motion,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-09-plane-frame-v7"
+BUILD_ID = "2026-11-10-fast-track-v8"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -1869,40 +1652,6 @@ def fail_result(stage, fail_stage, reason):
     return dict(valid=False, stage=stage, fail_stage=fail_stage, fail_reason=reason)
 
 
-def plane_result(best, homography, model):
-    """胶带带候选 → 成功结果。
-
-    靶心 = **内框**对角线交点。为什么必须是内框：胶带上下宽度不等时，外框中心
-    会比真实靶心偏出半个带宽（真实帧实测 8~11px），而纸边与印刷图案同心。
-
-    本链路只回答"黑框（胶带带）在哪"，**不看纸面图案**：同心圆是另一条独立能力，
-    不参与这里的任何判据。代价是"亮面被暗边包住"的东西（屏幕、窗框）可能在
-    形状上被当成靶纸——这是四边形链路固有的边界，交给上层或别的证据去解决。
-    """
-    inner = best.get("inner")
-    outer = best.get("outer")
-    center = quad_diagonal_center(inner) if inner is not None else None
-    if center is None:
-        return fail_result(STAGE_PLANE, "plane", "degenerate")
-    width_mm, height_mm = float(model[0]), float(model[1])
-    plane_to_image = invert_homography(homography) if homography is not None else None
-    confidence = min(1.0, float(best.get("score", 0.0)) / 90.0)
-    return dict(valid=True, stage=STAGE_PLANE,
-                u=float(center[0]), v=float(center[1]),
-                raw_u=float(center[0]), raw_v=float(center[1]),
-                quad=outer, inner_quad=inner, detected_quad=outer, outer_inferred=False,
-                center_ref="inner",
-                circle=None,
-                area=float(best.get("area", 0.0)), aspect=float(best.get("aspect", 0.0)),
-                bbox=best.get("bbox"),
-                partial=False, refined_edges=4, weak_edges=0, clipped_edges=0,
-                rect_to_image=plane_to_image, circle_points=None,
-                width_mm=width_mm, height_mm=height_mm,
-                band=dict(gray=best.get("band_gray"), paper=best.get("paper_gray"),
-                          contrast=best.get("score")),
-                confidence=float(confidence))
-
-
 def finish_result(result, timestamp, image_size, started):
     """补齐时间戳、图像尺寸、耗时。"""
     result.update(captured_at=timestamp, image_size=image_size,
@@ -1910,93 +1659,268 @@ def finish_result(result, timestamp, image_size, started):
     return result
 
 
+def _inner_quad(box, offset):
+    """由外接框与"纸边相对框心的偏移比例"还原纸边矩形（只用于绘制与核对）。"""
+    x, y, w, h = (float(v) for v in box)
+    ox, oy = float(offset[0]), float(offset[1])
+    iw = max(4.0, w * (1.0 - 2.0 * abs(ox)))
+    ih = max(4.0, h * (1.0 - 2.0 * abs(oy)))
+    cx = x + w * 0.5 + ox * w
+    cy = y + h * 0.5 + oy * h
+    return rect_quad(cx - iw * 0.5, cy - ih * 0.5, cx + iw * 0.5, cy + ih * 0.5)
+
+
 # ================================================================== 编排
 class RectangleCenterDetector:
-    """只保存参数并编排上面那些函数；本身不做像素运算。"""
+    """黑框检测 + 跨帧跟踪。一帧只有十来次 cv2/numpy 调用。
+
+    为什么这样组织（每一条都是板上实测出来的）：
+
+    - **降采样 2 倍**再找框：像素少四倍，胶带环在 1/2 图上依旧连续。
+    - **自适应阈值**（90 分位 × 0.62）：压在胶带与纸面之间，曝光变了阈值跟着变。
+    - **连通域**而不是 findContours：一次调用拿到所有块，省掉几百次 Python 级调用。
+    - **锁定后只在 ROI 里找**：ROI 约为框的 1.6 倍，像素只有全图的 1/6。
+    - **速度预测 + 短暂保持**：画面晃一下、或者某一帧阈值没抓住，用上一帧的速度
+      外推继续输出，不再立刻掉进 HOLD。
+    - **中心取"框心向外扫四条线"的中点**：外接框中心会被阴影带偏 6~8px，
+      弦中点不会（见 `algo.paper_rect`）。
+    """
 
     def __init__(self, config):
         self.cfg = config
+        self.scale = int(getattr(config, "RECT_DOWNSCALE", 2))
+        self.level_ratio = float(getattr(config, "RECT_LEVEL_RATIO", 0.62))
+        self.level_floor = float(getattr(config, "RECT_LEVEL_FLOOR", 45.0))
+        self.level_ceil = float(getattr(config, "RECT_LEVEL_CEIL", 160.0))
+        self.level_refresh = int(getattr(config, "RECT_LEVEL_REFRESH", 15))
+        self.min_area = float(getattr(config, "RECT_MIN_AREA", 300))
+        self.max_area_ratio = float(getattr(config, "RECT_MAX_AREA_RATIO", 0.55))
+        self.min_aspect = float(getattr(config, "RECT_MIN_ASPECT", 1.05))
+        self.max_aspect = float(getattr(config, "RECT_MAX_ASPECT", 2.60))
+        self.min_fill = float(getattr(config, "RECT_MIN_FILL", 0.03))
+        self.max_fill = float(getattr(config, "RECT_MAX_FILL", 0.70))
+        self.min_edge = float(getattr(config, "RECT_MIN_EDGE", 0.20))
+        self.paper_rounds = int(getattr(config, "RECT_PAPER_ROUNDS", 2))
+        self.track_expand = float(getattr(config, "RECT_TRACK_EXPAND", 1.60))
+        self.track_margin = float(getattr(config, "RECT_TRACK_MARGIN", 16.0))
+        self.size_tol = float(getattr(config, "RECT_TRACK_SIZE_TOL", 0.55))
+        self.hold = int(getattr(config, "RECT_HOLD_FRAMES", 6))
+        self.smooth = float(getattr(config, "RECT_SMOOTH", 0.55))
+        self.hold_max = float(getattr(config, "RECT_HOLD_MAX_PX", 90.0))
+        self.max_speed = float(getattr(config, "RECT_MAX_SPEED", 2500.0))
+        self.gate = float(getattr(config, "RECT_TRACK_GATE", 0.45))
+        self.keep_stages = bool(getattr(config, "RECT_KEEP_STAGES", False))
         self.last = None
         self.last_stages = {}
-        # 参数全部允许缺省，config 未同步时也不至于抛 AttributeError。
-        self.min_area = float(getattr(config, "RECT_MIN_AREA", 300))
-        self.max_area_ratio = float(getattr(config, "RECT_MAX_AREA_RATIO", 0.92))
-        self.min_aspect = float(getattr(config, "RECT_MIN_ASPECT", 1.1))
-        self.max_aspect = float(getattr(config, "RECT_MAX_ASPECT", 1.8))
-        self.kernel = tuple(getattr(config, "RECT_GAUSS_KERNEL", (5, 5)))
-        self.canny_low = int(getattr(config, "RECT_CANNY_LOW", 0))
-        self.canny_high = int(getattr(config, "RECT_CANNY_HIGH", 0))
-        self.edge_close = int(getattr(config, "RECT_EDGE_CLOSE", 5))
-        self.max_candidates = int(getattr(config, "RECT_MAX_CANDIDATES", 6))
-        self.keep_stages = bool(getattr(config, "RECT_KEEP_STAGES", False))
-        self.model = tuple(getattr(config, "RECT_MODEL_MM", (261.0, 174.0)))
-        self.refine_samples = int(getattr(config, "RECT_REFINE_SAMPLES", 14))
-        self.refine_span = float(getattr(config, "RECT_REFINE_SPAN", 4.0))
-        self.refine_step = float(getattr(config, "RECT_REFINE_STEP", 0.5))
-        self.tape_max_px = float(getattr(config, "RECT_TAPE_MAX_PX", 26.0))
-        self.edge_rise = float(getattr(config, "RECT_EDGE_RISE", 10.0))
-        self.band_min_contrast = float(getattr(config, "RECT_BAND_MIN_CONTRAST", 25.0))
+        self.reset()
 
     def reset(self):
-        """接口兼容用。本检测器无跨帧状态，清空只影响调试缓存。"""
-        self.last = None
-        self.last_stages = {}
+        """清空跟踪状态。无历史帧时等价于"从头开始搜框"。"""
+        self.level = None
+        self.center = None          # 平滑后的中心（全分辨率）
+        self.measured = None        # 最近一次实测中心
+        self.velocity = (0.0, 0.0)  # px/s
+        self.box = None             # 最近一次 bbox（全分辨率）
+        self.offset = (0.0, 0.0)    # 纸边中心相对框心的偏移（按框尺寸归一）
+        self.lost = 0
+        self.tracking = False
+        self._frames = 0
+        self._last_ts = None
+        self._hit_ts = None
+
+    # ------------------------------------------------------------- 内部工具
+    def _level_for(self, img):
+        return auto_level(img, 2.0, 90.0, self.level_ratio,
+                          self.level_floor, self.level_ceil)
+
+    def _predict(self, ts):
+        """按速度外推当前位置；限幅防止甩飞。"""
+        if self.center is None:
+            return None
+        dt = 0.0 if self._last_ts is None else float(ts) - self._last_ts
+        dt = 0.0 if dt < 0.0 else (0.25 if dt > 0.25 else dt)
+        px = self.center[0] + self.velocity[0] * dt
+        py = self.center[1] + self.velocity[1] * dt
+        lo_x, hi_x = self.center[0] - self.hold_max, self.center[0] + self.hold_max
+        lo_y, hi_y = self.center[1] - self.hold_max, self.center[1] + self.hold_max
+        return (lo_x if px < lo_x else (hi_x if px > hi_x else px),
+                lo_y if py < lo_y else (hi_y if py > hi_y else py))
 
     @staticmethod
     def _fail_reason(stats):
-        """按淘汰的层给失败原因，和 [perf] 的 det_fail 口径一致。"""
-        if stats["contours"] == 0:
+        if not stats.get("components"):
             return "no_proposal"
-        if stats["area"] == stats["contours"]:
-            return "all_area"
         return "all_filtered"
 
-    def _plane(self, gray, edges):
-        """边缘 → 轮廓 → 矩形 → 内框四角 → 对角线交点。"""
-        t0 = time.perf_counter()
-        cands, stats = find_frame_candidates(
-            gray, edges, self.min_area, self.max_area_ratio, self.min_aspect,
-            self.max_aspect, self.band_min_contrast, self.refine_samples,
-            self.refine_span, self.tape_max_px, self.edge_rise, self.refine_step,
-            self.max_candidates)
-        t1 = time.perf_counter()
-        if cands:
-            best = cands[0]
-            homography = solve_homography(best["inner"], plane_quad(*self.model))
-            out = plane_result(best, homography, self.model)
+    # ------------------------------------------------------------- 全图搜框
+    def _search(self, g, stats):
+        s = self.scale
+        small = downscale(g, s)
+        level = self._level_for(small)
+        mask = dark_mask(small, level)
+        comps, _cent = components(mask)
+        stats["components"] = int(comps.shape[0])
+        cands = frame_candidates(comps, _cent, mask, self.min_area / float(s * s),
+                                 self.max_area_ratio, self.min_aspect, self.max_aspect,
+                                 self.min_fill, self.max_fill, self.min_edge)
+        if not cands:
+            return None
+        c = cands[0]
+        paper = paper_rect(small, (c["x"], c["y"], c["w"], c["h"]), level, self.paper_rounds)
+        box = (c["x"] * s, c["y"] * s, c["w"] * s, c["h"] * s)
+        bcx, bcy = box_center(box)
+        if paper is not None:
+            pcx = (paper[0] + paper[2]) * 0.5 * s
+            pcy = (paper[1] + paper[3]) * 0.5 * s
         else:
-            out = fail_result(STAGE_NONE, "plane", self._fail_reason(stats))
-        out["t_ms"] = dict(cand=(t1 - t0) * 1000.0)
-        return out, stats
+            pcx, pcy = bcx, bcy
+        return dict(center=(pcx, pcy), box=box, level=level,
+                    offset=((pcx - bcx) / max(1.0, box[2]),
+                            (pcy - bcy) / max(1.0, box[3])),
+                    area=c["area"] * s * s, aspect=c["aspect"], edge=c["edge"])
 
+    # ------------------------------------------------------------- ROI 跟踪
+    def _track(self, g, ts):
+        box = self.box
+        pred = self._predict(ts)
+        if box is None or pred is None:
+            return None
+        s = self.scale
+        h, w = g.shape[:2]
+        hw = box[2] * self.track_expand * 0.5 + self.track_margin
+        hh = box[3] * self.track_expand * 0.5 + self.track_margin
+        x0, y0 = int(pred[0] - hw), int(pred[1] - hh)
+        x1, y1 = int(pred[0] + hw), int(pred[1] + hh)
+        x0, y0 = (0 if x0 < 0 else x0), (0 if y0 < 0 else y0)
+        x1, y1 = (w if x1 > w else x1), (h if y1 > h else y1)
+        if x1 - x0 < 24 or y1 - y0 < 24:
+            return None
+        small = downscale(g[y0:y1, x0:x1], s)
+        self._frames += 1
+        if self.level is None or self._frames % self.level_refresh == 0:
+            self.level = self._level_for(small)
+        mask = dark_mask(small, self.level)
+        comps, cent = components(mask)
+        c = nearest_component(comps, cent, ((pred[0] - x0) / s, (pred[1] - y0) / s),
+                              box[2] / s, box[3] / s, self.size_tol)
+        if c is None:
+            return None
+        # ROI 原点是原图坐标，只有块内坐标才乘缩放系数（乘错一次就差半个画面）。
+        fbox = (x0 + c["x"] * s, y0 + c["y"] * s, c["w"] * s, c["h"] * s)
+        bcx, bcy = box_center(fbox)
+        cx = bcx + self.offset[0] * fbox[2]
+        cy = bcy + self.offset[1] * fbox[3]
+        # 跟踪门：测量值离预测太远说明锁到了别的东西（或上帧预测跑飞），当帧作废。
+        gate = self.gate * max(box[2], box[3])
+        if abs(cx - pred[0]) > gate or abs(cy - pred[1]) > gate:
+            return None
+        return dict(center=(cx, cy),
+                    box=fbox, level=self.level, offset=self.offset,
+                    area=c["area"] * s * s,
+                    aspect=max(fbox[2], fbox[3]) / max(1.0, min(fbox[2], fbox[3])),
+                    edge=None)
+
+    # ------------------------------------------------------------- 状态推进
+    def _on_hit(self, det, ts):
+        meas = det["center"]
+        # 速度只在帧间隔足够长时更新：连拍两帧 dt≈0.2ms，除出来是天文数字，
+        # 外推会把 ROI 甩到画面另一头（实测会锁到墙上的别的东西）。
+        if self.measured is not None and self._hit_ts is not None:
+            dt = ts - self._hit_ts
+            if 0.004 <= dt <= 0.25:
+                a = 0.55
+                vx = self.velocity[0] * (1.0 - a) + (meas[0] - self.measured[0]) / dt * a
+                vy = self.velocity[1] * (1.0 - a) + (meas[1] - self.measured[1]) / dt * a
+                speed = (vx * vx + vy * vy) ** 0.5
+                if speed > self.max_speed:
+                    vx *= self.max_speed / speed
+                    vy *= self.max_speed / speed
+                self.velocity = (vx, vy)
+        if self.center is None or self.lost > 0:
+            self.center = meas                      # 重新捕获：直接对齐，不做低通
+        else:
+            k = self.smooth
+            self.center = (self.center[0] + k * (meas[0] - self.center[0]),
+                           self.center[1] + k * (meas[1] - self.center[1]))
+        self.measured = meas
+        self.box = det["box"]
+        self.offset = det["offset"]
+        self.level = det["level"]
+        self.lost = 0
+        self.tracking = True
+        self._hit_ts = ts
+        self._last_ts = ts
+        return self._make_result(det, hold=False)
+
+    def _on_missing(self, ts, stats):
+        if self.center is None or self.box is None or self.lost >= self.hold:
+            self.tracking = False
+            return fail_result(STAGE_NONE, "plane", self._fail_reason(stats))
+        self.lost += 1
+        self.velocity = (self.velocity[0] * 0.7, self.velocity[1] * 0.7)
+        pred = self._predict(ts)
+        self.center = pred
+        self._last_ts = ts
+        det = dict(center=pred, box=self.box, offset=self.offset, level=self.level,
+                   area=0.0, aspect=0.0, edge=None)
+        return self._make_result(det, hold=True)
+
+    def _make_result(self, det, hold):
+        box = det["box"]
+        cx, cy = self.center
+        outer = rect_quad(box[0], box[1], box[0] + box[2], box[1] + box[3])
+        edge = det.get("edge")
+        return dict(valid=True, stage=STAGE_PLANE,
+                    u=float(cx), v=float(cy),
+                    raw_u=float(det["center"][0]), raw_v=float(det["center"][1]),
+                    quad=outer, inner_quad=_inner_quad(box, det["offset"]),
+                    detected_quad=outer, outer_inferred=False,
+                    center_ref="paper",
+                    area=float(det.get("area") or 0.0),
+                    aspect=float(det.get("aspect") or 0.0),
+                    bbox=(int(box[0]), int(box[1]), int(box[2]), int(box[3])),
+                    partial=bool(hold), hold=bool(hold), lost=int(self.lost),
+                    refined_edges=4, weak_edges=0, clipped_edges=0,
+                    rect_to_image=None, circle_points=None,
+                    band=dict(level=det.get("level"), edge=edge,
+                              contrast=float((edge or 0.0) * 100.0)),
+                    confidence=float(1.0 if not hold else
+                                     max(0.2, 1.0 - self.lost / float(max(1, self.hold)))))
+
+    def _detect(self, g, ts):
+        timings = {}
+        stats = dict(components=0)
+        det = None
+        if self.tracking:
+            t0 = time.perf_counter()
+            det = self._track(g, ts)
+            timings["track"] = (time.perf_counter() - t0) * 1000.0
+        if det is None:
+            t0 = time.perf_counter()
+            det = self._search(g, stats)
+            timings["search"] = (time.perf_counter() - t0) * 1000.0
+            timings.pop("track", None)
+        result = self._on_hit(det, ts) if det is not None else self._on_missing(ts, stats)
+        return result, stats, timings
+
+    # ------------------------------------------------------------- 对外入口
     def process(self, gray, timestamp=None):
         started = time.perf_counter()
         ts = started if timestamp is None else float(timestamp)
         if not np.isfinite(ts):
             raise ValueError("non-finite timestamp")
-
         g = to_gray_frame(gray)
         if g.size == 0:
-            result = fail_result("empty_frame", "none", "empty")
-            stats = dict(contours=0, area=0, quad=0, aspect=0, candidates=0)
+            result, stats, timings = fail_result("empty_frame", "none", "empty"), \
+                dict(components=0), {}
         else:
-            t0 = time.perf_counter()
-            blur = blur_frame(g, self.kernel)
-            t1 = time.perf_counter()
-            edges = edge_map(blur, self.canny_low, self.canny_high, self.edge_close)
-            t2 = time.perf_counter()
-            result, stats = self._plane(g, edges)
-            # 分段耗时给板端日志用：哪一段贵，一眼能看出来，不用再猜。
-            split = result.get("t_ms") or {}
-            split.update(blur=(t1 - t0) * 1000.0, bin=(t2 - t1) * 1000.0)
-            result["t_ms"] = split
-            if self.keep_stages:
-                self.last_stages = dict(blur=blur, binary=edges)
-
-        result.update(masks=1, proposals=stats["contours"], search_count=1,
-                      reject=dict(stats), threshold=None, build=BUILD_ID)
-        self.last = finish_result(result, ts, (int(g.shape[1]), int(g.shape[0]))
-                                  if g.size else (0, 0), started)
+            result, stats, timings = self._detect(g, ts)
+        result.update(masks=1, proposals=stats.get("components", 0), search_count=1,
+                      reject=dict(stats), threshold=self.level, build=BUILD_ID)
+        result["t_ms"] = timings
+        self.last = finish_result(result, ts,
+                                  (int(g.shape[1]), int(g.shape[0])) if g.size else (0, 0),
+                                  started)
         return self.last
 
 
@@ -2545,8 +2469,8 @@ def run():
         controller = state['controller'] = VisionControl(cfg, state['link'], state['aim'], clock=clock)
         worker = state['worker'] = LatestFrameWorker(controller.process, controller.idle,
                                                     cfg.VISION_ASYNC, clock=clock)
-        print('[rect-center] %s canny=%d/%d close=%d display_width=%d display_fps=%d' %
-              (BUILD_ID, cfg.RECT_CANNY_LOW, cfg.RECT_CANNY_HIGH, cfg.RECT_EDGE_CLOSE,
+        print('[rect-center] %s scale=1/%d level=%.2f display_width=%d display_fps=%d' %
+              (BUILD_ID, cfg.RECT_DOWNSCALE, cfg.RECT_LEVEL_RATIO,
                preview.render_width, cfg.SHOW_FPS))
         print('[preview] async=%s canvas=%dx%d' % (cfg.SHOW_ASYNC, preview.render_width, preview.render_height))
         print('[vision] latest-frame worker=%s max_result_age=%.0fms' % (cfg.VISION_ASYNC, cfg.RESULT_MAX_AGE_S*1000))
