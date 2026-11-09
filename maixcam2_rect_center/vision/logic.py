@@ -35,7 +35,7 @@ from .output import (Preview, aligned_frame, apply_commands, display_result,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-09-plane-frame-v3"
+BUILD_ID = "2026-11-09-plane-frame-v7"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0

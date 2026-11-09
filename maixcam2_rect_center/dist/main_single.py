@@ -10,13 +10,13 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-09 13:20:32
-    config.py                    sha1=2f5443c46674
+生成时间：2026-11-09 13:47:37
+    config.py                    sha1=f1ee85b2d6f0
     main.py                      sha1=c2f5fb47aa9e
     target_api.py                sha1=228e453c656f
     vision/__init__.py           sha1=6e0b16db8298
-    vision/algo.py               sha1=5109efa43b5b
-    vision/logic.py              sha1=ae0a083e1806
+    vision/algo.py               sha1=b65095e3b248
+    vision/logic.py              sha1=4417677a52dc
     vision/output.py             sha1=3fde3164f35b
     vision/poll.py               sha1=992056fd530e
 """
@@ -24,7 +24,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '2f5443c466749088c461805a9a993010d6c38dc7', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': '5109efa43b5b748139a474e5d1ee1d710b88c168', 'vision/output.py': '3fde3164f35b6b25eb370cd8c6ab122e9e746e7b', 'vision/logic.py': 'ae0a083e1806a8ef9dc90377bc6cc7f4839d4c79', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': '228e453c656f41797d4dc6099e2d87b96ffb53ed', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': 'f1ee85b2d6f036841eb2213aee5296a20b75d63d', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'b65095e3b248089f31b694b499316a958cec6e35', 'vision/output.py': '3fde3164f35b6b25eb370cd8c6ab122e9e746e7b', 'vision/logic.py': '4417677a52dccc3d6e9caa63c1f7da759c64df6e', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': '228e453c656f41797d4dc6099e2d87b96ffb53ed', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -44,15 +44,17 @@ class Config:
     LENS_CORR = False
     LENS_STRENGTH = 1.5
     SHOW = True
-    # True = 保留 MaixVision 图传（从 IDE 运行就能看到画面）；False = 强制本地屏、不图传。
-    SHOW_STREAM = True
+    # True = 保留 MaixVision 图传（仅在「运行项目」模式下有效）；
+    # False = 强制本地屏、不图传。★ 实测：图传通道没建立时 send_image() 每帧空转 500ms
+    # 并卡住整个解释器，识别会被拖到 20 秒/帧，所以默认关闭。要看画面再临时打开。
+    SHOW_STREAM = False
     # 0 = 用屏幕原始宽度（推荐）：640×480 画布与相机同尺寸，驱动层不再缩放
     SHOW_WIDTH = 0
     SHOW_FPS = 40
     SHOW_JPEG_QUALITY = 70
     VISION_ASYNC = True      # 后台识别，忙时只保留最新帧，不积压旧图
     SHOW_ASYNC = True        # 独立显示线程：show() 慢只掉预览帧，不拖识别/串口/闭环
-    RESULT_MAX_AGE_S = 0.20  # 以采图时刻计龄；过期结果不画框、不下发指令
+    RESULT_MAX_AGE_S = 0.90  # 以采图时刻计龄；过期结果不画框、不下发指令（板上约 4fps，窗口要放宽）
     OPENCV_THREADS = 1
     LOG_INTERVAL = 2.0
 
@@ -113,13 +115,13 @@ class Config:
     RECT_CANNY_LOW = 0
     RECT_CANNY_HIGH = 0
     RECT_EDGE_CLOSE = 5           # 边缘图闭运算核：把断边连起来，奇数，<3 = 跳过
-    RECT_MAX_CANDIDATES = 4       # 精修候选上限（精修是唯一的重活）
+    RECT_MAX_CANDIDATES = 2       # 精修候选上限；板上每多一个约 +190ms
     RECT_KEEP_STAGES = False      # 真：把 blur/edges 留在 last_stages，供 --stage 导出
 
     # ---- 内外框精修（黑胶带是一条带子，有内外两条边）----
     # 靶心取**内框**（纸边）：胶带上下不等宽时，外框中心会偏出半个带宽，实测 8~11px。
     RECT_MODEL_MM = (261.0, 174.0)  # 纸面模型尺寸；只影响 width_mm/height_mm，不影响靶心
-    RECT_REFINE_SAMPLES = 10      # 每条边取几个剖面（板上够用，别再加大）
+    RECT_REFINE_SAMPLES = 8       # 每条边取几个剖面；板上 numpy 单次调用约 1ms，别加大
     RECT_REFINE_SPAN = 6.0        # 沿法线向外搜索的半宽（px）
     RECT_REFINE_STEP = 0.5        # 剖面采样步长（px）
     RECT_TAPE_MAX_PX = 30.0       # 从外沿向内找纸边的最远距离（px），须大于胶带带宽
@@ -827,21 +829,24 @@ def find_frame_candidates(gray, edges, min_area, max_area_ratio, min_aspect, max
     h, w = edges.shape[:2]
     total = float(h * w)
     contours = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[-2]
-    stats = dict(contours=len(contours), area=0, shape=0, aspect=0, frame=0, candidates=0)
+    stats = dict(contours=len(contours), area=0, shape=0, aspect=0, frame=0,
+                 candidates=0, capped=0)
+    # 第一遍只做最便宜的 boundingRect。边缘图上轮廓可达 300+，
+    # 每个都算 minAreaRect 会在板上把单帧拖到接近一秒。
     prelim = []
     for cnt in contours:
-        # 先用正外接框粗筛（很便宜），再算最小外接矩形；板上轮廓多时省一大截。
         bx, by, bw, bh = cv2.boundingRect(cnt)
-        if min(bw, bh) < 12 or float(bw) * float(bh) < float(min_area):
+        box_area = float(bw) * float(bh)
+        if min(bw, bh) < 12 or box_area < float(min_area) or box_area > total * float(max_area_ratio):
             stats["area"] += 1
             continue
+        prelim.append((box_area, cnt))
+    prelim.sort(key=lambda p: -p[0])
+    stats["capped"] = max(0, len(prelim) - int(max_candidates))
+    out = []
+    for box_area, cnt in prelim[:int(max_candidates)]:
         rect = cv2.minAreaRect(cnt)
         (cx, cy), (rw, rh), ang = rect
-        # 边缘图的轮廓是细线，contourArea 接近 0；用外接矩形面积才对得上"框有多大"。
-        area = float(rw) * float(rh)
-        if area < float(min_area) or area > total * float(max_area_ratio):
-            stats["area"] += 1
-            continue
         if min(rw, rh) < 12.0:
             stats["shape"] += 1
             continue
@@ -849,11 +854,6 @@ def find_frame_candidates(gray, edges, min_area, max_area_ratio, min_aspect, max
         if aspect < float(min_aspect) or aspect > float(max_aspect):
             stats["aspect"] += 1
             continue
-        prelim.append((float(area), aspect, rect))
-    # 精修是唯一的重活：按面积取前若干个，避免病态画面把预算耗在小矩形上。
-    prelim.sort(key=lambda p: -p[0])
-    out = []
-    for area, aspect, rect in prelim[:int(max_candidates)]:
         outer, inner, hits = refine_frame(gray, cv2.boxPoints(rect), samples, span,
                                           inward, rise, step)
         if outer is None or inner is None:
@@ -869,7 +869,7 @@ def find_frame_candidates(gray, edges, min_area, max_area_ratio, min_aspect, max
             stats["frame"] += 1
             continue
         x, y, bw, bh = cv2.boundingRect(outer.astype(np.float32))
-        out.append(dict(outer=outer, inner=inner, score=float(contrast), area=area,
+        out.append(dict(outer=outer, inner=inner, score=float(contrast), area=box_area,
                         aspect=float(aspect), bbox=(x, y, bw, bh),
                         band_gray=band_g, paper_gray=paper_g, inner_hits=int(hits)))
         stats["candidates"] += 1
@@ -1853,7 +1853,7 @@ from .output import (Preview, aligned_frame, apply_commands, display_result,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-09-plane-frame-v3"
+BUILD_ID = "2026-11-09-plane-frame-v7"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0

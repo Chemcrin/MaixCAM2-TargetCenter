@@ -9,15 +9,17 @@ class Config:
     LENS_CORR = False
     LENS_STRENGTH = 1.5
     SHOW = True
-    # True = 保留 MaixVision 图传（从 IDE 运行就能看到画面）；False = 强制本地屏、不图传。
-    SHOW_STREAM = True
+    # True = 保留 MaixVision 图传（仅在「运行项目」模式下有效）；
+    # False = 强制本地屏、不图传。★ 实测：图传通道没建立时 send_image() 每帧空转 500ms
+    # 并卡住整个解释器，识别会被拖到 20 秒/帧，所以默认关闭。要看画面再临时打开。
+    SHOW_STREAM = False
     # 0 = 用屏幕原始宽度（推荐）：640×480 画布与相机同尺寸，驱动层不再缩放
     SHOW_WIDTH = 0
     SHOW_FPS = 40
     SHOW_JPEG_QUALITY = 70
     VISION_ASYNC = True      # 后台识别，忙时只保留最新帧，不积压旧图
     SHOW_ASYNC = True        # 独立显示线程：show() 慢只掉预览帧，不拖识别/串口/闭环
-    RESULT_MAX_AGE_S = 0.20  # 以采图时刻计龄；过期结果不画框、不下发指令
+    RESULT_MAX_AGE_S = 0.90  # 以采图时刻计龄；过期结果不画框、不下发指令（板上约 4fps，窗口要放宽）
     OPENCV_THREADS = 1
     LOG_INTERVAL = 2.0
 
@@ -78,13 +80,13 @@ class Config:
     RECT_CANNY_LOW = 0
     RECT_CANNY_HIGH = 0
     RECT_EDGE_CLOSE = 5           # 边缘图闭运算核：把断边连起来，奇数，<3 = 跳过
-    RECT_MAX_CANDIDATES = 4       # 精修候选上限（精修是唯一的重活）
+    RECT_MAX_CANDIDATES = 2       # 精修候选上限；板上每多一个约 +190ms
     RECT_KEEP_STAGES = False      # 真：把 blur/edges 留在 last_stages，供 --stage 导出
 
     # ---- 内外框精修（黑胶带是一条带子，有内外两条边）----
     # 靶心取**内框**（纸边）：胶带上下不等宽时，外框中心会偏出半个带宽，实测 8~11px。
     RECT_MODEL_MM = (261.0, 174.0)  # 纸面模型尺寸；只影响 width_mm/height_mm，不影响靶心
-    RECT_REFINE_SAMPLES = 10      # 每条边取几个剖面（板上够用，别再加大）
+    RECT_REFINE_SAMPLES = 8       # 每条边取几个剖面；板上 numpy 单次调用约 1ms，别加大
     RECT_REFINE_SPAN = 6.0        # 沿法线向外搜索的半宽（px）
     RECT_REFINE_STEP = 0.5        # 剖面采样步长（px）
     RECT_TAPE_MAX_PX = 30.0       # 从外沿向内找纸边的最远距离（px），须大于胶带带宽

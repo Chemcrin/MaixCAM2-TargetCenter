@@ -401,21 +401,24 @@ def find_frame_candidates(gray, edges, min_area, max_area_ratio, min_aspect, max
     h, w = edges.shape[:2]
     total = float(h * w)
     contours = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)[-2]
-    stats = dict(contours=len(contours), area=0, shape=0, aspect=0, frame=0, candidates=0)
+    stats = dict(contours=len(contours), area=0, shape=0, aspect=0, frame=0,
+                 candidates=0, capped=0)
+    # 第一遍只做最便宜的 boundingRect。边缘图上轮廓可达 300+，
+    # 每个都算 minAreaRect 会在板上把单帧拖到接近一秒。
     prelim = []
     for cnt in contours:
-        # 先用正外接框粗筛（很便宜），再算最小外接矩形；板上轮廓多时省一大截。
         bx, by, bw, bh = cv2.boundingRect(cnt)
-        if min(bw, bh) < 12 or float(bw) * float(bh) < float(min_area):
+        box_area = float(bw) * float(bh)
+        if min(bw, bh) < 12 or box_area < float(min_area) or box_area > total * float(max_area_ratio):
             stats["area"] += 1
             continue
+        prelim.append((box_area, cnt))
+    prelim.sort(key=lambda p: -p[0])
+    stats["capped"] = max(0, len(prelim) - int(max_candidates))
+    out = []
+    for box_area, cnt in prelim[:int(max_candidates)]:
         rect = cv2.minAreaRect(cnt)
         (cx, cy), (rw, rh), ang = rect
-        # 边缘图的轮廓是细线，contourArea 接近 0；用外接矩形面积才对得上"框有多大"。
-        area = float(rw) * float(rh)
-        if area < float(min_area) or area > total * float(max_area_ratio):
-            stats["area"] += 1
-            continue
         if min(rw, rh) < 12.0:
             stats["shape"] += 1
             continue
@@ -423,11 +426,6 @@ def find_frame_candidates(gray, edges, min_area, max_area_ratio, min_aspect, max
         if aspect < float(min_aspect) or aspect > float(max_aspect):
             stats["aspect"] += 1
             continue
-        prelim.append((float(area), aspect, rect))
-    # 精修是唯一的重活：按面积取前若干个，避免病态画面把预算耗在小矩形上。
-    prelim.sort(key=lambda p: -p[0])
-    out = []
-    for area, aspect, rect in prelim[:int(max_candidates)]:
         outer, inner, hits = refine_frame(gray, cv2.boxPoints(rect), samples, span,
                                           inward, rise, step)
         if outer is None or inner is None:
@@ -443,7 +441,7 @@ def find_frame_candidates(gray, edges, min_area, max_area_ratio, min_aspect, max
             stats["frame"] += 1
             continue
         x, y, bw, bh = cv2.boundingRect(outer.astype(np.float32))
-        out.append(dict(outer=outer, inner=inner, score=float(contrast), area=area,
+        out.append(dict(outer=outer, inner=inner, score=float(contrast), area=box_area,
                         aspect=float(aspect), bbox=(x, y, bw, bh),
                         band_gray=band_g, paper_gray=paper_g, inner_hits=int(hits)))
         stats["candidates"] += 1
