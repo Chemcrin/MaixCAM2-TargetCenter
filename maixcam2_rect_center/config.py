@@ -78,13 +78,13 @@ class Config:
     RECT_CANNY_LOW = 0
     RECT_CANNY_HIGH = 0
     RECT_EDGE_CLOSE = 5           # 边缘图闭运算核：把断边连起来，奇数，<3 = 跳过
-    RECT_MAX_CANDIDATES = 6       # 精修候选上限（精修是唯一的重活）
+    RECT_MAX_CANDIDATES = 4       # 精修候选上限（精修是唯一的重活）
     RECT_KEEP_STAGES = False      # 真：把 blur/edges 留在 last_stages，供 --stage 导出
 
     # ---- 内外框精修（黑胶带是一条带子，有内外两条边）----
     # 靶心取**内框**（纸边）：胶带上下不等宽时，外框中心会偏出半个带宽，实测 8~11px。
     RECT_MODEL_MM = (261.0, 174.0)  # 纸面模型尺寸；只影响 width_mm/height_mm，不影响靶心
-    RECT_REFINE_SAMPLES = 14      # 每条边取几个剖面
+    RECT_REFINE_SAMPLES = 10      # 每条边取几个剖面（板上够用，别再加大）
     RECT_REFINE_SPAN = 6.0        # 沿法线向外搜索的半宽（px）
     RECT_REFINE_STEP = 0.5        # 剖面采样步长（px）
     RECT_TAPE_MAX_PX = 30.0       # 从外沿向内找纸边的最远距离（px），须大于胶带带宽

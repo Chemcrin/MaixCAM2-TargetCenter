@@ -121,34 +121,17 @@ def bilinear(gray, xs, ys):
             g[y0 + 1, x0] * (1 - fx) * fy + g[y0 + 1, x0 + 1] * fx * fy)
 
 
-def _runs(flags):
-    """连续 True 的区间：返回 (起点数组, 终点数组[不含])。"""
-    f = np.asarray(flags, np.int8)
-    d = np.diff(np.concatenate([[0], f, [0]]))
-    return np.flatnonzero(d == 1), np.flatnonzero(d == -1)
-
-
-def _crossing(prof, i, level, offs):
-    """prof[i-1] → prof[i] 之间 level 的穿越位置，按 offs 插值成实际偏移。"""
-    if i <= 0 or i >= prof.size:
-        return float(offs[min(max(i, 0), offs.size - 1)])
-    a, b = float(prof[i - 1]), float(prof[i])
-    t = 0.0 if abs(b - a) < 1e-6 else float(np.clip((level - a) / (b - a), 0.0, 1.0))
-    return float(offs[i - 1] + t * (offs[i] - offs[i - 1]))
-
-
-def frame_edge_points(gray, a, b, center, samples=14, span=6.0, inward=30.0,
+def frame_edge_points(gray, a, b, center, samples=10, span=6.0, inward=30.0,
                       rise=10.0, step=0.5):
     """沿一条边 a→b 采样，返回 (外沿点, 内沿点) 两组亚像素坐标。
 
-    判据用的是"胶带是一段连续暗带"，而不是"哪里有梯度"：
-      外沿 = 从外向内第一次出现、并能持续 3 个采样的暗区起点；
-      内沿 = 从外沿继续向内，暗区结束、回到纸面亮度的位置。
-    这样胶带内部的噪点、阴影边缘、以及**遮挡物**（比纸暗但远不如胶带黑）
-    都不会被当成边界——灰斑那类东西的"暗"和胶带的"暗"不在一个量级。
+    判据是"胶带是一段连续暗带"，不是"哪里有梯度"：
+      外沿 = 从框外往框内走，第一段能持续 4 个采样的暗区起点；
+      内沿 = 这段暗区结束、回到纸面亮度的位置。
+    遮挡物（灰斑、阴影）比纸暗但远不如胶带黑，会被"暗带均值 < 0.6×亮区均值"挡掉。
 
-    没有可判定的暗带（被完全遮挡 / 该处不是胶带）就跳过这个采样点；
-    调用方按"每条边至少 4 点"判成败，缺的角由相邻两条直线求交补回来。
+    实现上整批算：一次取 (samples × 剖面长度) 的灰度矩阵，再对行做向量化判断。
+    早期版本逐行 numpy 调用，在板上因为调用开销把单帧拖到 1.6 秒——这里必须整批。
     """
     a = np.asarray(a, np.float64)
     b = np.asarray(b, np.float64)
@@ -161,41 +144,78 @@ def frame_edge_points(gray, a, b, center, samples=14, span=6.0, inward=30.0,
     nrm = np.array([-d[1], d[0]])
     if float(nrm @ ((a + b) * 0.5 - c)) < 0.0:
         nrm = -nrm
-    out_pts, in_pts = [], []
-    # 沿外法线从 +span（框外）走到 -inward（框内）：先遇到暗带起点，再遇到暗带终点。
+
     offs = np.arange(span, -inward - 1e-9, -step)
+    m = int(offs.size)
     zero = int(round(span / step))
     ts = np.linspace(0.15, 0.85, int(samples))
     base = a[None, :] + ts[:, None] * (b - a)[None, :]
     gx = base[:, 0:1] + nrm[0] * offs[None, :]
     gy = base[:, 1:2] + nrm[1] * offs[None, :]
-    prof = bilinear(gray, gx, gy)                 # (samples, len(offs)) 一次取完
-    lo = np.percentile(prof, 10.0, axis=1)
-    hi = np.percentile(prof, 90.0, axis=1)
-    for k in range(prof.shape[0]):
-        if hi[k] - lo[k] < float(rise):
-            continue
-        row = prof[k]
-        level = lo[k] + 0.40 * (hi[k] - lo[k])
-        starts, ends = _runs(row < level)
-        if starts.size == 0:
-            continue
-        j = int(np.argmin(np.abs(starts - zero)))
-        s0, s1 = int(starts[j]), int(ends[j])
-        if s1 - s0 < 4 or s1 >= row.size - 2:
-            continue                     # 暗带太窄，或延伸到窗口末端（内沿不在窗内）
-        pos_out = _crossing(row, s0, level, offs) if s0 > 0 else float(offs[0])
-        pos_in = _crossing(row, s1, level, offs)
-        if pos_out - pos_in < 2.0:
-            continue
-        dark_mean = float(row[s0:s1].mean())
-        bright_mean = float(row[s1:].mean())
-        if bright_mean < 40.0 or dark_mean > 0.60 * bright_mean:
-            continue                     # 遮挡物/阴影：暗得不够"黑"，不是胶带
-        out_pts.append(base[k] + nrm * pos_out)
-        in_pts.append(base[k] + nrm * pos_in)
-    return (np.asarray(out_pts, np.float64).reshape(-1, 2),
-            np.asarray(in_pts, np.float64).reshape(-1, 2))
+    prof = bilinear(gray, gx, gy)                 # (samples, m) 一次取完
+    n = prof.shape[0]
+
+    lo = prof.min(axis=1)
+    hi = prof.max(axis=1)
+    ok = (hi - lo) >= float(rise)
+    if not np.any(ok):
+        return np.empty((0, 2)), np.empty((0, 2))
+    level = lo + 0.40 * (hi - lo)
+
+    dark = prof < level[:, None]
+    pad = np.zeros((n, 1), bool)
+    edge = np.diff(np.concatenate([pad, dark, pad], axis=1).astype(np.int8), axis=1)
+    started = edge == 1
+    ended = edge == -1
+    cols = np.arange(edge.shape[1])
+    rows = np.arange(n)
+
+    cost = np.where(started, np.abs(cols[None, :] - zero), 10 ** 6)
+    s0 = cost.argmin(axis=1)
+    valid = cost[rows, s0] < 10 ** 6
+    ecost = np.where(ended & (cols[None, :] > s0[:, None]), cols[None, :], 10 ** 6)
+    s1 = ecost.argmin(axis=1)
+    valid &= ecost[rows, s1] < 10 ** 6
+    valid &= (s0 < m - 2) & (s1 < m - 2)
+    valid &= (s1 - s0) >= 4
+    valid &= ok
+    if not np.any(valid):
+        return np.empty((0, 2)), np.empty((0, 2))
+
+    r = np.flatnonzero(valid)
+    pv = prof[r]
+    lv = level[r]
+    s0v, s1v = s0[r], s1[r]
+    rr = np.arange(r.size)
+
+    i0 = np.clip(s0v - 1, 0, m - 1)
+    a0, b0 = pv[rr, i0], pv[rr, s0v]
+    den0 = b0 - a0
+    t0 = np.where(np.abs(den0) > 1e-6,
+                  np.clip((lv - a0) / np.where(np.abs(den0) > 1e-6, den0, 1.0), 0.0, 1.0), 0.0)
+    pos_out = offs[i0] + t0 * (offs[s0v] - offs[i0])
+    pos_out = np.where(s0v > 0, pos_out, float(offs[0]))
+
+    i1 = np.clip(s1v - 1, 0, m - 1)
+    a1, b1 = pv[rr, i1], pv[rr, s1v]
+    den1 = b1 - a1
+    t1 = np.where(np.abs(den1) > 1e-6,
+                  np.clip((lv - a1) / np.where(np.abs(den1) > 1e-6, den1, 1.0), 0.0, 1.0), 0.0)
+    pos_in = offs[i1] + t1 * (offs[s1v] - offs[i1])
+
+    csum = np.concatenate([np.zeros((r.size, 1)), np.cumsum(pv, axis=1)], axis=1)
+    dark_cnt = np.maximum(1, s1v - s0v)
+    bright_cnt = np.maximum(1, m - s1v)
+    dark_mean = (csum[rr, s1v] - csum[rr, s0v]) / dark_cnt
+    bright_mean = (csum[rr, m] - csum[rr, s1v]) / bright_cnt
+
+    keep = (bright_mean >= 40.0) & (dark_mean <= 0.60 * bright_mean) & ((pos_out - pos_in) >= 2.0)
+    if not np.any(keep):
+        return np.empty((0, 2)), np.empty((0, 2))
+    sel = base[r][keep]
+    out_pts = sel + nrm[None, :] * pos_out[keep][:, None]
+    in_pts = sel + nrm[None, :] * pos_in[keep][:, None]
+    return out_pts, in_pts
 
 
 def fit_line(points):
@@ -384,6 +404,11 @@ def find_frame_candidates(gray, edges, min_area, max_area_ratio, min_aspect, max
     stats = dict(contours=len(contours), area=0, shape=0, aspect=0, frame=0, candidates=0)
     prelim = []
     for cnt in contours:
+        # 先用正外接框粗筛（很便宜），再算最小外接矩形；板上轮廓多时省一大截。
+        bx, by, bw, bh = cv2.boundingRect(cnt)
+        if min(bw, bh) < 12 or float(bw) * float(bh) < float(min_area):
+            stats["area"] += 1
+            continue
         rect = cv2.minAreaRect(cnt)
         (cx, cy), (rw, rh), ang = rect
         # 边缘图的轮廓是细线，contourArea 接近 0；用外接矩形面积才对得上"框有多大"。
