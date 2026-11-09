@@ -224,12 +224,19 @@ def ring_hole(gray, box, margin, min_hole, max_hole, aspect_lo, aspect_hi,
     if hierarchy is None or not contours:
         return None
     hier = hierarchy[0].tolist()
+    # 环 = 顶层中 bbox 面积最大者。杂乱场景顶层轮廓可达上百个，逐个
+    # boundingRect 就是上百次调用；先用轮廓点数（=周长，O(1) 的 len）粗排
+    # 取前 8，再只对这 8 个量 bbox —— 周长与块大小强相关，粗排足够保真。
+    tops = [i for i, row in enumerate(hier) if row[3] == -1]
+    if not tops:
+        return None
+    if len(tops) > 8:
+        tops.sort(key=lambda i: -len(contours[i]))
+        tops = tops[:8]
     ring_i = -1
     ring_box = None
     ring_bb = -1.0
-    for i, row in enumerate(hier):
-        if row[3] != -1:
-            continue
+    for i in tops:
         bx, by, bw2, bh2 = cv2.boundingRect(contours[i])
         area_bb = float(bw2) * float(bh2)
         if area_bb > ring_bb:
@@ -380,6 +387,11 @@ def hole_quad(points, rect, min_pts=8, keep=0.75):
     vx, vy = -math.sin(a), math.cos(a)
     hu = max(0.5 * float(rw), 1e-3)
     hv = max(0.5 * float(rh), 1e-3)
+    # CHAIN_APPROX_NONE 的洞轮廓可达上千点；投影循环是纯 Python，先抽稀到
+    # ≤600 点（切片零调用），拟线精度损失亚像素级，循环时间减半以上。
+    if len(points) > 600:
+        step = len(points) // 600 + 1
+        points = points[::step]
     sides = ([], [], [], [])          # 0:+u 1:-u 2:+v 3:-v
     for x, y in points:
         dx = float(x) - cx

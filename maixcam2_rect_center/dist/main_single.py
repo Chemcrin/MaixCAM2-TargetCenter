@@ -10,12 +10,12 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-09 22:10:19
-    config.py                    sha1=fa0f8abdf4ac
+生成时间：2026-11-09 22:15:13
+    config.py                    sha1=091782dd60d8
     main.py                      sha1=c2f5fb47aa9e
     target_api.py                sha1=d0e2676568b1
     vision/__init__.py           sha1=6e0b16db8298
-    vision/algo.py               sha1=be459503f8e5
+    vision/algo.py               sha1=865002e42eb2
     vision/logic.py              sha1=5d15b41e0b58
     vision/maixvision_stream.py  sha1=c30d784f26a0
     vision/output.py             sha1=a408aa3996c7
@@ -25,7 +25,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': 'fa0f8abdf4ac655fbdf2cf559dff49fe74c6b6b2', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'be459503f8e58cd4eb466bd439cfddf98cc93ee1', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'a408aa3996c737e0da67b945ecc4802d18bbc81a', 'vision/logic.py': '5d15b41e0b58dd564341a0f160e2b0b9d99ce672', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': 'd0e2676568b1585627e4ba8e2f5d9d2ea6c860b7', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': '091782dd60d8b2eb21f7ed9c47b705f394669d48', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': '865002e42eb2daf1043cb1073f659b5bead03b3c', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'a408aa3996c737e0da67b945ecc4802d18bbc81a', 'vision/logic.py': '5d15b41e0b58dd564341a0f160e2b0b9d99ce672', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': 'd0e2676568b1585627e4ba8e2f5d9d2ea6c860b7', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -51,7 +51,7 @@ class Config:
     SHOW_STREAM = True
     # 0 = 用屏幕原始宽度（推荐）：640×480 画布与相机同尺寸，驱动层不再缩放
     SHOW_WIDTH = 0
-    SHOW_FPS = 40
+    SHOW_FPS = 25
     SHOW_JPEG_QUALITY = 70
     VISION_ASYNC = True      # 后台识别，忙时只保留最新帧，不积压旧图
     SHOW_ASYNC = True        # 独立显示线程：show() 慢只掉预览帧，不拖识别/串口/闭环
@@ -667,12 +667,19 @@ def ring_hole(gray, box, margin, min_hole, max_hole, aspect_lo, aspect_hi,
     if hierarchy is None or not contours:
         return None
     hier = hierarchy[0].tolist()
+    # 环 = 顶层中 bbox 面积最大者。杂乱场景顶层轮廓可达上百个，逐个
+    # boundingRect 就是上百次调用；先用轮廓点数（=周长，O(1) 的 len）粗排
+    # 取前 8，再只对这 8 个量 bbox —— 周长与块大小强相关，粗排足够保真。
+    tops = [i for i, row in enumerate(hier) if row[3] == -1]
+    if not tops:
+        return None
+    if len(tops) > 8:
+        tops.sort(key=lambda i: -len(contours[i]))
+        tops = tops[:8]
     ring_i = -1
     ring_box = None
     ring_bb = -1.0
-    for i, row in enumerate(hier):
-        if row[3] != -1:
-            continue
+    for i in tops:
         bx, by, bw2, bh2 = cv2.boundingRect(contours[i])
         area_bb = float(bw2) * float(bh2)
         if area_bb > ring_bb:
@@ -823,6 +830,11 @@ def hole_quad(points, rect, min_pts=8, keep=0.75):
     vx, vy = -math.sin(a), math.cos(a)
     hu = max(0.5 * float(rw), 1e-3)
     hv = max(0.5 * float(rh), 1e-3)
+    # CHAIN_APPROX_NONE 的洞轮廓可达上千点；投影循环是纯 Python，先抽稀到
+    # ≤600 点（切片零调用），拟线精度损失亚像素级，循环时间减半以上。
+    if len(points) > 600:
+        step = len(points) // 600 + 1
+        points = points[::step]
     sides = ([], [], [], [])          # 0:+u 1:-u 2:+v 3:-v
     for x, y in points:
         dx = float(x) - cx
