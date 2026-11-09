@@ -36,7 +36,7 @@ from .output import (Preview, aligned_frame, apply_commands, display_result,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-09-quad-track-v11"
+BUILD_ID = "2026-11-09-quad-track-v12"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -174,7 +174,7 @@ class RectangleCenterDetector:
             stats["structural"] = stats.get("structural", 0) + 1
             return None
         t2 = time.perf_counter()
-        quad, hits = hole_quad(rh["hole"], rh["rect"])
+        quad, hits = hole_quad(rh["hole"], rh["rect"], hole_area=rh["hole_area"])
         if quad is None:
             stats["structural"] = stats.get("structural", 0) + 1
             return None
@@ -259,7 +259,7 @@ class RectangleCenterDetector:
         if rh is None:
             return None
         t2 = time.perf_counter()
-        quad, hits = hole_quad(rh["hole"], rh["rect"])
+        quad, hits = hole_quad(rh["hole"], rh["rect"], hole_area=rh["hole_area"])
         if quad is None:
             return None
         # ROI 原点是原图坐标，只有块内坐标才乘缩放系数（乘错一次就差半个画面）。

@@ -10,13 +10,13 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-09 22:16:05
-    config.py                    sha1=091782dd60d8
+生成时间：2026-11-09 22:26:13
+    config.py                    sha1=7cf88aedd4a3
     main.py                      sha1=c2f5fb47aa9e
     target_api.py                sha1=d0e2676568b1
     vision/__init__.py           sha1=6e0b16db8298
-    vision/algo.py               sha1=865002e42eb2
-    vision/logic.py              sha1=3e0a9e11b666
+    vision/algo.py               sha1=0af8f1bb3c16
+    vision/logic.py              sha1=4ca02851de1f
     vision/maixvision_stream.py  sha1=c30d784f26a0
     vision/output.py             sha1=a408aa3996c7
     vision/poll.py               sha1=992056fd530e
@@ -25,7 +25,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '091782dd60d8b2eb21f7ed9c47b705f394669d48', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': '865002e42eb2daf1043cb1073f659b5bead03b3c', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'a408aa3996c737e0da67b945ecc4802d18bbc81a', 'vision/logic.py': '3e0a9e11b666f8fcd8dd6a0e2eee56b67d5a6ec6', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': 'd0e2676568b1585627e4ba8e2f5d9d2ea6c860b7', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': '7cf88aedd4a3740ae3735c8abdf46879a8eb1683', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': '0af8f1bb3c167237f067222aeea1a822e82e6de4', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'a408aa3996c737e0da67b945ecc4802d18bbc81a', 'vision/logic.py': '4ca02851de1fc7b4e3e0967e2c5335448457ea72', 'vision/__init__.py': '6e0b16db82984685e6015211e17ef270fd60c952', 'target_api.py': 'd0e2676568b1585627e4ba8e2f5d9d2ea6c860b7', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -124,8 +124,8 @@ class Config:
     RECT_MAX_CANDIDATES = 2       # 精测候选上限（板上每候选约十几次调用）
     RECT_MIN_ASPECT = 1.05        # 洞（纸面）边比窗：下限杀正方形/圆洞；上限给透视留余量
     RECT_MAX_ASPECT = 3.2
-    RECT_HOLE_MIN_PX = 120        # 洞长边尺寸窗（165cm 定距下靶纸像素尺寸已知：
-    RECT_HOLE_MAX_PX = 400        # 挡门框这类巨型假框与印刷环这类微型假框）
+    RECT_HOLE_MIN_PX = 70         # 洞长边尺寸窗（靶纸放低/后仰时洞会缩小，下限要容得住；
+    RECT_HOLE_MAX_PX = 400        # 挡印刷环这类微型假框与远处的巨型假框）
     RECT_BAND_COVER = 0.60        # 洞向外一圈（0.06×洞短边厚）的暗占比下限：
                                   # 拦"细丝围亮区"/印刷细环；误锁细框结构就调高
     RECT_BAND_MIN_CONTRAST = 25.0 # 洞内均值 − Otsu 阈值 ≥ 该值才认（洞必须是亮纸面）
@@ -751,7 +751,8 @@ def _fit_line_dep(pts, trim_px=3.0, min_pts=3):
     """闭式最小二乘拟线：x = a·y + b（x=法向坐标，y=沿边坐标）。
 
     先整批拟一次，剔除法向残差 > trim_px 的外点（反光/毛边）再拟一次即收敛。
-    点数不足或退化（沿边坐标全相同）返回 None。
+    点数不足或退化（沿边坐标全相同）返回 None；成功返回 (a, b, mean_resid)，
+    mean_resid = 收敛后那批点的平均法向残差 —— "洞是不是规整四边形"的判据。
     """
     a = b = 0.0
     for _ in range(2):
@@ -772,15 +773,17 @@ def _fit_line_dep(pts, trim_px=3.0, min_pts=3):
         b = (sx - a * sy) / n
         kept = [p for p in pts if abs(p[0] - (a * p[1] + b)) <= trim_px]
         if len(kept) == len(pts):
-            return (a, b)
+            resid = sum(abs(p[0] - (a * p[1] + b)) for p in pts) / len(pts)
+            return (a, b, resid)
         pts = kept
-    return (a, b) if len(pts) >= min_pts else None
+    resid = sum(abs(p[0] - (a * p[1] + b)) for p in pts) / len(pts)
+    return (a, b, resid) if len(pts) >= min_pts else None
 
 
 def _cross_uv(line_u, line_v):
     """du = a·dv + b 与 dv = c·du + d 两线求交，返回 (du, dv)；近平行返回 None。"""
-    a, b = line_u
-    c, d = line_v
+    a, b = line_u[0], line_u[1]
+    c, d = line_v[0], line_v[1]
     den = 1.0 - a * c
     if abs(den) < 1e-9:
         return None
@@ -804,7 +807,7 @@ def _poly2_area(quad):
     return total
 
 
-def hole_quad(points, rect, min_pts=8, keep=0.75):
+def hole_quad(points, rect, min_pts=8, keep=0.75, hole_area=None):
     """洞轮廓点 + minAreaRect → 内框四角（环序，对角线 = 0-2 / 1-3）。
 
     **全纯 Python**：热路径上小数组的 numpy 调用与循环同价，但每次多付 ~1ms。
@@ -873,9 +876,44 @@ def hole_quad(points, rect, min_pts=8, keep=0.75):
                     if math.hypot(x1 - x0, y1 - y0) < 8.0:
                         ok = False
                         break
+            # 规整性：四条边的平均拟合残差 / 短边 必须很小 —— 真纸洞是干净
+            # 矩形（残差亚像素级）；柜门/墙缝围出的不规则亮区，拟线残差爆炸。
+            # 纯几何判据，不含任何图案识别。
+            if ok:
+                wsum = rsum = 0.0
+                for idx, ln in enumerate(lines):
+                    n = float(len(sides[idx]))
+                    wsum += n
+                    rsum += ln[2] * n
+                if rsum / max(wsum, 1.0) / (2.0 * min(hu, hv)) > 0.03:
+                    ok = False
+            # 凸性：四边叉积同号才算凸四边形
+            if ok:
+                sign = None
+                for i in range(4):
+                    ax, ay = quad[i]
+                    bx, by = quad[(i + 1) % 4]
+                    cx2, cy2 = quad[(i + 2) % 4]
+                    c1x, c1y = bx - ax, by - ay
+                    c2x, c2y = cx2 - bx, cy2 - by
+                    cr = c1x * c2y - c1y * c2x
+                    if abs(cr) < 1e-6:
+                        ok = False
+                        break
+                    if sign is None:
+                        sign = cr > 0
+                    elif (cr > 0) != sign:
+                        ok = False
+                        break
             if not ok:
                 quad = None
     if quad is None:
+        # 回退也要过"洞像不像矩形"的门：洞面积填不满自己的 minAreaRect
+        # （< 0.55）说明洞本身是 L 形/不规则亮区，回退四边形只会画出假框。
+        # 真纸洞（含透视）填充率 0.85+。
+        if hole_area is not None and \
+                float(hole_area) < 0.55 * (2.0 * hu) * (2.0 * hv):
+            return None, 0
         return _rect_quad_from(rect), 0
     return quad, 4
 
@@ -2221,7 +2259,7 @@ from .output import (Preview, aligned_frame, apply_commands, display_result,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-09-quad-track-v11"
+BUILD_ID = "2026-11-09-quad-track-v12"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -2359,7 +2397,7 @@ class RectangleCenterDetector:
             stats["structural"] = stats.get("structural", 0) + 1
             return None
         t2 = time.perf_counter()
-        quad, hits = hole_quad(rh["hole"], rh["rect"])
+        quad, hits = hole_quad(rh["hole"], rh["rect"], hole_area=rh["hole_area"])
         if quad is None:
             stats["structural"] = stats.get("structural", 0) + 1
             return None
@@ -2444,7 +2482,7 @@ class RectangleCenterDetector:
         if rh is None:
             return None
         t2 = time.perf_counter()
-        quad, hits = hole_quad(rh["hole"], rh["rect"])
+        quad, hits = hole_quad(rh["hole"], rh["rect"], hole_area=rh["hole_area"])
         if quad is None:
             return None
         # ROI 原点是原图坐标，只有块内坐标才乘缩放系数（乘错一次就差半个画面）。

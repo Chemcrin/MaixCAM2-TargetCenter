@@ -88,8 +88,8 @@ class Config:
     RECT_MAX_CANDIDATES = 2       # 精测候选上限（板上每候选约十几次调用）
     RECT_MIN_ASPECT = 1.05        # 洞（纸面）边比窗：下限杀正方形/圆洞；上限给透视留余量
     RECT_MAX_ASPECT = 3.2
-    RECT_HOLE_MIN_PX = 120        # 洞长边尺寸窗（165cm 定距下靶纸像素尺寸已知：
-    RECT_HOLE_MAX_PX = 400        # 挡门框这类巨型假框与印刷环这类微型假框）
+    RECT_HOLE_MIN_PX = 70         # 洞长边尺寸窗（靶纸放低/后仰时洞会缩小，下限要容得住；
+    RECT_HOLE_MAX_PX = 400        # 挡印刷环这类微型假框与远处的巨型假框）
     RECT_BAND_COVER = 0.60        # 洞向外一圈（0.06×洞短边厚）的暗占比下限：
                                   # 拦"细丝围亮区"/印刷细环；误锁细框结构就调高
     RECT_BAND_MIN_CONTRAST = 25.0 # 洞内均值 − Otsu 阈值 ≥ 该值才认（洞必须是亮纸面）
