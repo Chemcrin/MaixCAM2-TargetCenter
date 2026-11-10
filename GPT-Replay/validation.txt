@@ -1,9 +1,9 @@
-GPT-Replay 历史恢复版验证，2026-11-09
+GPT-Replay 低开销透视识别优化验证，2026-11-10
 AST: all Python sources parse successfully
 Runtime: 3.11.4 (tags/v3.11.4:d2340ef, Jun  7 2023, 05:45:37) [MSC v.1934 64 bit (AMD64)]
 Executable: D:\Python311\python.exe
 
-$ python -B tools/check_app.py --manifest --strict
+$ python -B tools/check_app.py --manifest
 ==============================================================================
 MaixCAM 应用门禁  root = C:\Users\CloudyRain\Desktop\待办\电赛\25Efork\GPT-Replay\maixcam2_rect_center
 ==============================================================================
@@ -21,16 +21,18 @@ MaixCAM 应用门禁  root = C:\Users\CloudyRain\Desktop\待办\电赛\25Efork\G
       OK   3 项通过
 
 [OK  ] C4  所有将进包的 .py 语法编译通过
-      OK   5 项通过
+      OK   6 项通过
 
-[OK  ] C5  AST 扫描：桌面 API 禁止清单、顶层 maix 导入、帧循环内无条件落盘
-      OK   1 项通过
+[WARN] C5  AST 扫描：桌面 API 禁止清单、顶层 maix 导入、帧循环内无条件落盘
+      WARN C:\Users\CloudyRain\Desktop\待办\电赛\25Efork\GPT-Replay\maixcam2_rect_center\vision\maixvision_stream.py:274 在 _child() 的循环内落盘（cv2.imencode）—— 需确认已节流+限量+可关闭（检测到有 If 保护）
+      WARN C:\Users\CloudyRain\Desktop\待办\电赛\25Efork\GPT-Replay\maixcam2_rect_center\vision\maixvision_stream.py:274 在 _child() 的循环内落盘（cv2.imencode）—— 需确认已节流+限量+可关闭（检测到有 If 保护）
+      OK   0 项通过
 
 [OK  ] C6  将进包的文件均为 UTF-8 无 BOM 且纯 LF
-      OK   12 项通过
+      OK   14 项通过
 
 [OK  ] C7  源码字符串里无绝对 Windows 路径
-      OK   5 项通过
+      OK   6 项通过
 
 [OK  ] C8  BUILD_ID 存在且被打印；有 dist/main_single.py 时核对一致
       OK   1 项通过
@@ -39,22 +41,23 @@ MaixCAM 应用门禁  root = C:\Users\CloudyRain\Desktop\待办\电赛\25Efork\G
       OK   6 项通过
 
 ------------------------------------------------------------------------------
-应用包内文件清单（7 项）
+应用包内文件清单（8 项）
 ------------------------------------------------------------------------------
-       373  maixcam2_rect_center/app.yaml
-      2247  maixcam2_rect_center/config.py
-      6046  maixcam2_rect_center/main.py
+       392  maixcam2_rect_center/app.yaml
+      2567  maixcam2_rect_center/config.py
+      7339  maixcam2_rect_center/main.py
       1938  maixcam2_rect_center/assets/icon.png
         93  maixcam2_rect_center/vision/__init__.py
       9113  maixcam2_rect_center/vision/aiming.py
-     24145  maixcam2_rect_center/vision/rectangle_center.py
-     43955  TOTAL
+     12985  maixcam2_rect_center/vision/maixvision_stream.py
+     23171  maixcam2_rect_center/vision/rectangle_center.py
+     57598  TOTAL
 
-被排除的目录（1）: tools
+被排除的目录（3）: __pycache__, tools, vision/__pycache__
 被排除的文件（1）: README.md
 
 ==============================================================================
-汇总: OK=41  WARN=0  FAIL=0   ->  通过
+汇总: OK=44  WARN=2  FAIL=0   ->  通过
 ==============================================================================
 
 exit_code=0
@@ -62,7 +65,7 @@ exit_code=0
 $ python -B tools/test_aiming.py
 .......
 ----------------------------------------------------------------------
-Ran 7 tests in 0.079s
+Ran 7 tests in 0.080s
 
 OK
 
@@ -71,26 +74,39 @@ exit_code=0
 $ python -B tools/test_replay.py
 ...
 ----------------------------------------------------------------------
-Ran 3 tests in 0.042s
+Ran 3 tests in 0.062s
 
 OK
-[rect-center] 2026-10-06-laser-spot-v1 search_width=320 display_width=480 display_fps=15
-[rect-center] 四边窄带跟踪 / 失锁后低分辨率搜索 / 72 点逆投影
+[rect-center] 2026-11-10-fast-perspective-v1 search_width=320 display_width=480 display_fps=15
+[rect-center] 低分辨率Otsu/自适应轮廓 / ROI跟踪 / 四边精修 / 单应性中心
 [aim] 激光参考=(209.0, 144.0) 标定图=(453, 333) calibrated=False UART=aim; dx向右为正 dy向下为正
+[stream] POSIX flock unavailable; local display only
+[stream] MaixVision 图传已启动（独立进程，480x360） —— 未启用
 
 exit_code=0
 
 $ python -B tools/test_performance.py
 {
-  "fixtures": 30,
-  "detected": 29,
-  "failed": [
-    2
-  ],
-  "max_center_error_px": 0.803,
-  "negative_cases": 5,
+  "fixtures": 48,
+  "detected": 48,
+  "failed": [],
+  "max_center_error_px": 0.74,
+  "acquisition_frames_max": 1,
+  "cold_search_ms_p95": 1.672,
+  "rotation_sweep_frames": 24,
+  "rotation_invalid": 0,
+  "rotation_max_error_px": 0.638,
+  "small_resolution_cases": 12,
+  "small_resolution_failed": [],
+  "small_resolution_max_error_px": 0.61,
+  "negative_cases": 6,
   "false_positives": 0,
-  "motion_max_error_px": 0.637,
+  "negative_search_max": 2,
+  "negative_threshold_max": 1,
+  "blank_no_target": true,
+  "blank_search_max": 2,
+  "blank_ms_p95": 0.381,
+  "motion_max_error_px": 0.526,
   "motion_stages": [
     "track",
     "track",
@@ -109,8 +125,8 @@ $ python -B tools/test_performance.py
   "lost_valid": false,
   "reacquired": true,
   "optimized": {
-    "median_ms": 0.766,
-    "p95_ms": 1.03,
+    "median_ms": 0.694,
+    "p95_ms": 0.803,
     "tracked": 60
   }
 }

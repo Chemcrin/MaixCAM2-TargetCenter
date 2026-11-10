@@ -23,7 +23,7 @@ from config import Config
 from vision.rectangle_center import RectangleCenterDetector, draw_result
 from vision.aiming import LaserSpotDetector, add_aiming, draw_aiming, pack_aiming
 
-BUILD_ID = "2026-10-06-laser-spot-v1"
+BUILD_ID = "2026-11-10-fast-perspective-v1"
 
 
 def _to_gray(img, image_module):
@@ -58,6 +58,7 @@ def main():
                         buff_num=Config.CAMERA_BUFFERS)
     cam.skip_frames(Config.SKIP_FRAMES)
     disp = display.Display() if Config.SHOW else None
+    stream = None                          # MaixVision 图传（独立进程，首帧时按实际画布尺寸拉起）
     uart = None
     if Config.ENABLE_UART:
         try:
@@ -77,7 +78,7 @@ def main():
     mean_dt = None
     print("[rect-center] %s search_width=%d display_width=%d display_fps=%d" %
           (BUILD_ID, Config.SEARCH_WIDTH, Config.SHOW_WIDTH, Config.SHOW_FPS))
-    print("[rect-center] 四边窄带跟踪 / 失锁后低分辨率搜索 / 72 点逆投影")
+    print("[rect-center] 低分辨率Otsu/自适应轮廓 / ROI跟踪 / 四边精修 / 单应性中心")
     print("[aim] 激光参考=%s 标定图=%s calibrated=%s UART=%s; dx向右为正 dy向下为正" %
           (Config.LASER_PIXEL, Config.LASER_REFERENCE_SIZE,
            Config.LASER_CALIBRATED, Config.UART_PROTOCOL))
@@ -111,6 +112,27 @@ def main():
             cv2.putText(view, "FPS %.1f" % fps, (12, view.shape[0] - 12),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
             disp.show(image.cv2image(view, bgr=True, copy=True))
+            if getattr(Config, "SHOW_STREAM", False):
+                if stream is None:
+                    try:
+                        from vision.maixvision_stream import MaixVisionStream
+                        stream = MaixVisionStream(Config, view.shape[1], view.shape[0], clock=time)
+                        print("[stream] MaixVision 图传已启动（独立进程，%dx%d）%s"
+                              % (view.shape[1], view.shape[0],
+                                 "" if getattr(stream, "enabled", False) else " —— 未启用"))
+                    except Exception as exc:
+                        stream = None
+                        print("[stream] 图传启动失败（只影响 MaixVision 画面）: %s" % exc)
+                if stream is not None:
+                    try:
+                        stream.submit(view)
+                    except Exception as exc:
+                        print("[stream] 投递失败，停用图传: %s" % exc)
+                        try:
+                            stream.close()
+                        except Exception:
+                            pass
+                        stream = None
         now = time.perf_counter()
         dt = now - last
         last = now

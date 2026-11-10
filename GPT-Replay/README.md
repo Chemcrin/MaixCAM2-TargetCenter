@@ -1,6 +1,6 @@
 # GPT-Replay 历史代码备份
 
-按用户明确指定的位置另存，恢复时间 2026-11-09；目标是本对话最后完成的 `2026-10-06-laser-spot-v1`。外层是备份容器，可运行应用位于 `maixcam2_rect_center/`。
+按用户明确指定的位置另存，恢复时间 2026-11-09；2026-11-10 按用户后续要求优化高帧率、旋转和透视检测。当前备份构建号 `2026-11-10-fast-perspective-v1`、应用版本 `1.4.0`。外层是备份容器，可运行应用位于 `maixcam2_rect_center/`。
 
 ## 来源及恢复边界
 
@@ -15,6 +15,7 @@
 | 门禁和黑框性能测试 | Git `d2f36e7`，保留历史测试判据 |
 | Maix 桩 | Git `bfff85a`，备份独立运行，无需导入现行工程 |
 | `test_replay.py`、说明和校验工具 | 本次恢复新增，仅用于备份验证 |
+| 黑框检测器、性能回归和应用参数 | 本轮优化为低分辨率二值提案、ROI 跟踪、旋转透视带宽验证和原图四边精修 |
 
 `restore_history.py` 是本次提取 Git 文件的一次性脚本，会拒绝覆盖已有文件；它只恢复基础文件，不能独自重建对话补写的全部模块。完整恢复应直接使用本目录或压缩包。
 
@@ -23,6 +24,6 @@
 1. 在 MaixVision 中选择 `GPT-Replay/maixcam2_rect_center`，使用“运行项目”。
 2. 确认启动构建号为 `2026-10-06-laser-spot-v1`。
 3. 如需核验备份，运行 `D:/Python311/python.exe -B seal_backup.py --check`。
-4. 同目录的 ZIP 为完整备份副本。`SHA256SUMS.txt` 记录原始文件校验值；ZIP 的校验值单独写入 `.zip.sha256`。
+4. 优化后交付包为 `GPT-Replay_2026-11-10-fast-perspective-v1.zip`；初始恢复包保留在 `GPT-Replay_2026-10-06-laser-spot-v1.zip`。优化版清单为 `SHA256SUMS_fast-perspective-v1.txt`，ZIP 校验值为同名 `.zip.sha256`。
 
-本次恢复只做 PC/桩验证，未连接 MaixCAM2 或云台；校准值和串口协议保留历史口径。具体测试输出见 `validation.txt`。
+PC 旋转、透视、低分辨率、失锁和光斑测试已执行；未连接 MaixCAM2 或云台，PC 耗时不作为板端 FPS 保证。优化版测试输出见 `validation.txt`。

@@ -1,11 +1,11 @@
 id: maixcam2_rect_center
-name: GPT Replay Laser Spot
-name[zh]: GPT 历史恢复：黑框与激光光斑
-version: 1.2.0
+name: GPT Replay Fast Target Vision
+name[zh]: GPT 历史恢复：高速透视靶框视觉
+version: 1.4.0
 icon: assets/icon.png
 author: 25Efork
-desc: Historical rectangle detection with laser spot and aiming vector.
-desc[zh]: 恢复本对话黑框检测、实际光斑定位、偏差与箭头版本。
+desc: Fast perspective-robust rectangle detection with laser spot and aiming vector.
+desc[zh]: Otsu轮廓主检、旋转透视精修、光斑定位与偏差箭头。
 exclude:
   - __pycache__
   - tools

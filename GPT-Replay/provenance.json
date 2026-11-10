@@ -1,6 +1,8 @@
 {
   "restored_on": "2026-11-09",
-  "build_id": "2026-10-06-laser-spot-v1",
+  "optimized_on": "2026-11-10",
+  "build_id": "2026-11-10-fast-perspective-v1",
+  "app_version": "1.4.0",
   "kind": "historical_git_plus_conversation_reconstruction",
   "byte_identical_original_snapshot": false,
   "current_application_modified": false,
@@ -20,5 +22,25 @@
     "detected": 29,
     "known_miss_index": 2,
     "max_error_px": 0.803
+  },
+  "optimized_validation": {
+    "perspective_rotation_scenes": 48,
+    "detected": 48,
+    "rapid_rotation_frames": 24,
+    "rapid_rotation_misses": 0,
+    "rotation_max_center_error_px": 0.638,
+    "max_center_error_px": 0.74,
+    "negative_scenes": 6,
+    "false_positives": 0,
+    "max_full_frame_threshold_scans_per_image": 1,
+    "max_search_passes_per_image": 2,
+    "blank_no_target": true,
+    "blank_search_p95_ms": 0.381,
+    "cold_search_p95_ms": 1.672,
+    "steady_state_median_ms": 0.694,
+    "steady_state_p95_ms": 0.803,
+    "low_resolution_scenes": 12,
+    "low_resolution_misses": 0,
+    "board_tested": false
   }
 }
