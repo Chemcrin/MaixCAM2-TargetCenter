@@ -10,22 +10,22 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-12 13:20:26
-    config.py                    sha1=1c3f16aedc8d
+生成时间：2026-11-12 14:48:45
+    config.py                    sha1=0783de119a3e
     main.py                      sha1=c2f5fb47aa9e
     target_api.py                sha1=0c48a301aa89
     vision/__init__.py           sha1=aec45202f46e
     vision/algo.py               sha1=a4578a955777
-    vision/logic.py              sha1=42ed1848b99d
+    vision/logic.py              sha1=9acbfeb58ff2
     vision/maixvision_stream.py  sha1=c30d784f26a0
-    vision/output.py             sha1=eed07a7dcd99
+    vision/output.py             sha1=9bbd6378c4d4
     vision/poll.py               sha1=992056fd530e
 """
 
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '1c3f16aedc8d608e1925884e24954455a8fe443a', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'eed07a7dcd9989eaa73496d9039949b56f23c078', 'vision/logic.py': '42ed1848b99da60dff6267a9fa0f1c1917a84f29', 'vision/__init__.py': 'aec45202f46e3fa9734791b432bf3c4b8f802758', 'target_api.py': '0c48a301aa8924580bfd7c2cae20c03bd2e2d6e0', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': '0783de119a3e6f4bef5fe0b946956162c286a05c', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': '9bbd6378c4d4529e6b9071c05387088cebb60b5c', 'vision/logic.py': '9acbfeb58ff2f3c1ddc46ccd979b535904115404', 'vision/__init__.py': 'aec45202f46e3fa9734791b432bf3c4b8f802758', 'target_api.py': '0c48a301aa8924580bfd7c2cae20c03bd2e2d6e0', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -54,8 +54,9 @@ class Config:
     SHOW_FPS = 30
     SHOW_JPEG_QUALITY = 40
     # 子进程图传的投递宽度（0 = 原样投 640×480）。240 时编码/网络量约为原样 1/6，
-    # 子进程单帧开销降到几 ms，30fps 节拍可稳定跟上；识别帧率本就不受图传影响。
-    SHOW_STREAM_WIDTH = 240
+    # 但画面细节（胶带边、同心圆）会被压掉，看判据时容易误判；默认投 480 兼顾清晰与带宽，
+    # 现场追帧率再临时降回 240。
+    SHOW_STREAM_WIDTH = 480
     VISION_ASYNC = True      # 后台识别，忙时只保留最新帧，不积压旧图
     SHOW_ASYNC = True        # 独立显示线程：show() 慢只掉预览帧，不拖识别/串口/闭环
     RESULT_MAX_AGE_S = 0.40  # 以采图时刻计龄；过期结果不画框、不下发指令（30fps 下收紧窗口）
@@ -1023,7 +1024,12 @@ def _draw_build(canvas, result, top_offset=0):
 def draw_result(gray, result, show_width=480, top_offset=0):
     """把一帧结果画成 BGR 画布。坐标一律按 scale 换算，文字仍报原图坐标。
 
-    绿色四边形 = 胶带外沿，青色线 = 纸边（定心用），蓝色十字 = 靶心。
+    配色语义（三条线各管一件事，别再混着画）：
+        绿 2px   `detected_quad` —— 本帧**实际锁定**的轮廓，永远贴合画面里的边；
+        青 1px   `inner_quad`    —— 纸边，靶心就是它的对角线交点；
+        洋红 1px `quad`          —— 按物理带宽**外推**的胶带外沿，只作参考。
+    把"实测边"和"外推边"画成同一条绿线，会在胶带宽度与 `BLACK_FRAME_MM` 不符时
+    让画面看起来像"框飘了"，而中心其实是对的 —— 所以两者必须分开显示。
     """
     g = np.asarray(gray).squeeze()
     scale = min(1.0, float(show_width) / max(1, g.shape[1]))
@@ -1038,23 +1044,26 @@ def draw_result(gray, result, show_width=480, top_offset=0):
         _draw_build(canvas, result, top_offset)
         return canvas
 
-    q = np.rint(np.asarray(result["quad"], np.float32) * scale).astype(np.int32)
+    detected = result.get("detected_quad")
+    if detected is None:
+        detected = result["quad"]
+    q = np.rint(np.asarray(detected, np.float32) * scale).astype(np.int32)
     cv2.polylines(canvas, [q], True, (0, 255, 0), 2, cv2.LINE_AA)
     for x, y in q:
         cv2.circle(canvas, (int(x), int(y)), 3, (255, 0, 255), -1)
+
+    # 外推外框：与实测边不同才画，避免两条线叠在一起看着像粗边。
+    outer = result.get("quad")
+    if outer is not None and not np.allclose(np.asarray(outer, np.float32),
+                                             np.asarray(detected, np.float32), atol=0.5):
+        oq = np.rint(np.asarray(outer, np.float32) * scale).astype(np.int32)
+        cv2.polylines(canvas, [oq], True, (255, 0, 255), 1, cv2.LINE_AA)
 
     # 内框（纸边）：定心用的就是它，画出来便于核对是否贴合。
     inner = result.get("inner_quad")
     if inner is not None:
         iq = np.rint(np.asarray(inner, np.float32) * scale).astype(np.int32)
         cv2.polylines(canvas, [iq], True, (255, 200, 0), 1, cv2.LINE_AA)
-
-    bbox = result.get("bbox")
-    if bbox:
-        x, y, bw, bh = bbox
-        cv2.rectangle(canvas, (int(round(x * scale)), int(round(y * scale))),
-                      (int(round((x + bw) * scale)), int(round((y + bh) * scale))),
-                      (0, 220, 255), 1)
 
     c = (int(round(result["u"] * scale)), int(round(result["v"] * scale)))
     cv2.drawMarker(canvas, c, (255, 0, 0), cv2.MARKER_CROSS, 14, 2)
@@ -1991,7 +2000,7 @@ from .output import (Preview, TouchButtons, aligned_frame, apply_commands, displ
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-12-gimbal-actions-v19"
+BUILD_ID = "2026-11-12-fast-perspective-v18"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0

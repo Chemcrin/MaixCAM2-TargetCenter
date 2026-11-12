@@ -18,8 +18,9 @@ class Config:
     SHOW_FPS = 30
     SHOW_JPEG_QUALITY = 40
     # 子进程图传的投递宽度（0 = 原样投 640×480）。240 时编码/网络量约为原样 1/6，
-    # 子进程单帧开销降到几 ms，30fps 节拍可稳定跟上；识别帧率本就不受图传影响。
-    SHOW_STREAM_WIDTH = 240
+    # 但画面细节（胶带边、同心圆）会被压掉，看判据时容易误判；默认投 480 兼顾清晰与带宽，
+    # 现场追帧率再临时降回 240。
+    SHOW_STREAM_WIDTH = 480
     VISION_ASYNC = True      # 后台识别，忙时只保留最新帧，不积压旧图
     SHOW_ASYNC = True        # 独立显示线程：show() 慢只掉预览帧，不拖识别/串口/闭环
     RESULT_MAX_AGE_S = 0.40  # 以采图时刻计龄；过期结果不画框、不下发指令（30fps 下收紧窗口）

@@ -65,7 +65,12 @@ def _draw_build(canvas, result, top_offset=0):
 def draw_result(gray, result, show_width=480, top_offset=0):
     """把一帧结果画成 BGR 画布。坐标一律按 scale 换算，文字仍报原图坐标。
 
-    绿色四边形 = 胶带外沿，青色线 = 纸边（定心用），蓝色十字 = 靶心。
+    配色语义（三条线各管一件事，别再混着画）：
+        绿 2px   `detected_quad` —— 本帧**实际锁定**的轮廓，永远贴合画面里的边；
+        青 1px   `inner_quad`    —— 纸边，靶心就是它的对角线交点；
+        洋红 1px `quad`          —— 按物理带宽**外推**的胶带外沿，只作参考。
+    把"实测边"和"外推边"画成同一条绿线，会在胶带宽度与 `BLACK_FRAME_MM` 不符时
+    让画面看起来像"框飘了"，而中心其实是对的 —— 所以两者必须分开显示。
     """
     g = np.asarray(gray).squeeze()
     scale = min(1.0, float(show_width) / max(1, g.shape[1]))
@@ -80,23 +85,26 @@ def draw_result(gray, result, show_width=480, top_offset=0):
         _draw_build(canvas, result, top_offset)
         return canvas
 
-    q = np.rint(np.asarray(result["quad"], np.float32) * scale).astype(np.int32)
+    detected = result.get("detected_quad")
+    if detected is None:
+        detected = result["quad"]
+    q = np.rint(np.asarray(detected, np.float32) * scale).astype(np.int32)
     cv2.polylines(canvas, [q], True, (0, 255, 0), 2, cv2.LINE_AA)
     for x, y in q:
         cv2.circle(canvas, (int(x), int(y)), 3, (255, 0, 255), -1)
+
+    # 外推外框：与实测边不同才画，避免两条线叠在一起看着像粗边。
+    outer = result.get("quad")
+    if outer is not None and not np.allclose(np.asarray(outer, np.float32),
+                                             np.asarray(detected, np.float32), atol=0.5):
+        oq = np.rint(np.asarray(outer, np.float32) * scale).astype(np.int32)
+        cv2.polylines(canvas, [oq], True, (255, 0, 255), 1, cv2.LINE_AA)
 
     # 内框（纸边）：定心用的就是它，画出来便于核对是否贴合。
     inner = result.get("inner_quad")
     if inner is not None:
         iq = np.rint(np.asarray(inner, np.float32) * scale).astype(np.int32)
         cv2.polylines(canvas, [iq], True, (255, 200, 0), 1, cv2.LINE_AA)
-
-    bbox = result.get("bbox")
-    if bbox:
-        x, y, bw, bh = bbox
-        cv2.rectangle(canvas, (int(round(x * scale)), int(round(y * scale))),
-                      (int(round((x + bw) * scale)), int(round((y + bh) * scale))),
-                      (0, 220, 255), 1)
 
     c = (int(round(result["u"] * scale)), int(round(result["v"] * scale)))
     cv2.drawMarker(canvas, c, (255, 0, 0), cv2.MARKER_CROSS, 14, 2)
