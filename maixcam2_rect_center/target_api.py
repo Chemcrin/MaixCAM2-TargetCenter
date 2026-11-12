@@ -74,7 +74,7 @@
 
 不想改 ``config.py`` 时用 ``load_config(...)`` 造一份覆盖::
 
-    cfg = load_config(RECT_MIN_AREA=500, RECT_MAX_ASPECT=2.0)
+    cfg = load_config(MIN_EDGE_CONTRAST=30.0, MIN_EDGE_COVERAGE=0.65)
     tracker = CenterTracker(cfg)
 """
 
@@ -129,7 +129,7 @@ class Result(dict):
 def load_config(**overrides):
     """返回 config.Config（可带覆盖项，不改磁盘上的 config.py）。
 
-    ``load_config(RECT_MIN_AREA=500)`` → 派生一个只改了该字段的配置类。
+    ``load_config(MIN_EDGE_COVERAGE=0.65)`` → 派生一个只改了该字段的配置类。
     """
     from config import Config
     if not overrides:
@@ -201,7 +201,7 @@ def _wrap(raw, gray):
 def detect_black_frame(frame, cfg=None, detector=None):
     """**无状态**识别黑框，返回 ``Result``（没识别到则 ``valid=False``，``bool(res)`` 为假）。
 
-    每帧都是一次完整的"降采样找块 → 环-洞结构判据 → 洞四边拟线 → 对角线交点"，
+    每帧都是一次完整的"降采样 Otsu 提案 → 窄带黑带验证 → 四边拟线精修 → 内框对角线交点"，
     不依赖上一帧，适合"只在某几问里取一次黑框"的用法。传 ``detector`` 可复用分配，
     但每次都清空跟踪状态；连续视频使用 ``CenterTracker``。
 

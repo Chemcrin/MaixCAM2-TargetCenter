@@ -226,7 +226,7 @@ def smoke():
     bid_single = re.search(r"^BUILD_ID\s*=\s*[\"']([^\"']+)[\"']", text, re.M)
     checks.append(("BUILD_ID 与 vision/logic.py 一致",
                    bool(bid_main and bid_single and bid_main.group(1) == bid_single.group(1))))
-    checks.append(("config 参数可读", bool(getattr(Config, "RECT_MIN_AREA", None))))
+    checks.append(("config 参数可读", bool(getattr(Config, "BLACK_FRAME_MM", None))))
     checks.append(("target_api 符号就位", callable(detect_black_frame) and callable(CenterTracker)))
     bad = [label for label, ok in checks if not ok]
     for label, ok in checks:

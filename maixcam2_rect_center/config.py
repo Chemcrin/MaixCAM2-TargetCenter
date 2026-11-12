@@ -72,44 +72,37 @@ class Config:
     UART_RX_MAX_BYTES = 256
     UART_RX_BUFFER_MAX_BYTES = 1024
 
-    # ---- 识别（阈值 → 连通域 → 环-洞结构 → 洞四边拟线 → 对角线交点）----
-    RECT_DOWNSCALE = 2            # 搜索态降采样倍数（跟踪态按 ROI 自适应钉上限）
-    RECT_LEVEL_RATIO = 0.62       # 阈值 = 亮面 90 分位 × 该比例（压在胶带与纸面之间）
-    RECT_LEVEL_FLOOR = 45.0       # 阈值下限（再暗的胶带也要能进得来）
-    RECT_LEVEL_CEIL = 160.0       # 阈值上限（再亮的背景也不许当纸面）
-    RECT_CLOSE_SIZE = 3           # 二值闭运算核：桥接运动模糊的细断带；<3 = 关闭
-    RECT_MIN_AREA = 1200          # 连通域最小面积（全分辨率 px2）
-    RECT_MAX_AREA_RATIO = 1.01    # bbox 面积占画面上限：实效关闭。真机实测暗框与暗背景
-                                  # 连成 mega-blob 时 bbox≈整幅（比值=1.0），任何 <1 的门
-                                  # 都会把正确候选杀掉；误锁防护由洞尺寸窗/边比/亮度/
-                                  # 暗带封闭性接管，要收紧再调小此值
-    RECT_MIN_SIDE_PX = 24         # bbox 最短边下限（全分辨率 px）
-    RECT_BBOX_ASPECT_MIN = 0.45   # bbox 边比宽松窗：纸面转 45° 时 bbox 近正方形，不能误杀
-    RECT_BBOX_ASPECT_MAX = 3.4
-    RECT_MIN_FILL = 0.04          # 连通域填充率窗：环是空心的，fill 天然偏低
-    RECT_MAX_FILL = 0.75          # 上限挡实心块（真机立柱实测 0.88）
-    RECT_MAX_CANDIDATES = 4       # 精测候选上限：真靶纸在杂乱场景里可能只排第 3（暗门/
-                                  # 暗墙 bbox 更大），前 2 名全灭就轮不到它；搜索态瞬态开销可接受
-    RECT_MIN_ASPECT = 1.05        # 洞（纸面）边比窗：下限杀正方形/圆洞；上限给透视留余量
-    RECT_MAX_ASPECT = 3.2
-    RECT_HOLE_MIN_PX = 70         # 洞长边尺寸窗（靶纸放低/后仰时洞会缩小，下限要容得住；
-    RECT_HOLE_MAX_PX = 400        # 挡印刷环这类微型假框与远处的巨型假框）
-    RECT_BAND_COVER = 0.60        # 洞向外一圈（0.06×洞短边厚）的暗占比下限：
-                                  # 拦"细丝围亮区"/印刷细环；误锁细框结构就调高
-    RECT_BAND_MIN_CONTRAST = 25.0 # 洞内均值 − Otsu 阈值 ≥ 该值才认（洞必须是亮纸面）
-    RECT_MODEL_MM = (261.0, 174.0)  # 纸面模型尺寸；只影响 width_mm/height_mm 输出
+    # ---- 识别（降采样 Otsu 提案 → 窄带黑带验证 → 四边梯度精修 → 内框对角线交点）----
+    SEARCH_WIDTH = 320            # 提案阶段长边上限：1/2 尺度下胶带仍连续，像素量被钉住
+    EDGE_SAMPLES = 24             # 每条边的采样位置数；参与覆盖率统计与拟线点数
+    REFINE_RADIUS = 6             # 搜索态精修的法线搜索半径（px）
+    TRACK_RADIUS = 12             # 跟踪态精修半径：允许比搜索态更大的帧间位移
+    MIN_QUAD_SIDE = 14            # 提案四边形最短边（降采样尺度 px）
+    MIN_CONTOUR_AREA = 350        # 提案连通域最小面积（降采样尺度 px2）
+    MIN_AREA_RATIO = 0.025        # 同上，按画幅比例兜底（远处小靶纸不能让位给大暗块）
+    MAX_AREA_RATIO = 0.92         # 提案面积上限占画幅比例
+    MAX_CANDIDATES = 8            # 每种掩膜保留的提案上限；验证代价线性，别调太大
+    MAX_CONTOURS = 128            # 亮面补集轮廓的截断数（暗背景下轮廓可能成百上千）
+    APPROX_EPSILON = 0.025        # approxPolyDP 的周长比例系数
+    ADAPTIVE_BLOCK_SIZE = 31      # Otsu 无目标时的局部阈值块大小
+    ADAPTIVE_C = 8.0
+    MAX_LINE_RESIDUAL_PX = 2.0    # 单边拟线残差上限：超了说明这条边本来就不是直线
+    MIN_EDGE_CONTRAST = 20.0      # 暗带与纸面的灰度差下限
+    MIN_EDGE_COVERAGE = 0.55      # 单边"达标采样点"占比下限
+    WEAK_EDGE_COVERAGE = 0.25     # 允许一条边偏弱（反光/遮挡），其余边仍须达标
+    MAX_DARK_BRIGHT_RATIO = 0.72  # 暗带灰度 / 纸面灰度 上限
+    RECT_ASPECT_MIN = 1.05        # 实测四边形长边/短边窗：下限杀正方形（方形显示器/窗框）
+    RECT_ASPECT_MAX = 3.40        # 上限给强透视留裕量（物理外框 1.35，纸边 1.41）
+    BLACK_FRAME_MM = 18.0         # ★ 胶带实测宽度，直接进判据；换胶带宽度必须改这里
+    TARGET_SHORT_MM = 210.0       # A4 纸面物理尺寸，单应估计用
+    TARGET_LONG_MM = 297.0
+    ROI_PADDING = 0.20            # 跟踪 ROI = 上帧外框 × (1+该比例) + ROI_MIN_PADDING
+    ROI_MIN_PADDING = 24.0
+    MIN_ROI_SIZE = 32             # ROI 任一边小于它就不要了，直接回全图
+    CENTER_ALPHA = 0.70           # 显示用一阶低通；闭环走 raw_u/raw_v，不受此值影响
+    FILTER_RESET_PX = 25.0        # 单帧跳变超过它直接对齐，不拖尾
+    RECT_MODEL_MM = (TARGET_LONG_MM, TARGET_SHORT_MM)  # 纸面模型尺寸；只影响 width_mm/height_mm 输出
     RECT_KEEP_STAGES = False      # 真：把二值图留在 last_stages，供 --stage 导出
-
-    # ---- ROI 跟踪（锁定后的三件套：小窗找、外推跟、丢了续命）----
-    RECT_TRACK_EXPAND = 1.35      # ROI = 上帧框 × 该倍数 + MARGIN
-    RECT_TRACK_MARGIN = 10.0      # ROI 外扩像素
-    RECT_TRACK_MAX_SIDE = 400.0   # ROI 降采样后最长边上限；≥典型 ROI 时跟踪态=全分辨率量测（与搜索态同口径，重捕获零跳变），大 ROI 才降采样兜底
-    RECT_TRACK_SIZE_TOL = 0.25    # 跟踪尺寸门：块尺寸相对"锁定尺寸"的容差
-    RECT_TRACK_GATE = 0.45        # 跟踪门：实测中心离预测超 0.45×框边 → 当帧作废
-    RECT_HOLD_FRAMES = 6          # 抓不到时按速度外推续命的帧数
-    RECT_HOLD_MAX_PX = 90.0       # 外推单帧限幅（防速度跑飞把 ROI 甩到画面另一头）
-    RECT_MAX_SPEED = 2500.0       # 速度限幅 px/s；dt<4ms 不更新（连拍帧间隔会除出天文数字）
-    RECT_SMOOTH = 0.55            # 中心一阶低通系数（重捕获/续命后直接对齐不平滑）
 
     # ---- 激光光斑读数（相机与激光固连，光斑位置近似固定）----
     # "fixed"：不检测，每帧只算"黑框中心 − 标定常量"，零开销（默认）

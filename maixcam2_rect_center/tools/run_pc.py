@@ -1,6 +1,6 @@
 """Run the actual detector on Unicode image paths, video, or a camera.
 
---stage 用于分阶段调参：先看 binary 把二值图调闭合，再看 result 判断筛选是否合理。
+--stage 用于分阶段调参：先看 binary 确认黑带闭合、带宽与物理值相当，再看 result 判断验证门是否合理。
 """
 import argparse
 import json
@@ -36,8 +36,8 @@ def main():
     parser.add_argument('--show',action='store_true')
     parser.add_argument('--output',type=Path)
     parser.add_argument('--limit',type=int,default=0)
-    parser.add_argument('--stage',choices=('none','blur','binary'),default='none',
-                        help='显示/导出中间阶段而不是最终结果')
+    parser.add_argument('--stage',choices=('none','binary'),default='none',
+                        help='binary = 导出提案用的二值掩膜（降采样尺度）')
     args=parser.parse_args()
     tracker=CenterTracker(load_config(),with_laser=True)
     if args.stage!='none':
