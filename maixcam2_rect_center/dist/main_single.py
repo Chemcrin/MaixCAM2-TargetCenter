@@ -10,13 +10,13 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-12 14:48:45
-    config.py                    sha1=0783de119a3e
+生成时间：2026-11-12 14:55:03
+    config.py                    sha1=a05d0b827af5
     main.py                      sha1=c2f5fb47aa9e
     target_api.py                sha1=0c48a301aa89
     vision/__init__.py           sha1=aec45202f46e
     vision/algo.py               sha1=a4578a955777
-    vision/logic.py              sha1=9acbfeb58ff2
+    vision/logic.py              sha1=52ee2de2c8b6
     vision/maixvision_stream.py  sha1=c30d784f26a0
     vision/output.py             sha1=9bbd6378c4d4
     vision/poll.py               sha1=992056fd530e
@@ -25,7 +25,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '0783de119a3e6f4bef5fe0b946956162c286a05c', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': '9bbd6378c4d4529e6b9071c05387088cebb60b5c', 'vision/logic.py': '9acbfeb58ff2f3c1ddc46ccd979b535904115404', 'vision/__init__.py': 'aec45202f46e3fa9734791b432bf3c4b8f802758', 'target_api.py': '0c48a301aa8924580bfd7c2cae20c03bd2e2d6e0', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': 'a05d0b827af5e48d2764cb15507c72c6a4eb17cf', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': '9bbd6378c4d4529e6b9071c05387088cebb60b5c', 'vision/logic.py': '52ee2de2c8b6fc7d17859810b7233bb2f9cb9715', 'vision/__init__.py': 'aec45202f46e3fa9734791b432bf3c4b8f802758', 'target_api.py': '0c48a301aa8924580bfd7c2cae20c03bd2e2d6e0', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -52,7 +52,7 @@ class Config:
     # 0 = 用屏幕原始宽度（推荐）：640×480 画布与相机同尺寸，驱动层不再缩放
     SHOW_WIDTH = 0
     SHOW_FPS = 30
-    SHOW_JPEG_QUALITY = 40
+    SHOW_JPEG_QUALITY = 70
     # 子进程图传的投递宽度（0 = 原样投 640×480）。240 时编码/网络量约为原样 1/6，
     # 但画面细节（胶带边、同心圆）会被压掉，看判据时容易误判；默认投 480 兼顾清晰与带宽，
     # 现场追帧率再临时降回 240。
@@ -2000,7 +2000,7 @@ from .output import (Preview, TouchButtons, aligned_frame, apply_commands, displ
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-12-fast-perspective-v18"
+BUILD_ID = "2026-11-12-fast-perspective-v19"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
