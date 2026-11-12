@@ -422,7 +422,8 @@ class Preview:
             view if (nw, nh) == (vw, vh) else cv2.resize(view, (nw, nh)))
         if status:
             # 左下角状态串（aim 状态机名 / HOLD / FAULT）。
-            cv2.putText(canvas, status, (8, self.render_height - 8),
+            status_y = self.render_height - (58 if self.buttons is not None else 8)
+            cv2.putText(canvas, status, (8, status_y),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
         if self.buttons is not None:
             self.buttons.draw(canvas, now)

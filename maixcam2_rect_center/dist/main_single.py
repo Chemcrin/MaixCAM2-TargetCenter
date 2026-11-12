@@ -10,22 +10,22 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-12 12:40:00
+生成时间：2026-11-12 13:20:26
     config.py                    sha1=1c3f16aedc8d
     main.py                      sha1=c2f5fb47aa9e
     target_api.py                sha1=0c48a301aa89
     vision/__init__.py           sha1=aec45202f46e
     vision/algo.py               sha1=a4578a955777
-    vision/logic.py              sha1=ae9ded31ab6c
+    vision/logic.py              sha1=42ed1848b99d
     vision/maixvision_stream.py  sha1=c30d784f26a0
-    vision/output.py             sha1=2e2def84bfa1
+    vision/output.py             sha1=eed07a7dcd99
     vision/poll.py               sha1=992056fd530e
 """
 
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '1c3f16aedc8d608e1925884e24954455a8fe443a', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': '2e2def84bfa13525c318d7f228eb789f0bfc893d', 'vision/logic.py': 'ae9ded31ab6c71f52b167c00068ba335bcc1dd26', 'vision/__init__.py': 'aec45202f46e3fa9734791b432bf3c4b8f802758', 'target_api.py': '0c48a301aa8924580bfd7c2cae20c03bd2e2d6e0', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': '1c3f16aedc8d608e1925884e24954455a8fe443a', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'eed07a7dcd9989eaa73496d9039949b56f23c078', 'vision/logic.py': '42ed1848b99da60dff6267a9fa0f1c1917a84f29', 'vision/__init__.py': 'aec45202f46e3fa9734791b432bf3c4b8f802758', 'target_api.py': '0c48a301aa8924580bfd7c2cae20c03bd2e2d6e0', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -1380,7 +1380,8 @@ class Preview:
             view if (nw, nh) == (vw, vh) else cv2.resize(view, (nw, nh)))
         if status:
             # 左下角状态串（aim 状态机名 / HOLD / FAULT）。
-            cv2.putText(canvas, status, (8, self.render_height - 8),
+            status_y = self.render_height - (58 if self.buttons is not None else 8)
+            cv2.putText(canvas, status, (8, status_y),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
         if self.buttons is not None:
             self.buttons.draw(canvas, now)
@@ -1990,7 +1991,7 @@ from .output import (Preview, TouchButtons, aligned_frame, apply_commands, displ
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-12-gimbal-actions-v18"
+BUILD_ID = "2026-11-12-gimbal-actions-v19"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
