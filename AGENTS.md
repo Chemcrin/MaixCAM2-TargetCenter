@@ -137,8 +137,10 @@ U0 混有内核日志，开机清 RX（`FLUSH_RX_ON_START`）。
 
 让"板子跑的"和"仓库里的"能对上号，并让门禁证明没改坏。命令一律在 `maixcam2_rect_center/` 下、用 `"D:/Python311/python.exe"` 执行（为什么见 §4.1）。
 
-1. **提升 `vision/logic.py` 顶部 `BUILD_ID`**（格式 `YYYY-MM-DD-<slug>-vN`；入口 `main.py`
-   只是桩，不持有版本号）。
+1. **提升 `vision/logic.py` 顶部 `BUILD_ID`**（格式 `<语义版本>-YYYY-MM-DD`，如
+   `1.9.0-2026-11-12`；首段必须与 `app.yaml` 的 `version` 一致，**两处一起改**）。
+   `main.py` 只是桩，不持有版本号。**每轮改源码都要让它与上一版不同**：
+   功能或结构变更升 minor，修修补补升 patch，同一天多次改动由 patch 承担。
    板端打印 `[rect-center] <BUILD_ID>`，**与本地逐字一致才算跑的新代码**。
    改了 `main.py` / `config.py` / `vision/*` / `target_api.py` 任一个都要做。
 2. **重生成单文件版**：`tools/build_single.py`。

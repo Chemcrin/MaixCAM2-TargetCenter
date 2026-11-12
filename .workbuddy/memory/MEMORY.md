@@ -2,9 +2,10 @@
 
 > 只记跨会话必须知道、AGENTS.md 之外的结论。契约/门禁/目录树见根 AGENTS.md；流水见 YYYY-MM-DD.md。
 
-## 0 现状（2026-11-12，fast-perspective-v17）
+## 0 现状（2026-11-12，v1.9.0）
 - `maixcam2_rect_center/` 四层：`vision/{poll,algo,logic,output}.py` 一文件一层；
-  BUILD_ID 在 `vision/logic.py`（当前 `2026-11-12-fast-perspective-v17`），`main.py` 只是入口桩。
+  BUILD_ID 在 `vision/logic.py`（当前 `1.9.0-2026-11-12`，首段与 `app.yaml` version 同步），
+  `main.py` 只是入口桩。版本号已弃用 `YYYY-MM-DD-slug-vN` 格式。
 - 视觉引擎已换成 GPT-Replay 的 fast-perspective 实现（2026-11-12），旧 ring_hole 链路整体退役；
   云台闭环（GimbalAim / VisionControl / output）一行未动，靠 result 契约联动。
 - 图传定案（2026-11-11）：SHOW_STREAM=True 走子进程图传（MAIXVISION=0 建屏+独立进程 JPEG/WS，
