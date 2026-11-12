@@ -201,11 +201,12 @@ def aligned_frame(snapshot, live_gray, result):
 
 
 def _open_display(display_module, stream):
-    """建 Display。stream=True（默认）保留 MaixVision 图传；False 才强制本地屏。
+    """建 Display。`stream=True` 保留 MaixCDK 内置图传；False 在本进程内关掉它。
 
-    历史坑：早期为了绕开"图传未就绪时 send_image() 忙等 500ms"，在建 Display 前把
-    MAIXVISION 置 0。副作用是**图传被彻底关掉**——从 MaixVision 运行也看不到画面。
-    现在默认不碰这个变量；慢的问题交给显示线程（show 再慢只掉预览帧，不拖识别）。
+    内置图传在「连着 MaixVision 但连接未就绪」时会在 C++ 里忙等 500ms 并占住解释器锁，
+    能把识别拖到 20 秒/帧。所以主程序在**导入 maix 之前**就把 `MAIXVISION` 置 0
+    （见 `main.py`），图传改走独立子进程。这里的 set/restore 只是兜底：万一有别的入口
+    没设，也保证构造 Display 这一刻是关的。
     """
     if stream:
         return display_module.Display()

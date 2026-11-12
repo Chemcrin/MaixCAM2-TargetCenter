@@ -10,22 +10,22 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-12 14:55:03
+生成时间：2026-11-12 15:04:26
     config.py                    sha1=a05d0b827af5
-    main.py                      sha1=c2f5fb47aa9e
+    main.py                      sha1=f008fb1cc851
     target_api.py                sha1=0c48a301aa89
     vision/__init__.py           sha1=aec45202f46e
     vision/algo.py               sha1=a4578a955777
-    vision/logic.py              sha1=52ee2de2c8b6
+    vision/logic.py              sha1=05032c17a144
     vision/maixvision_stream.py  sha1=c30d784f26a0
-    vision/output.py             sha1=9bbd6378c4d4
+    vision/output.py             sha1=decf304dd4b3
     vision/poll.py               sha1=992056fd530e
 """
 
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': 'a05d0b827af5e48d2764cb15507c72c6a4eb17cf', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': '9bbd6378c4d4529e6b9071c05387088cebb60b5c', 'vision/logic.py': '52ee2de2c8b6fc7d17859810b7233bb2f9cb9715', 'vision/__init__.py': 'aec45202f46e3fa9734791b432bf3c4b8f802758', 'target_api.py': '0c48a301aa8924580bfd7c2cae20c03bd2e2d6e0', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': 'a05d0b827af5e48d2764cb15507c72c6a4eb17cf', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'decf304dd4b3aa487af404feffca4608c97599fa', 'vision/logic.py': '05032c17a14405fd2af7f3d7ce3edb8117d2c53f', 'vision/__init__.py': 'aec45202f46e3fa9734791b432bf3c4b8f802758', 'target_api.py': '0c48a301aa8924580bfd7c2cae20c03bd2e2d6e0', 'main.py': 'f008fb1cc851ae4ef1b54de3dcfe23b46ed538c3'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -1160,11 +1160,12 @@ def aligned_frame(snapshot, live_gray, result):
 
 
 def _open_display(display_module, stream):
-    """建 Display。stream=True（默认）保留 MaixVision 图传；False 才强制本地屏。
+    """建 Display。`stream=True` 保留 MaixCDK 内置图传；False 在本进程内关掉它。
 
-    历史坑：早期为了绕开"图传未就绪时 send_image() 忙等 500ms"，在建 Display 前把
-    MAIXVISION 置 0。副作用是**图传被彻底关掉**——从 MaixVision 运行也看不到画面。
-    现在默认不碰这个变量；慢的问题交给显示线程（show 再慢只掉预览帧，不拖识别）。
+    内置图传在「连着 MaixVision 但连接未就绪」时会在 C++ 里忙等 500ms 并占住解释器锁，
+    能把识别拖到 20 秒/帧。所以主程序在**导入 maix 之前**就把 `MAIXVISION` 置 0
+    （见 `main.py`），图传改走独立子进程。这里的 set/restore 只是兜底：万一有别的入口
+    没设，也保证构造 Display 这一刻是关的。
     """
     if stream:
         return display_module.Display()
@@ -1986,6 +1987,7 @@ _MOD_SRC['vision.logic'] = r'''
 不能继续下发。"先停后走"与 ACK/E2 看门狗都依赖这一点。
 """
 import math
+import os
 import threading
 import time
 
@@ -2000,7 +2002,7 @@ from .output import (Preview, TouchButtons, aligned_frame, apply_commands, displ
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-12-fast-perspective-v19"
+BUILD_ID = "2026-11-12-fast-perspective-v20"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -3054,6 +3056,8 @@ def _release(state):
 
 
 def run():
+    # 兜底：绕过 main.py 直接调 run()（单文件版/其它入口）时同样关掉内置图传。
+    os.environ.setdefault("MAIXVISION", "0")
     from config import Config
     cfg, clock = Config, time
     state = dict(camera=None, link=None, aim=None, worker=None, controller=None, preview=None)
@@ -3494,6 +3498,13 @@ _MAIN_SRC = r'''
 """
 import os
 import sys
+
+# ★ 关掉 MaixCDK 内置图传：本项目用独立子进程（vision/maixvision_stream.py）转发画面。
+#   内置通道在「连着 MaixVision 但连接未就绪」时会在 C++ 里忙等 500ms 并占住解释器锁，
+#   能把识别拖到 20 秒/帧。必须在**任何 maix 模块被导入之前**设置：这一段是模块级语句，
+#   早于下面的 `from vision.logic import run`（output.py 顶层不 import maix），
+#   也早于 run() 里的 `from maix import ...`。放在 Display() 构造前后临时改是不够的。
+os.environ["MAIXVISION"] = "0"
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:

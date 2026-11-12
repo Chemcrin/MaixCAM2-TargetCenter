@@ -23,6 +23,7 @@
 不能继续下发。"先停后走"与 ACK/E2 看门狗都依赖这一点。
 """
 import math
+import os
 import threading
 import time
 
@@ -37,7 +38,7 @@ from .output import (Preview, TouchButtons, aligned_frame, apply_commands, displ
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-12-fast-perspective-v19"
+BUILD_ID = "2026-11-12-fast-perspective-v20"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -1091,6 +1092,8 @@ def _release(state):
 
 
 def run():
+    # 兜底：绕过 main.py 直接调 run()（单文件版/其它入口）时同样关掉内置图传。
+    os.environ.setdefault("MAIXVISION", "0")
     from config import Config
     cfg, clock = Config, time
     state = dict(camera=None, link=None, aim=None, worker=None, controller=None, preview=None)
