@@ -51,11 +51,19 @@ _LINK = (0, 160, 255)        # BGR 橙：光斑->靶心连线
 
 # ------------------------------------------------------------------ 画框
 def _draw_build(canvas, result, top_offset=0):
-    """右上角打 BUILD_ID 短标识：不接串口也能确认板子上跑的是哪一版。"""
-    tag = result.get("build")
+    """右上角打 BUILD_ID 短标识：不接串口也能确认板子上跑的是哪一版。
+
+    BUILD_ID 形如 `1.9.0-2026-11-12`，屏上只显示首段版本号（`v1.9.0`），
+    完整串看串口日志。若仍遇到旧的 `YYYY-MM-DD-<slug>-vN` 格式，退回显示末段。
+    """
+    tag = str(result.get("build") or "")
     if not tag:
         return
-    short = str(tag).split("-", 3)[-1] if str(tag).count("-") >= 3 else str(tag)
+    head = tag.split("-", 1)[0]
+    if "." in head:
+        short = head
+    else:
+        short = tag.split("-", 3)[-1] if tag.count("-") >= 3 else tag
     text = "v" + short
     (tw, _th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, .38, 1)
     cv2.putText(canvas, text, (max(4, canvas.shape[1] - tw - 8), 18 + top_offset),

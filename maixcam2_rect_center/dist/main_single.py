@@ -10,22 +10,22 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-12 15:04:26
+生成时间：2026-11-12 16:08:38
     config.py                    sha1=a05d0b827af5
     main.py                      sha1=f008fb1cc851
     target_api.py                sha1=0c48a301aa89
     vision/__init__.py           sha1=aec45202f46e
     vision/algo.py               sha1=a4578a955777
-    vision/logic.py              sha1=05032c17a144
+    vision/logic.py              sha1=a9baede99075
     vision/maixvision_stream.py  sha1=c30d784f26a0
-    vision/output.py             sha1=decf304dd4b3
+    vision/output.py             sha1=df7a0e9c4fe3
     vision/poll.py               sha1=992056fd530e
 """
 
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': 'a05d0b827af5e48d2764cb15507c72c6a4eb17cf', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'decf304dd4b3aa487af404feffca4608c97599fa', 'vision/logic.py': '05032c17a14405fd2af7f3d7ce3edb8117d2c53f', 'vision/__init__.py': 'aec45202f46e3fa9734791b432bf3c4b8f802758', 'target_api.py': '0c48a301aa8924580bfd7c2cae20c03bd2e2d6e0', 'main.py': 'f008fb1cc851ae4ef1b54de3dcfe23b46ed538c3'}
+_SRC_SHA1 = {'config.py': 'a05d0b827af5e48d2764cb15507c72c6a4eb17cf', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'df7a0e9c4fe3aa2068bc0860145505d34ba6bc51', 'vision/logic.py': 'a9baede990751f926cfa0a78b0b9f0954705fdc8', 'vision/__init__.py': 'aec45202f46e3fa9734791b432bf3c4b8f802758', 'target_api.py': '0c48a301aa8924580bfd7c2cae20c03bd2e2d6e0', 'main.py': 'f008fb1cc851ae4ef1b54de3dcfe23b46ed538c3'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -1010,11 +1010,19 @@ _LINK = (0, 160, 255)        # BGR 橙：光斑->靶心连线
 
 # ------------------------------------------------------------------ 画框
 def _draw_build(canvas, result, top_offset=0):
-    """右上角打 BUILD_ID 短标识：不接串口也能确认板子上跑的是哪一版。"""
-    tag = result.get("build")
+    """右上角打 BUILD_ID 短标识：不接串口也能确认板子上跑的是哪一版。
+
+    BUILD_ID 形如 `1.9.0-2026-11-12`，屏上只显示首段版本号（`v1.9.0`），
+    完整串看串口日志。若仍遇到旧的 `YYYY-MM-DD-<slug>-vN` 格式，退回显示末段。
+    """
+    tag = str(result.get("build") or "")
     if not tag:
         return
-    short = str(tag).split("-", 3)[-1] if str(tag).count("-") >= 3 else str(tag)
+    head = tag.split("-", 1)[0]
+    if "." in head:
+        short = head
+    else:
+        short = tag.split("-", 3)[-1] if tag.count("-") >= 3 else tag
     text = "v" + short
     (tw, _th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, .38, 1)
     cv2.putText(canvas, text, (max(4, canvas.shape[1] - tw - 8), 18 + top_offset),
@@ -2002,7 +2010,7 @@ from .output import (Preview, TouchButtons, aligned_frame, apply_commands, displ
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-12-fast-perspective-v20"
+BUILD_ID = "1.9.0-2026-11-12"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
