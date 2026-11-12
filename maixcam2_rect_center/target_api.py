@@ -325,11 +325,18 @@ class AimLoop:
             self.control.idle()
 
     def request_search(self):
-        """兼容占位：本版本已无失锁扫描能力，调用只打一行提示，不驱动电机。"""
-        print("[api] request_search: 本版本未编入搜索扫描（见 AGENTS.md），忽略")
+        """请求左右各 60 度搜索；识别到黑框后自动切回闭环。"""
+        if not self.closed:
+            self.control.request_action('search')
+
+    def request_self_test(self):
+        """请求小角度左、右、上、下电机自检。"""
+        if not self.closed:
+            self.control.request_action('self_test')
 
     def stop(self):
         if self.link is not None:
+            self.control.request_action('stop')
             self.control._stop_motion(self.clock.perf_counter())
 
     def close(self):

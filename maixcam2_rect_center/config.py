@@ -132,6 +132,13 @@ class Config:
     DIVERGE_RATIO = 1.15
     DIVERGE_MIN_PX = 4.0
     GIMBAL_CALIBRATED = True      # 改过脉冲/像素后若闭环发散，先置 False 只跑识别
+    SEARCH_ANGLE_DEG = 60.0       # 从启动位置向左右各扫 60 度；确认机械行程后启用
+    SELF_TEST_ANGLE_DEG = 5.0     # 自检按左、右、上、下往返，结束回到起点
+    MANUAL_RPM = 120
+    MANUAL_ACC = 80
+    MANUAL_SETTLE_S = 0.25
+    ENABLE_TOUCH_BUTTONS = True
+    AUTO_TRACK_ON_BOOT = False   # 按 SEARCH 后才开始追踪；无触屏可用 AimLoop.request_search()
 
 
 def apply_aim_profile(cfg):

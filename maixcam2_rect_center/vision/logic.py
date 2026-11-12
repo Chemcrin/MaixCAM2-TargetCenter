@@ -23,6 +23,7 @@
 不能继续下发。"先停后走"与 ACK/E2 看门狗都依赖这一点。
 """
 import math
+import threading
 import time
 
 import cv2
@@ -31,12 +32,12 @@ import numpy as np
 from .algo import (deviation, edge_lengths, order_quad, profile_samples,
                    project_points, quad_diagonal_center, rect_quad,
                    refine_sample_points, sample_points, valid_quad)
-from .output import (Preview, aligned_frame, apply_commands, display_result,
+from .output import (Preview, TouchButtons, aligned_frame, apply_commands, display_result,
                     draw_preview, estimate_move_seconds, perf_line, stop_motion,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-12-fast-perspective-v17"
+BUILD_ID = "2026-11-12-gimbal-actions-v18"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -817,6 +818,88 @@ class VisionControl:
         self.stale_stopped = True
         self.control_source = 'vision'
         self.commands = {'yaw': None, 'pitch': None}
+        self._action_lock = threading.Lock()
+        self._requested_action = None
+        self._action = None
+        self._action_steps = ()
+        self._action_index = 0
+        self._action_ready_at = 0.0
+        self._manual_hold = not getattr(cfg, 'AUTO_TRACK_ON_BOOT', True)
+
+    def request_action(self, name):
+        """May be called from the camera/touch thread; UART work stays in this worker."""
+        if name not in ('search', 'self_test', 'stop'):
+            raise ValueError('unknown gimbal action: ' + str(name))
+        with self._action_lock:
+            self._requested_action = name
+
+    def _take_action(self):
+        with self._action_lock:
+            name, self._requested_action = self._requested_action, None
+        return name
+
+    def _start_action(self, name, now):
+        if not self._stop_motion(now):
+            return
+        self._action = None
+        if name == 'stop':
+            self._manual_hold = True
+            self.aim.update({'aim_valid': False}, now=now)
+            return
+        self._manual_hold = False
+        if not getattr(self.cfg, 'GIMBAL_CALIBRATED', False):
+            print('[gimbal] %s ignored: GIMBAL_CALIBRATED=False' % name)
+            return
+        ppr = int(self.cfg.MOTOR_PULSES_PER_REV)
+        angle = float(self.cfg.SEARCH_ANGLE_DEG if name == 'search' else self.cfg.SELF_TEST_ANGLE_DEG)
+        pulses = round(ppr * angle / 360.0)
+        if ppr <= 0 or not 0 < angle <= 60 or pulses <= 0:
+            self.aim.fault('invalid_action_angle')
+            return
+        if name == 'search':
+            self._action_steps = (('yaw', True, pulses), ('yaw', False, 2*pulses),
+                                  ('yaw', True, pulses))
+            self.detector.reset()
+        else:
+            self._action_steps = (('yaw', True, pulses), ('yaw', False, 2*pulses),
+                                  ('yaw', True, pulses), ('pitch', True, pulses),
+                                  ('pitch', False, 2*pulses), ('pitch', True, pulses))
+        self._action = name
+        self._action_index = 0
+        self._action_ready_at = now
+        self.aim.update({'aim_valid': False}, now=now)
+        print('[gimbal] %s started, angle=%.1f deg' % (name, angle))
+
+    def _advance_action(self, result, now):
+        if self._action == 'search' and result and result.get('valid') and not result.get('hold'):
+            if not self._stop_motion(now):
+                return
+            self._action = None
+            self.aim.reset()
+            print('[gimbal] target acquired; tracking')
+            return
+        if now < self._action_ready_at:
+            return
+        if self._action_index >= len(self._action_steps):
+            print('[gimbal] %s complete' % self._action)
+            self._action = None
+            self._manual_hold = True
+            return
+        axis, ccw, pulses = self._action_steps[self._action_index]
+        rpm, acc = int(self.cfg.MANUAL_RPM), int(self.cfg.MANUAL_ACC)
+        if not 0 < rpm <= 5000 or not 0 < acc <= 255:
+            self.aim.fault('invalid_manual_speed')
+            self._stop_motion(now)
+            return
+        ok, _, applied = apply_commands(self.link, self.aim,
+                                         {axis: (ccw, pulses, rpm)}, now, acc)
+        if not ok:
+            self._action = None
+            return
+        self.commands.update(applied)
+        self._action_index += 1
+        self._action_ready_at = (now + estimate_move_seconds(pulses, rpm, acc,
+                                 self.cfg.MOTOR_PULSES_PER_REV) + self.cfg.MANUAL_SETTLE_S)
 
     def process(self, gray, captured_at):
         started = self._clock.perf_counter()
@@ -854,7 +937,7 @@ class VisionControl:
     def status(self):
         if self.aim is not None and self.aim.state == 'FAULT':
             return 'FAULT'
-        return self.aim.state if self.aim else 'vision'
+        return self._action.upper() if self._action else (self.aim.state if self.aim else 'vision')
 
     def _stop_motion(self, now, axis=None):
         """停机（实现在执行层 `stop_motion`）。False = 停机失败，调用方必须终止决策链。"""
@@ -872,6 +955,17 @@ class VisionControl:
         if feedback and feedback.get('fault'):
             self._stop_motion(now)
             aim.fault('link:%s' % feedback.get('reason'))
+            return
+        requested = self._take_action()
+        if requested is not None:
+            self._start_action(requested, now)
+            if aim.state == 'FAULT':
+                return
+        if self._action is not None:
+            self._advance_action(result if new_measurement else None, now)
+            return
+        if self._manual_hold:
+            aim.update({'aim_valid': False}, now=now)
             return
         if not getattr(self.cfg, 'GIMBAL_CALIBRATED', True):
             if not self.stale_stopped:
@@ -915,8 +1009,13 @@ def _capture_loop(cfg, clock, app, image, state, build_id):
     read_times, draw_times, loop_times = [], [], []
     poller = FramePoller(cam, image, getattr(cfg, 'LENS_CORR', False),
                          getattr(cfg, 'LENS_STRENGTH', 1.5), clock)
+    buttons = state.get('buttons')
     while not app.need_exit():
         started = clock.perf_counter()
+        if buttons is not None:
+            action = buttons.poll(started)
+            if action is not None:
+                controller.request_action(action)
         gray, captured, read_ms = poller.poll()
         if worker.error is not None:
             raise RuntimeError('vision worker failed: ' + worker.error)
@@ -1010,6 +1109,12 @@ def run():
             print('[gimbal] enabled yaw=%s(ID%d) pitch=%s(ID%d) acc=%d' %
                   (cfg.YAW_DEV, cfg.ADDR_YAW, cfg.PITCH_DEV, cfg.ADDR_PITCH, cfg.ACC_TRACK))
         preview = state['preview'] = Preview(cfg, clock=clock)
+        if getattr(cfg, 'ENABLE_TOUCH_BUTTONS', False) and preview.enabled:
+            try:
+                state['buttons'] = TouchButtons(preview.width, preview.height)
+                preview.buttons = state['buttons']
+            except Exception as exc:
+                print('[touch] unavailable: %s' % exc)
         controller = state['controller'] = VisionControl(cfg, state['link'], state['aim'], clock=clock)
         worker = state['worker'] = LatestFrameWorker(controller.process, controller.idle,
                                                     cfg.VISION_ASYNC, clock=clock)

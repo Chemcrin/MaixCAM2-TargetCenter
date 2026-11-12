@@ -213,6 +213,64 @@ def _open_display(display_module, stream):
 
 
 # ------------------------------------------------------------------ 显示
+class TouchButtons:
+    """Three edge-triggered on-screen controls; touch is read on the camera thread."""
+
+    LABELS = (('self_test', 'TEST'), ('search', 'SEARCH'), ('stop', 'STOP'))
+
+    def __init__(self, width, height, touch=None):
+        if touch is None:
+            from maix import touchscreen
+            touch = touchscreen.TouchScreen()
+        self.touch = touch
+        self.width, self.height = int(width), int(height)
+        self._down = False
+        self._down_at = 0.0
+        self._flash = None
+        self._flash_until = 0.0
+
+    def _rects(self):
+        gap, margin, height = 8, 8, 38
+        width = min(104, max(65, (self.width-2*margin-2*gap)//3))
+        return [(margin+i*(width+gap), self.height-height-margin, width, height)
+                for i in range(3)]
+
+    def poll(self, now):
+        try:
+            x, y, pressed = self.touch.read()
+        except Exception as exc:
+            self._down = False
+            print('[touch] read failed: %s' % exc)
+            return None
+        if not pressed:
+            self._down = False
+            return None
+        if self._down and now-self._down_at <= 2.0:
+            return None
+        self._down, self._down_at = True, now
+        for (name, _), (rx, ry, rw, rh) in zip(self.LABELS, self._rects()):
+            if rx <= x < rx+rw and ry <= y < ry+rh:
+                self._flash, self._flash_until = name, now+0.25
+                print('[touch] %s' % name)
+                return name
+        print('[touch] no button at %d,%d' % (x, y))
+        return None
+
+    def draw(self, canvas, now):
+        scale_x = canvas.shape[1]/float(self.width)
+        scale_y = canvas.shape[0]/float(self.height)
+        for (name, label), (x, y, w, h) in zip(self.LABELS, self._rects()):
+            x, y = round(x*scale_x), round(y*scale_y)
+            w, h = round(w*scale_x), round(h*scale_y)
+            active = name == self._flash and now < self._flash_until
+            color = (45, 140, 45) if active else ((45, 45, 155) if name == 'stop' else (55, 55, 55))
+            cv2.rectangle(canvas, (x, y), (x+w, y+h), color, -1)
+            cv2.rectangle(canvas, (x, y), (x+w, y+h), (220, 220, 220), 1)
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, .48, 1)
+            cv2.putText(canvas, label, (x+(w-tw)//2, y+(h+th)//2),
+                        cv2.FONT_HERSHEY_SIMPLEX, .48, (255, 255, 255), 1, cv2.LINE_AA)
+
+
 class Preview:
     """标注画面 →（letterbox）画布 → `display.show()`，show 跑在独立线程。
 
@@ -260,6 +318,7 @@ class Preview:
         self._pool = 0                          # 已分配画布数（上限 2，由 due() 保证）
         self._stop = False
         self.thread = None
+        self.buttons = None
         if not bool(getattr(cfg, "SHOW", False)):
             print("[preview] SHOW=False -> 不建显示（纯串口模式，画面不流转）")
             return
@@ -365,6 +424,8 @@ class Preview:
             # 左下角状态串（aim 状态机名 / HOLD / FAULT）。
             cv2.putText(canvas, status, (8, self.render_height - 8),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
+        if self.buttons is not None:
+            self.buttons.draw(canvas, now)
         if self.async_show:
             self._publish(canvas)                            # 投递即返回：show 交给显示线程
         else:

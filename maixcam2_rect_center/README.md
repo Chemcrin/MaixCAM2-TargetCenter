@@ -108,8 +108,15 @@ tools/               门禁与 PC 复现脚本：check_app / check_pc / build_si
 轴映射与方向的**实机定案**（哪个串口是 yaw、正方向朝哪、pinmap 注意事项）
 见仓库根 `AGENTS.md` §2——接错轴闭环必发散，动硬件前先读那张表。
 
-> 本版本**不含**失锁扫描、自动标定、IMU 前馈与屏幕按钮。MaixVision 图传走独立进程
-> （`vision/maixvision_stream.py`，`SHOW_STREAM` 控制），不占识别线程。
+屏幕底部提供 `TEST`、`SEARCH`、`STOP` 触屏按钮。`TEST` 以 `SELF_TEST_ANGLE_DEG`
+按左、右、上、下往返并回起点；`SEARCH` 从启动位置先向左 60°、再向右 60°，
+每帧继续识别，找到黑框就立即停扫并进入原有闭环。扫完未找到或自检结束后保持停止，
+再次按 `SEARCH` 可重试。`STOP` 立即停机并保持停止。默认上电只识别、不追踪，
+按 `SEARCH` 后才允许电机动作；需要旧行为可设置 `AUTO_TRACK_ON_BOOT=True`。
+扫描角度是相对当前位置的开环位移，不是机械限位；启用前须确认左右各 60° 均有余量。
+`MOTOR_PULSES_PER_REV` 必须与驱动器细分设置一致，否则实际转角不等于配置角度。
+没有触屏时可通过 `target_api.AimLoop.request_search()` / `request_self_test()` 发起。
+MaixVision 图传走独立进程（`vision/maixvision_stream.py`），不占识别线程。
 
 ## 6. 入口、配置与对外 API
 

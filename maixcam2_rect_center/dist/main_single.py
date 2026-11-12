@@ -10,22 +10,22 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-12 09:28:21
-    config.py                    sha1=15c4bd9bf05d
+生成时间：2026-11-12 12:40:00
+    config.py                    sha1=1c3f16aedc8d
     main.py                      sha1=c2f5fb47aa9e
-    target_api.py                sha1=a40e4b1baac8
+    target_api.py                sha1=0c48a301aa89
     vision/__init__.py           sha1=aec45202f46e
     vision/algo.py               sha1=a4578a955777
-    vision/logic.py              sha1=95dcee2fb437
+    vision/logic.py              sha1=ae9ded31ab6c
     vision/maixvision_stream.py  sha1=c30d784f26a0
-    vision/output.py             sha1=a408aa3996c7
+    vision/output.py             sha1=2e2def84bfa1
     vision/poll.py               sha1=992056fd530e
 """
 
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '15c4bd9bf05d8989ce72d1f20ba192e578dcc386', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'a408aa3996c737e0da67b945ecc4802d18bbc81a', 'vision/logic.py': '95dcee2fb4370bd599c8d96194c213bc77aa7e94', 'vision/__init__.py': 'aec45202f46e3fa9734791b432bf3c4b8f802758', 'target_api.py': 'a40e4b1baac83a2c964196fe3e4f1e25ab706c23', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
+_SRC_SHA1 = {'config.py': '1c3f16aedc8d608e1925884e24954455a8fe443a', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': '2e2def84bfa13525c318d7f228eb789f0bfc893d', 'vision/logic.py': 'ae9ded31ab6c71f52b167c00068ba335bcc1dd26', 'vision/__init__.py': 'aec45202f46e3fa9734791b432bf3c4b8f802758', 'target_api.py': '0c48a301aa8924580bfd7c2cae20c03bd2e2d6e0', 'main.py': 'c2f5fb47aa9ee402ff1d756199b5db926a96bcf0'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -168,6 +168,13 @@ class Config:
     DIVERGE_RATIO = 1.15
     DIVERGE_MIN_PX = 4.0
     GIMBAL_CALIBRATED = True      # 改过脉冲/像素后若闭环发散，先置 False 只跑识别
+    SEARCH_ANGLE_DEG = 60.0       # 从启动位置向左右各扫 60 度；确认机械行程后启用
+    SELF_TEST_ANGLE_DEG = 5.0     # 自检按左、右、上、下往返，结束回到起点
+    MANUAL_RPM = 120
+    MANUAL_ACC = 80
+    MANUAL_SETTLE_S = 0.25
+    ENABLE_TOUCH_BUTTONS = True
+    AUTO_TRACK_ON_BOOT = False   # 按 SEARCH 后才开始追踪；无触屏可用 AimLoop.request_search()
 
 
 def apply_aim_profile(cfg):
@@ -1164,6 +1171,64 @@ def _open_display(display_module, stream):
 
 
 # ------------------------------------------------------------------ 显示
+class TouchButtons:
+    """Three edge-triggered on-screen controls; touch is read on the camera thread."""
+
+    LABELS = (('self_test', 'TEST'), ('search', 'SEARCH'), ('stop', 'STOP'))
+
+    def __init__(self, width, height, touch=None):
+        if touch is None:
+            from maix import touchscreen
+            touch = touchscreen.TouchScreen()
+        self.touch = touch
+        self.width, self.height = int(width), int(height)
+        self._down = False
+        self._down_at = 0.0
+        self._flash = None
+        self._flash_until = 0.0
+
+    def _rects(self):
+        gap, margin, height = 8, 8, 38
+        width = min(104, max(65, (self.width-2*margin-2*gap)//3))
+        return [(margin+i*(width+gap), self.height-height-margin, width, height)
+                for i in range(3)]
+
+    def poll(self, now):
+        try:
+            x, y, pressed = self.touch.read()
+        except Exception as exc:
+            self._down = False
+            print('[touch] read failed: %s' % exc)
+            return None
+        if not pressed:
+            self._down = False
+            return None
+        if self._down and now-self._down_at <= 2.0:
+            return None
+        self._down, self._down_at = True, now
+        for (name, _), (rx, ry, rw, rh) in zip(self.LABELS, self._rects()):
+            if rx <= x < rx+rw and ry <= y < ry+rh:
+                self._flash, self._flash_until = name, now+0.25
+                print('[touch] %s' % name)
+                return name
+        print('[touch] no button at %d,%d' % (x, y))
+        return None
+
+    def draw(self, canvas, now):
+        scale_x = canvas.shape[1]/float(self.width)
+        scale_y = canvas.shape[0]/float(self.height)
+        for (name, label), (x, y, w, h) in zip(self.LABELS, self._rects()):
+            x, y = round(x*scale_x), round(y*scale_y)
+            w, h = round(w*scale_x), round(h*scale_y)
+            active = name == self._flash and now < self._flash_until
+            color = (45, 140, 45) if active else ((45, 45, 155) if name == 'stop' else (55, 55, 55))
+            cv2.rectangle(canvas, (x, y), (x+w, y+h), color, -1)
+            cv2.rectangle(canvas, (x, y), (x+w, y+h), (220, 220, 220), 1)
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, .48, 1)
+            cv2.putText(canvas, label, (x+(w-tw)//2, y+(h+th)//2),
+                        cv2.FONT_HERSHEY_SIMPLEX, .48, (255, 255, 255), 1, cv2.LINE_AA)
+
+
 class Preview:
     """标注画面 →（letterbox）画布 → `display.show()`，show 跑在独立线程。
 
@@ -1211,6 +1276,7 @@ class Preview:
         self._pool = 0                          # 已分配画布数（上限 2，由 due() 保证）
         self._stop = False
         self.thread = None
+        self.buttons = None
         if not bool(getattr(cfg, "SHOW", False)):
             print("[preview] SHOW=False -> 不建显示（纯串口模式，画面不流转）")
             return
@@ -1316,6 +1382,8 @@ class Preview:
             # 左下角状态串（aim 状态机名 / HOLD / FAULT）。
             cv2.putText(canvas, status, (8, self.render_height - 8),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1, cv2.LINE_AA)
+        if self.buttons is not None:
+            self.buttons.draw(canvas, now)
         if self.async_show:
             self._publish(canvas)                            # 投递即返回：show 交给显示线程
         else:
@@ -1908,6 +1976,7 @@ _MOD_SRC['vision.logic'] = r'''
 不能继续下发。"先停后走"与 ACK/E2 看门狗都依赖这一点。
 """
 import math
+import threading
 import time
 
 import cv2
@@ -1916,12 +1985,12 @@ import numpy as np
 from .algo import (deviation, edge_lengths, order_quad, profile_samples,
                    project_points, quad_diagonal_center, rect_quad,
                    refine_sample_points, sample_points, valid_quad)
-from .output import (Preview, aligned_frame, apply_commands, display_result,
+from .output import (Preview, TouchButtons, aligned_frame, apply_commands, display_result,
                     draw_preview, estimate_move_seconds, perf_line, stop_motion,
                     StepperLink)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 
-BUILD_ID = "2026-11-12-fast-perspective-v17"
+BUILD_ID = "2026-11-12-gimbal-actions-v18"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -2702,6 +2771,88 @@ class VisionControl:
         self.stale_stopped = True
         self.control_source = 'vision'
         self.commands = {'yaw': None, 'pitch': None}
+        self._action_lock = threading.Lock()
+        self._requested_action = None
+        self._action = None
+        self._action_steps = ()
+        self._action_index = 0
+        self._action_ready_at = 0.0
+        self._manual_hold = not getattr(cfg, 'AUTO_TRACK_ON_BOOT', True)
+
+    def request_action(self, name):
+        """May be called from the camera/touch thread; UART work stays in this worker."""
+        if name not in ('search', 'self_test', 'stop'):
+            raise ValueError('unknown gimbal action: ' + str(name))
+        with self._action_lock:
+            self._requested_action = name
+
+    def _take_action(self):
+        with self._action_lock:
+            name, self._requested_action = self._requested_action, None
+        return name
+
+    def _start_action(self, name, now):
+        if not self._stop_motion(now):
+            return
+        self._action = None
+        if name == 'stop':
+            self._manual_hold = True
+            self.aim.update({'aim_valid': False}, now=now)
+            return
+        self._manual_hold = False
+        if not getattr(self.cfg, 'GIMBAL_CALIBRATED', False):
+            print('[gimbal] %s ignored: GIMBAL_CALIBRATED=False' % name)
+            return
+        ppr = int(self.cfg.MOTOR_PULSES_PER_REV)
+        angle = float(self.cfg.SEARCH_ANGLE_DEG if name == 'search' else self.cfg.SELF_TEST_ANGLE_DEG)
+        pulses = round(ppr * angle / 360.0)
+        if ppr <= 0 or not 0 < angle <= 60 or pulses <= 0:
+            self.aim.fault('invalid_action_angle')
+            return
+        if name == 'search':
+            self._action_steps = (('yaw', True, pulses), ('yaw', False, 2*pulses),
+                                  ('yaw', True, pulses))
+            self.detector.reset()
+        else:
+            self._action_steps = (('yaw', True, pulses), ('yaw', False, 2*pulses),
+                                  ('yaw', True, pulses), ('pitch', True, pulses),
+                                  ('pitch', False, 2*pulses), ('pitch', True, pulses))
+        self._action = name
+        self._action_index = 0
+        self._action_ready_at = now
+        self.aim.update({'aim_valid': False}, now=now)
+        print('[gimbal] %s started, angle=%.1f deg' % (name, angle))
+
+    def _advance_action(self, result, now):
+        if self._action == 'search' and result and result.get('valid') and not result.get('hold'):
+            if not self._stop_motion(now):
+                return
+            self._action = None
+            self.aim.reset()
+            print('[gimbal] target acquired; tracking')
+            return
+        if now < self._action_ready_at:
+            return
+        if self._action_index >= len(self._action_steps):
+            print('[gimbal] %s complete' % self._action)
+            self._action = None
+            self._manual_hold = True
+            return
+        axis, ccw, pulses = self._action_steps[self._action_index]
+        rpm, acc = int(self.cfg.MANUAL_RPM), int(self.cfg.MANUAL_ACC)
+        if not 0 < rpm <= 5000 or not 0 < acc <= 255:
+            self.aim.fault('invalid_manual_speed')
+            self._stop_motion(now)
+            return
+        ok, _, applied = apply_commands(self.link, self.aim,
+                                         {axis: (ccw, pulses, rpm)}, now, acc)
+        if not ok:
+            self._action = None
+            return
+        self.commands.update(applied)
+        self._action_index += 1
+        self._action_ready_at = (now + estimate_move_seconds(pulses, rpm, acc,
+                                 self.cfg.MOTOR_PULSES_PER_REV) + self.cfg.MANUAL_SETTLE_S)
 
     def process(self, gray, captured_at):
         started = self._clock.perf_counter()
@@ -2739,7 +2890,7 @@ class VisionControl:
     def status(self):
         if self.aim is not None and self.aim.state == 'FAULT':
             return 'FAULT'
-        return self.aim.state if self.aim else 'vision'
+        return self._action.upper() if self._action else (self.aim.state if self.aim else 'vision')
 
     def _stop_motion(self, now, axis=None):
         """停机（实现在执行层 `stop_motion`）。False = 停机失败，调用方必须终止决策链。"""
@@ -2757,6 +2908,17 @@ class VisionControl:
         if feedback and feedback.get('fault'):
             self._stop_motion(now)
             aim.fault('link:%s' % feedback.get('reason'))
+            return
+        requested = self._take_action()
+        if requested is not None:
+            self._start_action(requested, now)
+            if aim.state == 'FAULT':
+                return
+        if self._action is not None:
+            self._advance_action(result if new_measurement else None, now)
+            return
+        if self._manual_hold:
+            aim.update({'aim_valid': False}, now=now)
             return
         if not getattr(self.cfg, 'GIMBAL_CALIBRATED', True):
             if not self.stale_stopped:
@@ -2800,8 +2962,13 @@ def _capture_loop(cfg, clock, app, image, state, build_id):
     read_times, draw_times, loop_times = [], [], []
     poller = FramePoller(cam, image, getattr(cfg, 'LENS_CORR', False),
                          getattr(cfg, 'LENS_STRENGTH', 1.5), clock)
+    buttons = state.get('buttons')
     while not app.need_exit():
         started = clock.perf_counter()
+        if buttons is not None:
+            action = buttons.poll(started)
+            if action is not None:
+                controller.request_action(action)
         gray, captured, read_ms = poller.poll()
         if worker.error is not None:
             raise RuntimeError('vision worker failed: ' + worker.error)
@@ -2895,6 +3062,12 @@ def run():
             print('[gimbal] enabled yaw=%s(ID%d) pitch=%s(ID%d) acc=%d' %
                   (cfg.YAW_DEV, cfg.ADDR_YAW, cfg.PITCH_DEV, cfg.ADDR_PITCH, cfg.ACC_TRACK))
         preview = state['preview'] = Preview(cfg, clock=clock)
+        if getattr(cfg, 'ENABLE_TOUCH_BUTTONS', False) and preview.enabled:
+            try:
+                state['buttons'] = TouchButtons(preview.width, preview.height)
+                preview.buttons = state['buttons']
+            except Exception as exc:
+                print('[touch] unavailable: %s' % exc)
         controller = state['controller'] = VisionControl(cfg, state['link'], state['aim'], clock=clock)
         worker = state['worker'] = LatestFrameWorker(controller.process, controller.idle,
                                                     cfg.VISION_ASYNC, clock=clock)
@@ -3264,11 +3437,18 @@ class AimLoop:
             self.control.idle()
 
     def request_search(self):
-        """兼容占位：本版本已无失锁扫描能力，调用只打一行提示，不驱动电机。"""
-        print("[api] request_search: 本版本未编入搜索扫描（见 AGENTS.md），忽略")
+        """请求左右各 60 度搜索；识别到黑框后自动切回闭环。"""
+        if not self.closed:
+            self.control.request_action('search')
+
+    def request_self_test(self):
+        """请求小角度左、右、上、下电机自检。"""
+        if not self.closed:
+            self.control.request_action('self_test')
 
     def stop(self):
         if self.link is not None:
+            self.control.request_action('stop')
             self.control._stop_motion(self.clock.perf_counter())
 
     def close(self):
