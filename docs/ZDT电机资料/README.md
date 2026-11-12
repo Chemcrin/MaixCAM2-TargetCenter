@@ -39,7 +39,7 @@
 
 ## 与代码的对应关系
 
-`maixcam2_rect_center/vision/stepper_link.py` 实现的帧与手册完全一致，
+`maixcam2_rect_center/vision/output.py` 实现的帧与手册完全一致，
 字段顺序见手册第 36–38 页：
 
 | 代码函数 | 功能码 | 手册位置 |
@@ -48,8 +48,9 @@
 | `cmd_speed` | `F6 <方向> <速度2B> <acc> <同步>` | p.36 |
 | `cmd_position` | `FD <方向> <速度2B> <acc> <脉冲4B> <绝对/相对> <同步>` | p.37 |
 | `cmd_stop_now` | `FE 98 <同步>` | p.37 |
-| `cmd_sync_motion` | `FF 66` | p.38 |
-| `cmd_read` | `1F/20/21/24/27/30–3A` | p.41–44 |
+
+同步广播（`FF`）与读参数（`1F/20/21/24/27/30–3A`）**未实现**：本项目两轴不做严格同步，
+也不需要读回电流/电压/状态位；要加时按 p.38 与 p.41–44 补齐，并同步维护 `docs/云台控制说明.md`。
 
 轴地址与串口落在 `config.py`（`ADDR_YAW` / `ADDR_PITCH`、`YAW_DEV` / `PITCH_DEV`），
 轴映射定案见 `AGENTS.md` §2。
