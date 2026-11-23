@@ -38,7 +38,7 @@ from .output import (Preview, TouchButtons, aligned_frame, apply_commands, displ
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 from .zdt import StepperLink, estimate_move_seconds, speed_profile
 
-BUILD_ID = "1.12.0-2026-11-23"
+BUILD_ID = "1.12.3-2026-11-23"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -650,6 +650,8 @@ class GimbalAim:
         self._stops = []
         self._guard_error = {"yaw": None, "pitch": None}
         self._diverge = {"yaw": 0, "pitch": 0}
+        self._gate = {"yaw": "-", "pitch": "-"}   # 最后一次没发指令的原因（排障用）
+        self._tx = {"yaw": 0, "pitch": 0}         # 已下发指令计数（排障用）
         # 运行期可改的换算系数与方向：开机自标定直接写这里，不改磁盘配置。
         self.tuning = {
             "yaw": {"ppp": float(getattr(cfg, "PULSE_PER_PX_YAW", 3.67)),
@@ -721,10 +723,15 @@ class GimbalAim:
             if not cmd:
                 return "-"
             return ("CCW" if cmd[0] else "CW") + "/%dp" % cmd[1]
-        return "[aim] state=%s dx=%s dy=%s yaw=%s pit=%s lost=%d" % (
+        return ("[aim] state=%s dx=%s dy=%s yaw=%s pit=%s lost=%d tx=yaw:%d,pit:%d "
+                "gate=yaw:%s,pit:%s tune=yaw:%.3f/%+d,pit:%.3f/%+d") % (
             self.last.get("state", self.state), self.last.get("dx"), self.last.get("dy"),
             fmt(self.last.get("cmds", {}).get("yaw")),
-            fmt(self.last.get("cmds", {}).get("pitch")), self._lost)
+            fmt(self.last.get("cmds", {}).get("pitch")), self._lost,
+            self._tx["yaw"], self._tx["pitch"],
+            self._gate["yaw"], self._gate["pitch"],
+            self.tuning["yaw"]["ppp"], self.tuning["yaw"]["sign"],
+            self.tuning["pitch"]["ppp"], self.tuning["pitch"]["sign"])
 
     # ------------------------------------------------------------- 内部实现
     def _emit(self, dx, dy, cmds):
@@ -775,21 +782,26 @@ class GimbalAim:
     def _axis_command(self, axis, error, now):
         cfg = self.cfg
         if self.state == FAULT:
+            self._gate[axis] = "fault"
             return None
         # 离群拒收：单帧超大误差先当误检丢弃，连续若干帧才采信（防甩头）。
         jump = float(getattr(cfg, "JUMP_REJECT_PX", 0.0))
         if jump > 0 and abs(error) > jump:
             self._jump[axis] += 1
             if self._jump[axis] < int(getattr(cfg, "JUMP_CONFIRM_FRAMES", 3)):
+                self._gate[axis] = "jump"
                 return None
         else:
             self._jump[axis] = 0
         if abs(error) <= self._deadband():
+            self._gate[axis] = "dead"
             return None
         interval = float(getattr(cfg, "COMMAND_INTERVAL_S", 0.08))
         if now - self.last_command_time[axis] < interval:
+            self._gate[axis] = "interval"
             return None
         if getattr(cfg, "AIM_WAIT_MOTION", True) and (now < self._busy_until[axis] or self._captured_at <= max(self._busy_until[axis], self._capture_after[axis])):
+            self._gate[axis] = "wait"
             return None
         if getattr(cfg, "DIVERGE_GUARD", False):
             previous = self._guard_error[axis]
@@ -812,13 +824,17 @@ class GimbalAim:
         else:
             ppp = float(tune["ppp"])
             if not math.isfinite(ppp) or ppp <= 0:
+                self._gate[axis] = "scale"
                 self.fault("invalid_scale:"+axis)
                 return None
             pulses = min(max_pulses, max(1, int(round(abs(error) * ppp * self._gain(axis, error)))))
             ccw = error * sign > 0
         if not math.isfinite(sign) or abs(sign) != 1:
+            self._gate[axis] = "dir"
             self.fault("invalid_direction:"+axis)
             return None
+        self._gate[axis] = "ok"
+        self._tx[axis] += 1
         self.last_command_time[axis] = now
         # 速度按"误差大走得快、误差小走得慢"排，斜坡时间固定；驱动器自己完成
         # 加速—匀速—减速，一条指令就是一次完整动作，不会一顿一顿。
@@ -856,6 +872,8 @@ class VisionControl:
         self._action_index = 0
         self._action_ready_at = 0.0
         self._manual_hold = not getattr(cfg, 'AUTO_TRACK_ON_BOOT', True)
+        self._cmd_prints = 0
+        self._last_enable = -1e9        # 使能心跳：驱动器与应用同时上电时，第一帧可能丢
         # 开机自标定：拿到第一段稳定目标后自己走四步探针，测换算系数与方向。
         auto = bool(getattr(cfg, 'AUTO_CALIBRATE', False)) if calibrate is None else bool(calibrate)
         self._calib_done = not (auto and link is not None and aim is not None)
@@ -954,6 +972,7 @@ class VisionControl:
         return max(8, min(int(self.cfg.CAL_PROBE_PULSES), int(margin*0.6/4.0)))
 
     def _calib_send(self, axis, ccw, pulses, now):
+        self.link.enable(axis, now=now)     # 探针前先确保该轴使能
         rpm, acc = speed_profile(float(self.cfg.CAL_PROBE_DEG_S),
                                  float(self.cfg.CAL_RAMP_S))
         ok, _failed, _applied = apply_commands(
@@ -1138,6 +1157,11 @@ class VisionControl:
         # FAULT before poll: even E2 re-enable is forbidden once motion is faulted.
         if aim.state == 'FAULT':
             return
+        # 使能心跳：驱动器上电比应用慢时，开机那一帧 F3 会丢，之后永远不动。
+        # 每 2s 补一次，代价可忽略；收不到回帧也不影响（开环发令）。
+        if now - self._last_enable > 2.0:
+            self._last_enable = now
+            link.enable(now=now)
         feedback = link.poll(now)
         if feedback and feedback.get('fault'):
             self._stop_motion(now)
@@ -1192,6 +1216,9 @@ class VisionControl:
         if not ok:
             return
         self.commands.update(applied)
+        if applied and self._cmd_prints < 5:
+            self._cmd_prints += 1
+            print('[aim] send %s' % applied)
 
 
 # ================================================================== 主循环
