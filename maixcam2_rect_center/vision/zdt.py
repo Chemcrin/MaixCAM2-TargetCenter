@@ -96,6 +96,11 @@ def estimate_move_seconds(pulses, rpm, acc=0, pulses_per_rev=3200):
     return 2*ramp_seconds+(pulses-ramp_distance)/speed
 
 
+# 驱动器低速不启动的实测下限（假设值，待本轮验证）：20rpm ≈ 120°/s。
+# 低于它时驱动器可能接收指令但不出力，表现为"指令发了、轴不动"。
+MIN_RPM = 20
+
+
 def speed_profile(deg_s, ramp_s):
     """把"电机轴角速度 + 起停斜坡时间"换算成驱动器要的 (rpm, acc)。
 
@@ -108,7 +113,7 @@ def speed_profile(deg_s, ramp_s):
     """
     deg_s = max(0.0, float(deg_s))
     rpm = int(round(deg_s * 60.0 / 360.0))
-    rpm = max(1, min(5000, rpm))
+    rpm = max(MIN_RPM, min(5000, rpm))
     ramp_s = max(0.0, float(ramp_s))
     if ramp_s <= 0:
         return rpm, 0                     # 0 = 不加速（瞬时启停），仅调试用

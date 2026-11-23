@@ -128,8 +128,8 @@ class Config:
     # ★ 速度曲线：误差大走得快、误差小走得慢，一条指令一次完整的加速—匀速—减速。
     #   单位是**电机轴**度/秒；有减速比时输出端按比例更慢。
     AIM_DEG_S_PER_PX = 0.5        # 每 1px 误差想要多少度/秒（线性段）
-    AIM_MIN_DEG_S = 8.0           # 最低速度：再小驱动器只有 1rpm 档，实际约 6°/s
-    AIM_MAX_DEG_S = 60.0          # 最高速度：限制"短时间内转一大截"
+    AIM_MIN_DEG_S = 120.0           # 最低速度：再小驱动器只有 1rpm 档，实际约 6°/s
+    AIM_MAX_DEG_S = 180.0          # 最高速度：限制"短时间内转一大截"
     AIM_RAMP_S = 0.12             # 起停斜坡时间（驱动器按此反解 acc 档位）
     AIM_WAIT_MOTION = True
     AIM_MOTION_MARGIN_S = 0.03
@@ -143,7 +143,7 @@ class Config:
     #   测完直接写进运行期 tuning，不改磁盘配置；日志会打印可粘贴的 config 行。
     AUTO_CALIBRATE = True
     CAL_PROBE_PULSES = 60         # 探针脉冲数（3200 细分下约 6.8°）
-    CAL_PROBE_DEG_S = 25.0        # 探针速度：慢，能看清
+    CAL_PROBE_DEG_S = 120.0        # 探针速度：慢，能看清
     CAL_RAMP_S = 0.15             # 起停斜坡
     CAL_SETTLE_S = 0.45           # 停稳后再量（齿隙回弹要时间）
     CAL_TIMEOUT_S = 2.0           # 单个相位等测量超时
@@ -152,8 +152,8 @@ class Config:
     CAL_STABLE_PX = 3.0           # 这几帧中心的最大离散度
     SEARCH_ANGLE_DEG = 60.0       # 从启动位置向左右各扫 60 度；确认机械行程后启用
     SELF_TEST_ANGLE_DEG = 5.0     # 自检按左、右、上、下往返，结束回到起点
-    MANUAL_RPM = 15               # 手动/自检速度：15rpm ≈ 90°/s，可见又不甩
-    MANUAL_ACC = 150              # 斜坡档：约 0.08s，起停不顿
+    MANUAL_RPM = 120              # 恢复 1.10 已知可用值（15rpm 实测不动）
+    MANUAL_ACC = 80               # 恢复 1.10 已知可用值
     MANUAL_SETTLE_S = 0.25
     ENABLE_TOUCH_BUTTONS = True
     AUTO_TRACK_ON_BOOT = True     # 上电等目标即追；False = 只识别，按 SEARCH 才允许动

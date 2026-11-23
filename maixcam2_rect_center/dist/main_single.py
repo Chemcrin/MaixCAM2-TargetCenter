@@ -10,23 +10,23 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-23 22:19:44
-    config.py                    sha1=0fd3ce7033f9
+生成时间：2026-11-23 22:34:26
+    config.py                    sha1=c84810610e4e
     main.py                      sha1=c68e3bb2cf72
     target_api.py                sha1=7b8df44fb443
     vision/__init__.py           sha1=01904dd699d3
     vision/algo.py               sha1=a4578a955777
-    vision/logic.py              sha1=99d8e59b2ac1
+    vision/logic.py              sha1=339a87dbd432
     vision/maixvision_stream.py  sha1=c30d784f26a0
     vision/output.py             sha1=7dc04c56e5d0
     vision/poll.py               sha1=992056fd530e
-    vision/zdt.py                sha1=4fdd1d511e53
+    vision/zdt.py                sha1=e50382172f2d
 """
 
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '0fd3ce7033f971c9c6c7800997bc2a289e015272', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/zdt.py': '4fdd1d511e538ef258cc06dca3f3fa16ecea60e2', 'vision/output.py': '7dc04c56e5d04fcc50fd21ec0357aad222fa2023', 'vision/logic.py': '99d8e59b2ac10ea6ab4f4479c8e5b51223031387', 'vision/__init__.py': '01904dd699d3c76bbd3d776a3b3a967cdbf01103', 'target_api.py': '7b8df44fb4432cc20b8e675e1f77d4a532e625aa', 'main.py': 'c68e3bb2cf7254779363683353cbe8e58ee15a96'}
+_SRC_SHA1 = {'config.py': 'c84810610e4e695bb72b65382610335c2c93fdd6', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/zdt.py': 'e50382172f2d8b2c183e856fe0fe5bcbb5a9c907', 'vision/output.py': '7dc04c56e5d04fcc50fd21ec0357aad222fa2023', 'vision/logic.py': '339a87dbd43287252eacf505442d630d01ba509a', 'vision/__init__.py': '01904dd699d3c76bbd3d776a3b3a967cdbf01103', 'target_api.py': '7b8df44fb4432cc20b8e675e1f77d4a532e625aa', 'main.py': 'c68e3bb2cf7254779363683353cbe8e58ee15a96'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -165,8 +165,8 @@ class Config:
     # ★ 速度曲线：误差大走得快、误差小走得慢，一条指令一次完整的加速—匀速—减速。
     #   单位是**电机轴**度/秒；有减速比时输出端按比例更慢。
     AIM_DEG_S_PER_PX = 0.5        # 每 1px 误差想要多少度/秒（线性段）
-    AIM_MIN_DEG_S = 8.0           # 最低速度：再小驱动器只有 1rpm 档，实际约 6°/s
-    AIM_MAX_DEG_S = 60.0          # 最高速度：限制"短时间内转一大截"
+    AIM_MIN_DEG_S = 120.0           # 最低速度：再小驱动器只有 1rpm 档，实际约 6°/s
+    AIM_MAX_DEG_S = 180.0          # 最高速度：限制"短时间内转一大截"
     AIM_RAMP_S = 0.12             # 起停斜坡时间（驱动器按此反解 acc 档位）
     AIM_WAIT_MOTION = True
     AIM_MOTION_MARGIN_S = 0.03
@@ -180,7 +180,7 @@ class Config:
     #   测完直接写进运行期 tuning，不改磁盘配置；日志会打印可粘贴的 config 行。
     AUTO_CALIBRATE = True
     CAL_PROBE_PULSES = 60         # 探针脉冲数（3200 细分下约 6.8°）
-    CAL_PROBE_DEG_S = 25.0        # 探针速度：慢，能看清
+    CAL_PROBE_DEG_S = 120.0        # 探针速度：慢，能看清
     CAL_RAMP_S = 0.15             # 起停斜坡
     CAL_SETTLE_S = 0.45           # 停稳后再量（齿隙回弹要时间）
     CAL_TIMEOUT_S = 2.0           # 单个相位等测量超时
@@ -189,8 +189,8 @@ class Config:
     CAL_STABLE_PX = 3.0           # 这几帧中心的最大离散度
     SEARCH_ANGLE_DEG = 60.0       # 从启动位置向左右各扫 60 度；确认机械行程后启用
     SELF_TEST_ANGLE_DEG = 5.0     # 自检按左、右、上、下往返，结束回到起点
-    MANUAL_RPM = 15               # 手动/自检速度：15rpm ≈ 90°/s，可见又不甩
-    MANUAL_ACC = 150              # 斜坡档：约 0.08s，起停不顿
+    MANUAL_RPM = 120              # 恢复 1.10 已知可用值（15rpm 实测不动）
+    MANUAL_ACC = 80               # 恢复 1.10 已知可用值
     MANUAL_SETTLE_S = 0.25
     ENABLE_TOUCH_BUTTONS = True
     AUTO_TRACK_ON_BOOT = True     # 上电等目标即追；False = 只识别，按 SEARCH 才允许动
@@ -1073,6 +1073,11 @@ def estimate_move_seconds(pulses, rpm, acc=0, pulses_per_rev=3200):
     return 2*ramp_seconds+(pulses-ramp_distance)/speed
 
 
+# 驱动器低速不启动的实测下限（假设值，待本轮验证）：20rpm ≈ 120°/s。
+# 低于它时驱动器可能接收指令但不出力，表现为"指令发了、轴不动"。
+MIN_RPM = 20
+
+
 def speed_profile(deg_s, ramp_s):
     """把"电机轴角速度 + 起停斜坡时间"换算成驱动器要的 (rpm, acc)。
 
@@ -1085,7 +1090,7 @@ def speed_profile(deg_s, ramp_s):
     """
     deg_s = max(0.0, float(deg_s))
     rpm = int(round(deg_s * 60.0 / 360.0))
-    rpm = max(1, min(5000, rpm))
+    rpm = max(MIN_RPM, min(5000, rpm))
     ramp_s = max(0.0, float(ramp_s))
     if ramp_s <= 0:
         return rpm, 0                     # 0 = 不加速（瞬时启停），仅调试用
@@ -2110,7 +2115,7 @@ from .output import (Preview, TouchButtons, aligned_frame, apply_commands, displ
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 from .zdt import StepperLink, estimate_move_seconds, speed_profile
 
-BUILD_ID = "1.12.3-2026-11-23"
+BUILD_ID = "1.12.4-2026-11-23"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0

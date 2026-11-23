@@ -146,6 +146,8 @@ MaixVision 图传走独立进程（`vision/maixvision_stream.py`），不占识�
 - 屏幕/窗框被误认成靶纸时，收紧 `RECT_ASPECT_MIN/MAX` 或提高 `MIN_EDGE_COVERAGE`；
   本链路不提供"是不是靶纸"的判据，别在这里加图案识别；
 - 云台不动先看 `[gimbal]` 的 pinmap readback 与 `[aim] state=`；方向反了看 `AGENTS.md` §2。
+- **低速不转**：驱动器低于约 15rpm 只收指令不出力（实测 4~6rpm 完全不转，15rpm 正常）。
+  `zdt.MIN_RPM` 把速度下限钉在 20rpm；改速度档位时不要绕过它，否则追踪会"指令照发、轴不动"。
 - **云台标定**：`python tools/build_single.py --entry tools/calib_main.py --out dist/calib_gimbal.py`
   生成单文件标定脚本；MaixVision「运行当前文件」跑它，靶纸完整入画后自动测
   `PULSE_PER_PX` / `DIR_SIGN`，结果打印在控制台，手工填回 `config.py`。
