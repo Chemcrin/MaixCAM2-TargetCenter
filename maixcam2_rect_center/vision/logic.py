@@ -38,7 +38,7 @@ from .output import (Preview, TouchButtons, aligned_frame, apply_commands, displ
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 from .zdt import StepperLink, estimate_move_seconds, speed_profile
 
-BUILD_ID = "1.11.0-2026-11-23"
+BUILD_ID = "1.11.1-2026-11-23"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -614,7 +614,8 @@ class GimbalAim:
     """基于像素误差的两轴增量比例控制器 + 状态机。
 
     - 闭环输入 = ``result["dx"]/["dy"]``（靶心 − 光斑，见 `deviation`）；
-    - 每帧只发一帧**相对位置**命令（0xFD、mode=0），单帧脉冲限幅，``ACC_TRACK`` 曲线加减速；
+    - 每帧只发一帧**相对位置**命令（0xFD、mode=0），单帧脉冲限幅；
+      速度按误差排（远快近慢）、起停斜坡随指令下发，驱动器自己走完加/减速；
     - 状态机 ``BOOT / COARSE / FINE / SETTLE / HOLD / FAULT``；
     - 保护：离群拒收（``JUMP_REJECT_PX``）、死区（``DEADBAND_PX``）、指令限频
       （``COMMAND_INTERVAL_S``）、单帧限幅（``MAX_STEP_PULSES``）、发散看护（``DIVERGE_GUARD``）。

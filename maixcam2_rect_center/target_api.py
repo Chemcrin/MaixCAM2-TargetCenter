@@ -292,7 +292,7 @@ class AimLoop:
 
     ``step(frame)`` 返回的 ``Result`` 比追踪器多两个字段：
         aim_state  str   状态机状态（FINE/COARSE/SETTLE/HOLD/FAULT…）
-        cmds       dict  {"yaw": (ccw, pulses, rpm) or None, "pitch": ...}
+        cmds       dict  {"yaw": (ccw, pulses, rpm, acc) or None, "pitch": ...}
     """
 
     def __init__(self, cfg=None, enable_motors=True, with_laser=True, clock=None):

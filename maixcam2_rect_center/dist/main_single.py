@@ -10,13 +10,13 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-23 21:57:27
+生成时间：2026-11-23 21:57:56
     config.py                    sha1=8bcd19bda03a
     main.py                      sha1=c68e3bb2cf72
-    target_api.py                sha1=422ad394dbd2
+    target_api.py                sha1=084f7844b3b7
     vision/__init__.py           sha1=01904dd699d3
     vision/algo.py               sha1=a4578a955777
-    vision/logic.py              sha1=d4219404352c
+    vision/logic.py              sha1=52f3a7d6abfa
     vision/maixvision_stream.py  sha1=c30d784f26a0
     vision/output.py             sha1=7dc04c56e5d0
     vision/poll.py               sha1=992056fd530e
@@ -26,7 +26,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '8bcd19bda03ac887cb2f617565f0cacaeff46dd6', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/zdt.py': '4fdd1d511e538ef258cc06dca3f3fa16ecea60e2', 'vision/output.py': '7dc04c56e5d04fcc50fd21ec0357aad222fa2023', 'vision/logic.py': 'd4219404352c44e6de4107dbe66b3cef35817ac7', 'vision/__init__.py': '01904dd699d3c76bbd3d776a3b3a967cdbf01103', 'target_api.py': '422ad394dbd28847a6939976f12dfd38c2e9b674', 'main.py': 'c68e3bb2cf7254779363683353cbe8e58ee15a96'}
+_SRC_SHA1 = {'config.py': '8bcd19bda03ac887cb2f617565f0cacaeff46dd6', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/zdt.py': '4fdd1d511e538ef258cc06dca3f3fa16ecea60e2', 'vision/output.py': '7dc04c56e5d04fcc50fd21ec0357aad222fa2023', 'vision/logic.py': '52f3a7d6abfa6ce69eaeb60bb44d10f47c7e86f3', 'vision/__init__.py': '01904dd699d3c76bbd3d776a3b3a967cdbf01103', 'target_api.py': '084f7844b3b7371ac4b63786f0a8f5913afd5b48', 'main.py': 'c68e3bb2cf7254779363683353cbe8e58ee15a96'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -2099,7 +2099,7 @@ from .output import (Preview, TouchButtons, aligned_frame, apply_commands, displ
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 from .zdt import StepperLink, estimate_move_seconds, speed_profile
 
-BUILD_ID = "1.11.0-2026-11-23"
+BUILD_ID = "1.11.1-2026-11-23"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -2675,7 +2675,8 @@ class GimbalAim:
     """基于像素误差的两轴增量比例控制器 + 状态机。
 
     - 闭环输入 = ``result["dx"]/["dy"]``（靶心 − 光斑，见 `deviation`）；
-    - 每帧只发一帧**相对位置**命令（0xFD、mode=0），单帧脉冲限幅，``ACC_TRACK`` 曲线加减速；
+    - 每帧只发一帧**相对位置**命令（0xFD、mode=0），单帧脉冲限幅；
+      速度按误差排（远快近慢）、起停斜坡随指令下发，驱动器自己走完加/减速；
     - 状态机 ``BOOT / COARSE / FINE / SETTLE / HOLD / FAULT``；
     - 保护：离群拒收（``JUMP_REJECT_PX``）、死区（``DEADBAND_PX``）、指令限频
       （``COMMAND_INTERVAL_S``）、单帧限幅（``MAX_STEP_PULSES``）、发散看护（``DIVERGE_GUARD``）。
@@ -3532,7 +3533,7 @@ class AimLoop:
 
     ``step(frame)`` 返回的 ``Result`` 比追踪器多两个字段：
         aim_state  str   状态机状态（FINE/COARSE/SETTLE/HOLD/FAULT…）
-        cmds       dict  {"yaw": (ccw, pulses, rpm) or None, "pitch": ...}
+        cmds       dict  {"yaw": (ccw, pulses, rpm, acc) or None, "pitch": ...}
     """
 
     def __init__(self, cfg=None, enable_motors=True, with_laser=True, clock=None):
