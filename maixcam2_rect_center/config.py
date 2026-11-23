@@ -49,7 +49,7 @@ class Config:
     PULSE_PER_PX_PITCH = 3.67
     GAIN_YAW = 0.5                # 被 AIM_PROFILE 覆盖，实际值见文件末尾 profiles
     GAIN_PITCH = 0.5              # 同上
-    DEADBAND_PX = 1.0             # 每轴死区；应 ≥1.5× 实测回差
+    DEADBAND_PX = 2.0             # 每轴死区；1 脉冲约 1.8px，死区小于它会在两点间来回跳
     MAX_STEP_PULSES = 360         # 同上，被 profile 覆盖
     RPM_FINE = 300                # 同上，被 profile 覆盖
     COMMAND_INTERVAL_S = 0.08
@@ -139,18 +139,29 @@ class Config:
     DIVERGE_RATIO = 1.15
     DIVERGE_MIN_PX = 4.0
     GIMBAL_CALIBRATED = True      # 改过脉冲/像素后若闭环发散，先置 False 只跑识别
+    # ---- 开机自标定：第一段稳定目标上自己走四步探针，测换算系数与方向 ----
+    #   测完直接写进运行期 tuning，不改磁盘配置；日志会打印可粘贴的 config 行。
+    AUTO_CALIBRATE = True
+    CAL_PROBE_PULSES = 60         # 探针脉冲数（3200 细分下约 6.8°）
+    CAL_PROBE_DEG_S = 25.0        # 探针速度：慢，能看清
+    CAL_RAMP_S = 0.15             # 起停斜坡
+    CAL_SETTLE_S = 0.45           # 停稳后再量（齿隙回弹要时间）
+    CAL_TIMEOUT_S = 2.0           # 单个相位等测量超时
+    CAL_START_TIMEOUT_S = 10.0    # 开机等目标超时：超了就保留配置值直接追踪
+    CAL_VALID_FRAMES = 4          # 起始锁定需要连续几帧
+    CAL_STABLE_PX = 3.0           # 这几帧中心的最大离散度
     SEARCH_ANGLE_DEG = 60.0       # 从启动位置向左右各扫 60 度；确认机械行程后启用
     SELF_TEST_ANGLE_DEG = 5.0     # 自检按左、右、上、下往返，结束回到起点
     MANUAL_RPM = 15               # 手动/自检速度：15rpm ≈ 90°/s，可见又不甩
     MANUAL_ACC = 150              # 斜坡档：约 0.08s，起停不顿
     MANUAL_SETTLE_S = 0.25
     ENABLE_TOUCH_BUTTONS = True
-    AUTO_TRACK_ON_BOOT = False   # 按 SEARCH 后才开始追踪；无触屏可用 AimLoop.request_search()
+    AUTO_TRACK_ON_BOOT = True     # 上电等目标即追；False = 只识别，按 SEARCH 才允许动
 
 
 def apply_aim_profile(cfg):
     """Only these six values belong to a profile; unknown names fail at startup."""
-    profiles = {"smooth": (.30, .30, .65, 60, 150, 80),
+    profiles = {"smooth": (.35, .35, .70, 60, 150, 80),
                 "responsive": (.50, .50, .90, 120, 400, 360)}
     name = cfg.AIM_PROFILE
     if name not in profiles:

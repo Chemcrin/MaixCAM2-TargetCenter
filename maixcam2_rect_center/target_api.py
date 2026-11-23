@@ -309,7 +309,8 @@ class AimLoop:
             if self.link.enable() is False:
                 self.aim.fault("enable_failed")
         from vision.logic import VisionControl
-        self.control = VisionControl(self.cfg, self.link, self.aim, clock=self.clock)
+        self.control = VisionControl(self.cfg, self.link, self.aim,
+                                     clock=self.clock, calibrate=False)
 
     def step(self, frame, now=None):
         if self.closed:

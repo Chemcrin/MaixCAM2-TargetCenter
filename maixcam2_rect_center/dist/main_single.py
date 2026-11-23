@@ -10,13 +10,13 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-23 21:57:56
-    config.py                    sha1=8bcd19bda03a
+生成时间：2026-11-23 22:05:53
+    config.py                    sha1=0fd3ce7033f9
     main.py                      sha1=c68e3bb2cf72
-    target_api.py                sha1=084f7844b3b7
+    target_api.py                sha1=7b8df44fb443
     vision/__init__.py           sha1=01904dd699d3
     vision/algo.py               sha1=a4578a955777
-    vision/logic.py              sha1=52f3a7d6abfa
+    vision/logic.py              sha1=5a4c52a576cb
     vision/maixvision_stream.py  sha1=c30d784f26a0
     vision/output.py             sha1=7dc04c56e5d0
     vision/poll.py               sha1=992056fd530e
@@ -26,7 +26,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '8bcd19bda03ac887cb2f617565f0cacaeff46dd6', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/zdt.py': '4fdd1d511e538ef258cc06dca3f3fa16ecea60e2', 'vision/output.py': '7dc04c56e5d04fcc50fd21ec0357aad222fa2023', 'vision/logic.py': '52f3a7d6abfa6ce69eaeb60bb44d10f47c7e86f3', 'vision/__init__.py': '01904dd699d3c76bbd3d776a3b3a967cdbf01103', 'target_api.py': '084f7844b3b7371ac4b63786f0a8f5913afd5b48', 'main.py': 'c68e3bb2cf7254779363683353cbe8e58ee15a96'}
+_SRC_SHA1 = {'config.py': '0fd3ce7033f971c9c6c7800997bc2a289e015272', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/zdt.py': '4fdd1d511e538ef258cc06dca3f3fa16ecea60e2', 'vision/output.py': '7dc04c56e5d04fcc50fd21ec0357aad222fa2023', 'vision/logic.py': '5a4c52a576cbb9b49d483b474a8759433475ca07', 'vision/__init__.py': '01904dd699d3c76bbd3d776a3b3a967cdbf01103', 'target_api.py': '7b8df44fb4432cc20b8e675e1f77d4a532e625aa', 'main.py': 'c68e3bb2cf7254779363683353cbe8e58ee15a96'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -86,7 +86,7 @@ class Config:
     PULSE_PER_PX_PITCH = 3.67
     GAIN_YAW = 0.5                # 被 AIM_PROFILE 覆盖，实际值见文件末尾 profiles
     GAIN_PITCH = 0.5              # 同上
-    DEADBAND_PX = 1.0             # 每轴死区；应 ≥1.5× 实测回差
+    DEADBAND_PX = 2.0             # 每轴死区；1 脉冲约 1.8px，死区小于它会在两点间来回跳
     MAX_STEP_PULSES = 360         # 同上，被 profile 覆盖
     RPM_FINE = 300                # 同上，被 profile 覆盖
     COMMAND_INTERVAL_S = 0.08
@@ -176,18 +176,29 @@ class Config:
     DIVERGE_RATIO = 1.15
     DIVERGE_MIN_PX = 4.0
     GIMBAL_CALIBRATED = True      # 改过脉冲/像素后若闭环发散，先置 False 只跑识别
+    # ---- 开机自标定：第一段稳定目标上自己走四步探针，测换算系数与方向 ----
+    #   测完直接写进运行期 tuning，不改磁盘配置；日志会打印可粘贴的 config 行。
+    AUTO_CALIBRATE = True
+    CAL_PROBE_PULSES = 60         # 探针脉冲数（3200 细分下约 6.8°）
+    CAL_PROBE_DEG_S = 25.0        # 探针速度：慢，能看清
+    CAL_RAMP_S = 0.15             # 起停斜坡
+    CAL_SETTLE_S = 0.45           # 停稳后再量（齿隙回弹要时间）
+    CAL_TIMEOUT_S = 2.0           # 单个相位等测量超时
+    CAL_START_TIMEOUT_S = 10.0    # 开机等目标超时：超了就保留配置值直接追踪
+    CAL_VALID_FRAMES = 4          # 起始锁定需要连续几帧
+    CAL_STABLE_PX = 3.0           # 这几帧中心的最大离散度
     SEARCH_ANGLE_DEG = 60.0       # 从启动位置向左右各扫 60 度；确认机械行程后启用
     SELF_TEST_ANGLE_DEG = 5.0     # 自检按左、右、上、下往返，结束回到起点
     MANUAL_RPM = 15               # 手动/自检速度：15rpm ≈ 90°/s，可见又不甩
     MANUAL_ACC = 150              # 斜坡档：约 0.08s，起停不顿
     MANUAL_SETTLE_S = 0.25
     ENABLE_TOUCH_BUTTONS = True
-    AUTO_TRACK_ON_BOOT = False   # 按 SEARCH 后才开始追踪；无触屏可用 AimLoop.request_search()
+    AUTO_TRACK_ON_BOOT = True     # 上电等目标即追；False = 只识别，按 SEARCH 才允许动
 
 
 def apply_aim_profile(cfg):
     """Only these six values belong to a profile; unknown names fail at startup."""
-    profiles = {"smooth": (.30, .30, .65, 60, 150, 80),
+    profiles = {"smooth": (.35, .35, .70, 60, 150, 80),
                 "responsive": (.50, .50, .90, 120, 400, 360)}
     name = cfg.AIM_PROFILE
     if name not in profiles:
@@ -2099,7 +2110,7 @@ from .output import (Preview, TouchButtons, aligned_frame, apply_commands, displ
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 from .zdt import StepperLink, estimate_move_seconds, speed_profile
 
-BUILD_ID = "1.11.1-2026-11-23"
+BUILD_ID = "1.12.0-2026-11-23"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -2107,6 +2118,15 @@ MAIN_LOOP_SLOW_MS = 66.0
 # 结果阶段词汇（检测器写入 result["stage"]）
 STAGE_PLANE = "plane_frame"
 STAGE_NONE = "no_black_frame"
+
+
+def _implied_fov(pulses_per_px, cfg):
+    """用标定值反推水平视场，做常识校验（先假设无减速比）。"""
+    px_per_pulse = 1.0/max(1e-6, float(pulses_per_px))
+    deg_per_pulse = 360.0/float(cfg.MOTOR_PULSES_PER_REV)
+    px_per_deg = px_per_pulse/deg_per_pulse
+    f_px = px_per_deg*180.0/math.pi
+    return 2.0*math.degrees(math.atan((cfg.CAMERA_W/2.0)/max(1.0, f_px)))
 
 
 # ================================================================== 结果契约
@@ -2702,6 +2722,13 @@ class GimbalAim:
         self._stops = []
         self._guard_error = {"yaw": None, "pitch": None}
         self._diverge = {"yaw": 0, "pitch": 0}
+        # 运行期可改的换算系数与方向：开机自标定直接写这里，不改磁盘配置。
+        self.tuning = {
+            "yaw": {"ppp": float(getattr(cfg, "PULSE_PER_PX_YAW", 3.67)),
+                    "sign": float(getattr(cfg, "DIR_SIGN_YAW", 1))},
+            "pitch": {"ppp": float(getattr(cfg, "PULSE_PER_PX_PITCH", 3.67)),
+                      "sign": float(getattr(cfg, "DIR_SIGN_PITCH", 1))},
+        }
 
     # ------------------------------------------------------------- 外部接口
     def fault(self, reason):
@@ -2712,7 +2739,10 @@ class GimbalAim:
         return self.state
 
     def reset(self):
+        tuning = getattr(self, "tuning", None)
         self.__init__(self.cfg, self.controller)
+        if tuning is not None:
+            self.tuning = tuning          # 标定结果不能因为一次 reset 被抹掉
         self.state = BOOT
         self.fault_reason = None
         self._lost = 0
@@ -2842,7 +2872,8 @@ class GimbalAim:
                     self.fault("diverge:"+axis)
                     return None
             self._guard_error[axis] = error
-        sign = float(getattr(cfg, "DIR_SIGN_YAW" if axis == "yaw" else "DIR_SIGN_PITCH", 1))
+        tune = self.tuning[axis]
+        sign = float(tune["sign"])
         max_pulses = int(getattr(cfg, "MAX_STEP_PULSES", 360))
         if self.controller is not None:
             output = self.controller(axis, float(error), now)
@@ -2851,8 +2882,7 @@ class GimbalAim:
             pulses = min(max_pulses, max(1, int(round(abs(float(output))))))
             ccw = float(output) * sign > 0
         else:
-            ppp = float(getattr(cfg, "PULSE_PER_PX_YAW" if axis == "yaw"
-                                else "PULSE_PER_PX_PITCH", 3.67))
+            ppp = float(tune["ppp"])
             if not math.isfinite(ppp) or ppp <= 0:
                 self.fault("invalid_scale:"+axis)
                 return None
@@ -2880,7 +2910,7 @@ class VisionControl:
     与 `stop_motion` 走执行层；本类不直接写串口。
     """
 
-    def __init__(self, cfg, link=None, aim=None, clock=None):
+    def __init__(self, cfg, link=None, aim=None, clock=None, calibrate=None):
         self.cfg, self.link, self.aim = cfg, link, aim
         self._clock = clock if clock is not None else time
         self.detector = RectangleCenterDetector(cfg)
@@ -2898,6 +2928,160 @@ class VisionControl:
         self._action_index = 0
         self._action_ready_at = 0.0
         self._manual_hold = not getattr(cfg, 'AUTO_TRACK_ON_BOOT', True)
+        # 开机自标定：拿到第一段稳定目标后自己走四步探针，测换算系数与方向。
+        auto = bool(getattr(cfg, 'AUTO_CALIBRATE', False)) if calibrate is None else bool(calibrate)
+        self._calib_done = not (auto and link is not None and aim is not None)
+        self._calib = None if self._calib_done else {
+            'axis': 'yaw', 'phase': 'wait', 'points': [], 'n': 0, 'offset': 0,
+            'center0': None, 'plus': None, 'back': None, 'minus': None,
+            'ready': 0.0, 't0': self._clock.perf_counter(), 'result': {}}
+
+    # ------------------------------------------------------------- 开机自标定
+    def _calib_step(self, result, now, new_measurement):
+        """四步探针状态机。返回 True 表示本帧归标定，不要再走追踪。
+
+        每轴：正走 N → 回 → 反走 N → 回。位移由"靶心在画面里挪了多少像素"
+        直接量出来，所以不依赖任何先验系数。中途丢目标就原路退回、保留原值。
+        """
+        c, cfg = self._calib, self.cfg
+        started = now - c['t0']
+        if c['phase'] == 'wait':
+            if not (new_measurement and result and result.get('valid')
+                    and not result.get('hold')):
+                c['points'] = []
+                if started > float(getattr(cfg, 'CAL_START_TIMEOUT_S', 8.0)):
+                    print('[calib] %.0fs 内没拿到稳定目标，保留配置值' % started)
+                    self._calib_done = True
+                return True
+            c['points'].append(self._calib_center(result))
+            if len(c['points']) > int(cfg.CAL_VALID_FRAMES):
+                c['points'].pop(0)
+            if len(c['points']) < int(cfg.CAL_VALID_FRAMES):
+                return True
+            pts = c['points']
+            spread = max(max(p[0] for p in pts)-min(p[0] for p in pts),
+                         max(p[1] for p in pts)-min(p[1] for p in pts))
+            if spread > float(cfg.CAL_STABLE_PX):
+                return True
+            c['center0'] = (sum(p[0] for p in pts)/len(pts),
+                            sum(p[1] for p in pts)/len(pts))
+            c['n'] = self._calib_probe_n(c['center0'], c['axis'])
+            ok, wait = self._calib_send(c['axis'], True, c['n'], now)
+            if not ok:
+                self._calib_done = True
+                return True
+            c['offset'] = c['n']
+            c['phase'] = 'plus'
+            c['ready'] = now + wait
+            print('[calib] %s 探针 n=%d (%.1f°)' %
+                  (c['axis'], c['n'], c['n']*360.0/float(cfg.MOTOR_PULSES_PER_REV)))
+            return True
+        if now < c['ready']:
+            return True
+        if now - c['ready'] > float(getattr(cfg, 'CAL_TIMEOUT_S', 2.0)):
+            self._calib_abort('等测量超时', now)
+            return True
+        if not new_measurement:
+            return True
+        if not (result and result.get('valid') and not result.get('hold')):
+            return True                      # 这一帧没量到，等下一帧，超时再放弃
+        # 只认"运动结束后才曝光"的帧：否则可能拿运动前的旧位置算位移
+        captured = float(result.get('captured_at', now))
+        if captured < c['ready'] - 0.02:
+            return True
+        center = self._calib_center(result)
+        phase = c['phase']
+        if phase == 'plus':
+            c['plus'] = center
+            ok, wait = self._calib_send(c['axis'], False, c['n'], now)
+            c['offset'], c['phase'] = 0, 'back'
+        elif phase == 'back':
+            c['back'] = center
+            ok, wait = self._calib_send(c['axis'], False, c['n'], now)
+            c['offset'], c['phase'] = -c['n'], 'minus'
+        elif phase == 'minus':
+            c['minus'] = center
+            ok, wait = self._calib_send(c['axis'], True, c['n'], now)
+            c['offset'], c['phase'] = 0, 'return'
+        else:
+            self._calib_compute(c['axis'])
+            self._calib_next_axis(now)
+            return True
+        if not ok:
+            self._calib_done = True
+            return True
+        c['ready'] = now + wait
+        return True
+
+    def _calib_center(self, result):
+        if result.get('raw_u') is not None and result.get('raw_v') is not None:
+            return float(result['raw_u']), float(result['raw_v'])
+        return float(result['u']), float(result['v'])
+
+    def _calib_probe_n(self, center, axis):
+        """按靶心到边缘的余量定探针幅度：假设最坏 1 脉冲走 4px，别把靶纸推出去。"""
+        u, v = center
+        margin = (min(u, self.cfg.CAMERA_W-u) if axis == 'yaw'
+                  else min(v, self.cfg.CAMERA_H-v))
+        return max(8, min(int(self.cfg.CAL_PROBE_PULSES), int(margin*0.6/4.0)))
+
+    def _calib_send(self, axis, ccw, pulses, now):
+        rpm, acc = speed_profile(float(self.cfg.CAL_PROBE_DEG_S),
+                                 float(self.cfg.CAL_RAMP_S))
+        ok, _failed, _applied = apply_commands(
+            self.link, self.aim, {axis: (ccw, pulses, rpm, acc)}, now, acc)
+        wait = estimate_move_seconds(pulses, rpm, acc,
+                                     self.cfg.MOTOR_PULSES_PER_REV) + float(self.cfg.CAL_SETTLE_S)
+        return ok, max(0.05, wait)
+
+    def _calib_abort(self, reason, now):
+        """中止：把还在偏移上的探针原路退回，未测的轴保留配置值。"""
+        c = self._calib
+        if c is None:
+            return
+        offset = int(c.get('offset', 0))
+        if offset:
+            self._calib_send(c['axis'], offset < 0, abs(offset), now)
+        print('[calib] 中止（%s）：%s offset=%d' % (reason, c['axis'], offset))
+        self._calib_next_axis(now)
+
+    def _calib_compute(self, axis):
+        c = self._calib
+        comp = 0 if axis == 'yaw' else 1
+        start = c['center0'][comp]
+        d_plus = c['plus'][comp]-start
+        d_minus = c['minus'][comp]-start
+        travel = abs(d_plus)+abs(d_minus)
+        back = abs(c['back'][comp]-start) if c['back'] is not None else float('nan')
+        if travel < 6.0:
+            print('[calib] %s 位移只有 %.1fpx，结果不可信，保留配置值' % (axis, travel))
+            return
+        k = 2.0*c['n']/travel
+        sign = 1 if d_plus < 0 else -1
+        fov = _implied_fov(k, self.cfg)
+        print('[calib] %s Δ+=%+.1fpx Δ-=%+.1fpx 回程=%.1fpx → K=%.4f DIR=%+d 视场≈%.0f°'
+              % (axis, d_plus, d_minus, back, k, sign, fov))
+        if not (0.02 <= k <= 30.0) or not (10.0 <= fov <= 130.0):
+            print('[calib] %s 数值不合理（K 或视场超界），保留配置值' % axis)
+            return
+        self.aim.tuning[axis]['ppp'] = k
+        self.aim.tuning[axis]['sign'] = sign
+        c['result'][axis] = (k, sign)
+
+    def _calib_next_axis(self, now):
+        c = self._calib
+        if c['axis'] == 'yaw':
+            c.update(axis='pitch', phase='wait', points=[], offset=0,
+                     center0=None, plus=None, back=None, minus=None,
+                     ready=0.0, t0=now)
+            return
+        self._calib_done = True
+        parts = ['%s K=%.4f DIR=%+d' % (a, v[0], v[1]) for a, v in sorted(c['result'].items())]
+        print('[calib] 完成：' + (' | '.join(parts) if parts else '两轴都没测出，保留配置值'))
+        if parts:
+            print('[calib] 可写入 config：' + '  '.join(
+                'PULSE_PER_PX_%s=%.4f DIR_SIGN_%s=%+d' %
+                (a.upper(), v[0], a.upper(), v[1]) for a, v in sorted(c['result'].items())))
 
     def request_action(self, name):
         """May be called from the camera/touch thread; UART work stays in this worker."""
@@ -3010,6 +3194,8 @@ class VisionControl:
     def status(self):
         if self.aim is not None and self.aim.state == 'FAULT':
             return 'FAULT'
+        if not self._calib_done:
+            return 'CALIB'
         return self._action.upper() if self._action else (self.aim.state if self.aim else 'vision')
 
     def _stop_motion(self, now, axis=None):
@@ -3031,6 +3217,9 @@ class VisionControl:
             return
         requested = self._take_action()
         if requested is not None:
+            if not self._calib_done:
+                self._calib_abort('按键打断', now)
+                self._calib_done = True
             self._start_action(requested, now)
             if aim.state == 'FAULT':
                 return
@@ -3046,6 +3235,9 @@ class VisionControl:
             self.stale_stopped = True
             aim.update({'aim_valid': False}, now=now)
             return
+        if not self._calib_done:
+            if self._calib_step(result, now, new_measurement):
+                return
         if not new_measurement:
             if (result is not None and result.get('stage') == 'stale' or now-self.last_capture > self.cfg.RESULT_MAX_AGE_S) and not self.stale_stopped:
                 self._stop_motion(now)
@@ -3550,7 +3742,8 @@ class AimLoop:
             if self.link.enable() is False:
                 self.aim.fault("enable_failed")
         from vision.logic import VisionControl
-        self.control = VisionControl(self.cfg, self.link, self.aim, clock=self.clock)
+        self.control = VisionControl(self.cfg, self.link, self.aim,
+                                     clock=self.clock, calibrate=False)
 
     def step(self, frame, now=None):
         if self.closed:

@@ -34,12 +34,32 @@ class Link:
         return True
 
 
+class PlantLink(Link):
+    """把脉冲换成画面位移的假被控对象：CCW 让坐标变小（与真机同口径）。"""
+
+    def __init__(self, px_per_pulse=1.76):
+        Link.__init__(self)
+        self.u, self.v = 320.0, 240.0
+        self.k = float(px_per_pulse)
+
+    def move(self, axis, ccw, pulses, rpm, acc, now=None):
+        Link.move(self, axis, ccw, pulses, rpm, acc, now)
+        delta = pulses*self.k*(1.0 if ccw else -1.0)
+        if axis == 'yaw':
+            self.u -= delta
+        else:
+            self.v -= delta
+        return True
+
+
 class ActionsTest(unittest.TestCase):
     def setUp(self):
+        # 动作时序测试不跑自标定，否则探针会抢在按键动作之前占住帧
+        self.cfg = type('TestConfig', (Config,), dict(AUTO_CALIBRATE=False))
         self.clock = Clock()
         self.link = Link()
-        self.aim = GimbalAim(Config)
-        self.control = VisionControl(Config, self.link, self.aim, self.clock)
+        self.aim = GimbalAim(self.cfg)
+        self.control = VisionControl(self.cfg, self.link, self.aim, self.clock)
 
     def tick(self, result=None):
         self.control._control(result, self.clock.now, result is not None)
@@ -109,6 +129,37 @@ class ActionsTest(unittest.TestCase):
         self.assertEqual(self.aim.state, 'FAULT')
         self.assertIsNone(self.control._action)
         self.assertIn(('stop', None), self.link.calls)
+
+
+class AutoCalibrationTest(unittest.TestCase):
+    def test_four_step_probe_recovers_scale_and_sign(self):
+        """四步探针应能从假被控对象反推出 1/1.76 脉冲/px、方向 -1。"""
+        cfg = type('CalibConfig', (Config,), dict(
+            AUTO_CALIBRATE=True, AUTO_TRACK_ON_BOOT=True,
+            CAL_PROBE_PULSES=60, CAL_PROBE_DEG_S=30.0, CAL_SETTLE_S=0.10,
+            CAL_TIMEOUT_S=1.0, CAL_START_TIMEOUT_S=5.0,
+            CAL_VALID_FRAMES=4, CAL_STABLE_PX=3.0))
+        clock = Clock()
+        link = PlantLink(1.76)
+        aim = GimbalAim(cfg)
+        control = VisionControl(cfg, link, aim, clock)
+
+        def result():
+            return dict(valid=True, hold=False, aim_valid=True,
+                        raw_u=link.u, raw_v=link.v, u=link.u, v=link.v,
+                        captured_at=clock.now)
+
+        for _ in range(400):
+            clock.now += 0.15
+            control._control(result(), clock.now, True)
+            if control._calib_done:
+                break
+
+        self.assertTrue(control._calib_done)
+        self.assertAlmostEqual(aim.tuning['yaw']['ppp'], 1/1.76, places=2)
+        # 假对象里 CCW 让 u 变小；误差为正（靶心偏右）时该往 CCW 走 → sign=+1
+        self.assertEqual(aim.tuning['yaw']['sign'], 1)
+        self.assertAlmostEqual(aim.tuning['pitch']['ppp'], 1/1.76, places=2)
 
 
 if __name__ == '__main__':
