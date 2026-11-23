@@ -34,7 +34,7 @@ import time
 
 __all__ = ["CR", "STATUS_OK", "STATUS_E2",
            "cmd_enable", "cmd_speed", "cmd_position", "cmd_stop_now",
-           "frame_status", "estimate_move_seconds", "StepperLink"]
+           "frame_status", "estimate_move_seconds", "speed_profile", "StepperLink"]
 
 # ZDT Emm_V5.0 帧头校验字节与状态码（手册 p.36-38）
 CR = 0x6B
@@ -94,6 +94,26 @@ def estimate_move_seconds(pulses, rpm, acc=0, pulses_per_rev=3200):
     if pulses <= ramp_distance:
         return 2*math.sqrt(pulses/acceleration)
     return 2*ramp_seconds+(pulses-ramp_distance)/speed
+
+
+def speed_profile(deg_s, ramp_s):
+    """把"电机轴角速度 + 起停斜坡时间"换算成驱动器要的 (rpm, acc)。
+
+    ZDT 的 acc 不是物理加速度，而是 0~255 的档位：0 = 瞬时启停，255 = 最缓。
+    手册的斜坡模型是 ``t_ramp = rpm × (256 - acc) × 50µs``，这里反解 acc。
+
+    ⚠ 低转速时斜坡时间有上限（rpm 越小，能拉出的斜坡越短）：算出来 acc < 1
+    就取 1（最缓档），此时实际斜坡是 ``rpm × 255 × 50µs``，比要求短。
+    这不是 bug，是驱动器本身的量化；想要更长的软启动只能提高目标转速。
+    """
+    deg_s = max(0.0, float(deg_s))
+    rpm = int(round(deg_s * 60.0 / 360.0))
+    rpm = max(1, min(5000, rpm))
+    ramp_s = max(0.0, float(ramp_s))
+    if ramp_s <= 0:
+        return rpm, 0                     # 0 = 不加速（瞬时启停），仅调试用
+    acc = int(round(256.0 - ramp_s / (rpm * 50e-6)))
+    return rpm, max(1, min(255, acc))
 
 
 def _readback_pin(pinmap, pin):
@@ -228,6 +248,17 @@ class StepperLink:
             return False
         return self._write(axis, cmd_position(self._addr(axis), ccw, rpm, pulses, acc=acc),
                            now=now)
+
+    def move_smooth(self, axis, ccw, pulses, deg_s, ramp_s=0.12, now=None):
+        """按"角速度 + 起停斜坡"走一段相对位置，返回 ``(ok, rpm, acc)``。
+
+        ``deg_s`` 是**电机轴**角速度（度/秒），不是输出轴；有减速比时传
+        ``输出角速度 × 减速比``。驱动器自己按梯形曲线加速—匀速—减速，
+        所以一条指令就是一次完整的平滑动作，不需要上层补小步。
+        """
+        rpm, acc = speed_profile(deg_s, ramp_s)
+        ok = self.move(axis, ccw, pulses, rpm, acc, now=now)
+        return ok, rpm, acc
 
     def speed(self, axis, ccw, rpm, acc=0, now=None):
         return self._write(axis, cmd_speed(self._addr(axis), ccw, rpm, acc=acc), now=now)

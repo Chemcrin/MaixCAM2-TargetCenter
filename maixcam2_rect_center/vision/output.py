@@ -609,13 +609,16 @@ def stop_motion(link, aim, now, axis=None):
 
 
 def apply_commands(link, aim, commands, now, acc_track):
-    """把 `{'yaw': (ccw, pulses, rpm)|None, 'pitch': ...}` 真正下发。
+    """把 `{'yaw': (ccw, pulses, rpm, acc)|None, 'pitch': ...}` 真正下发。
 
     返回 `(ok, failed_axis, applied)`：
 
         ok          全部下发成功为 True；任一失败即 False（此时已停机并置 FAULT）
         failed_axis 失败的轴名，成功为 None
         applied     实际发出去的 `{axis: command}`，供逻辑层回填 `self.commands`
+
+    每条指令自带 acc（起停斜坡），不再全局写死：远距离和近距离可以用不同的
+    斜坡时间，速度曲线才不会一顿一顿。命令缺第 4 位时退回 `acc_track`。
 
     顺序：按 dict 迭代顺序逐个 `link.move`，首个失败立即停机返回。
     """
@@ -625,9 +628,10 @@ def apply_commands(link, aim, commands, now, acc_track):
     for axis, command in commands.items():
         if command is None:
             continue
-        ccw, pulses, rpm = command
+        ccw, pulses, rpm = command[:3]
+        acc = command[3] if len(command) > 3 else acc_track
         try:
-            ok = link.move(axis, ccw, pulses, rpm, acc_track, now=now)
+            ok = link.move(axis, ccw, pulses, rpm, acc, now=now)
         except Exception:
             ok = False
         if ok is False:

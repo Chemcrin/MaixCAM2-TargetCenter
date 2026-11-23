@@ -10,23 +10,23 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-23 21:41:46
-    config.py                    sha1=a05d0b827af5
+生成时间：2026-11-23 21:57:27
+    config.py                    sha1=8bcd19bda03a
     main.py                      sha1=c68e3bb2cf72
     target_api.py                sha1=422ad394dbd2
     vision/__init__.py           sha1=01904dd699d3
     vision/algo.py               sha1=a4578a955777
-    vision/logic.py              sha1=d2fb9755bf5c
+    vision/logic.py              sha1=d4219404352c
     vision/maixvision_stream.py  sha1=c30d784f26a0
-    vision/output.py             sha1=bc62c2213dbc
+    vision/output.py             sha1=7dc04c56e5d0
     vision/poll.py               sha1=992056fd530e
-    vision/zdt.py                sha1=373f114cd014
+    vision/zdt.py                sha1=4fdd1d511e53
 """
 
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': 'a05d0b827af5e48d2764cb15507c72c6a4eb17cf', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/zdt.py': '373f114cd0143181565d5fa45d2b0836c1a4cb4d', 'vision/output.py': 'bc62c2213dbceebee0f5e2833ff9c882d00b7009', 'vision/logic.py': 'd2fb9755bf5c3688c4770dc1f74c920afda79aa8', 'vision/__init__.py': '01904dd699d3c76bbd3d776a3b3a967cdbf01103', 'target_api.py': '422ad394dbd28847a6939976f12dfd38c2e9b674', 'main.py': 'c68e3bb2cf7254779363683353cbe8e58ee15a96'}
+_SRC_SHA1 = {'config.py': '8bcd19bda03ac887cb2f617565f0cacaeff46dd6', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/zdt.py': '4fdd1d511e538ef258cc06dca3f3fa16ecea60e2', 'vision/output.py': '7dc04c56e5d04fcc50fd21ec0357aad222fa2023', 'vision/logic.py': 'd4219404352c44e6de4107dbe66b3cef35817ac7', 'vision/__init__.py': '01904dd699d3c76bbd3d776a3b3a967cdbf01103', 'target_api.py': '422ad394dbd28847a6939976f12dfd38c2e9b674', 'main.py': 'c68e3bb2cf7254779363683353cbe8e58ee15a96'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -161,7 +161,13 @@ class Config:
     # ---- 瞄准调度 ----
     AIM_PROFILE = "smooth"        # 见文件末尾 profiles：覆盖 6 个增益/转速/限幅
     AIM_PROGRESSIVE = True
-    ACC_TRACK = 80                # 曲线加减速档位：0 = 瞬时启停（勿用）；越小越柔
+    ACC_TRACK = 80                # 兼容旧命令的兜底斜坡档（新命令自带 acc）
+    # ★ 速度曲线：误差大走得快、误差小走得慢，一条指令一次完整的加速—匀速—减速。
+    #   单位是**电机轴**度/秒；有减速比时输出端按比例更慢。
+    AIM_DEG_S_PER_PX = 0.5        # 每 1px 误差想要多少度/秒（线性段）
+    AIM_MIN_DEG_S = 8.0           # 最低速度：再小驱动器只有 1rpm 档，实际约 6°/s
+    AIM_MAX_DEG_S = 60.0          # 最高速度：限制"短时间内转一大截"
+    AIM_RAMP_S = 0.12             # 起停斜坡时间（驱动器按此反解 acc 档位）
     AIM_WAIT_MOTION = True
     AIM_MOTION_MARGIN_S = 0.03
     AIM_HISTORY_MAX_GAP_S = 0.30
@@ -172,8 +178,8 @@ class Config:
     GIMBAL_CALIBRATED = True      # 改过脉冲/像素后若闭环发散，先置 False 只跑识别
     SEARCH_ANGLE_DEG = 60.0       # 从启动位置向左右各扫 60 度；确认机械行程后启用
     SELF_TEST_ANGLE_DEG = 5.0     # 自检按左、右、上、下往返，结束回到起点
-    MANUAL_RPM = 120
-    MANUAL_ACC = 80
+    MANUAL_RPM = 15               # 手动/自检速度：15rpm ≈ 90°/s，可见又不甩
+    MANUAL_ACC = 150              # 斜坡档：约 0.08s，起停不顿
     MANUAL_SETTLE_S = 0.25
     ENABLE_TOUCH_BUTTONS = True
     AUTO_TRACK_ON_BOOT = False   # 按 SEARCH 后才开始追踪；无触屏可用 AimLoop.request_search()
@@ -994,7 +1000,7 @@ import time
 
 __all__ = ["CR", "STATUS_OK", "STATUS_E2",
            "cmd_enable", "cmd_speed", "cmd_position", "cmd_stop_now",
-           "frame_status", "estimate_move_seconds", "StepperLink"]
+           "frame_status", "estimate_move_seconds", "speed_profile", "StepperLink"]
 
 # ZDT Emm_V5.0 帧头校验字节与状态码（手册 p.36-38）
 CR = 0x6B
@@ -1054,6 +1060,26 @@ def estimate_move_seconds(pulses, rpm, acc=0, pulses_per_rev=3200):
     if pulses <= ramp_distance:
         return 2*math.sqrt(pulses/acceleration)
     return 2*ramp_seconds+(pulses-ramp_distance)/speed
+
+
+def speed_profile(deg_s, ramp_s):
+    """把"电机轴角速度 + 起停斜坡时间"换算成驱动器要的 (rpm, acc)。
+
+    ZDT 的 acc 不是物理加速度，而是 0~255 的档位：0 = 瞬时启停，255 = 最缓。
+    手册的斜坡模型是 ``t_ramp = rpm × (256 - acc) × 50µs``，这里反解 acc。
+
+    ⚠ 低转速时斜坡时间有上限（rpm 越小，能拉出的斜坡越短）：算出来 acc < 1
+    就取 1（最缓档），此时实际斜坡是 ``rpm × 255 × 50µs``，比要求短。
+    这不是 bug，是驱动器本身的量化；想要更长的软启动只能提高目标转速。
+    """
+    deg_s = max(0.0, float(deg_s))
+    rpm = int(round(deg_s * 60.0 / 360.0))
+    rpm = max(1, min(5000, rpm))
+    ramp_s = max(0.0, float(ramp_s))
+    if ramp_s <= 0:
+        return rpm, 0                     # 0 = 不加速（瞬时启停），仅调试用
+    acc = int(round(256.0 - ramp_s / (rpm * 50e-6)))
+    return rpm, max(1, min(255, acc))
 
 
 def _readback_pin(pinmap, pin):
@@ -1188,6 +1214,17 @@ class StepperLink:
             return False
         return self._write(axis, cmd_position(self._addr(axis), ccw, rpm, pulses, acc=acc),
                            now=now)
+
+    def move_smooth(self, axis, ccw, pulses, deg_s, ramp_s=0.12, now=None):
+        """按"角速度 + 起停斜坡"走一段相对位置，返回 ``(ok, rpm, acc)``。
+
+        ``deg_s`` 是**电机轴**角速度（度/秒），不是输出轴；有减速比时传
+        ``输出角速度 × 减速比``。驱动器自己按梯形曲线加速—匀速—减速，
+        所以一条指令就是一次完整的平滑动作，不需要上层补小步。
+        """
+        rpm, acc = speed_profile(deg_s, ramp_s)
+        ok = self.move(axis, ccw, pulses, rpm, acc, now=now)
+        return ok, rpm, acc
 
     def speed(self, axis, ccw, rpm, acc=0, now=None):
         return self._write(axis, cmd_speed(self._addr(axis), ccw, rpm, acc=acc), now=now)
@@ -1947,13 +1984,16 @@ def stop_motion(link, aim, now, axis=None):
 
 
 def apply_commands(link, aim, commands, now, acc_track):
-    """把 `{'yaw': (ccw, pulses, rpm)|None, 'pitch': ...}` 真正下发。
+    """把 `{'yaw': (ccw, pulses, rpm, acc)|None, 'pitch': ...}` 真正下发。
 
     返回 `(ok, failed_axis, applied)`：
 
         ok          全部下发成功为 True；任一失败即 False（此时已停机并置 FAULT）
         failed_axis 失败的轴名，成功为 None
         applied     实际发出去的 `{axis: command}`，供逻辑层回填 `self.commands`
+
+    每条指令自带 acc（起停斜坡），不再全局写死：远距离和近距离可以用不同的
+    斜坡时间，速度曲线才不会一顿一顿。命令缺第 4 位时退回 `acc_track`。
 
     顺序：按 dict 迭代顺序逐个 `link.move`，首个失败立即停机返回。
     """
@@ -1963,9 +2003,10 @@ def apply_commands(link, aim, commands, now, acc_track):
     for axis, command in commands.items():
         if command is None:
             continue
-        ccw, pulses, rpm = command
+        ccw, pulses, rpm = command[:3]
+        acc = command[3] if len(command) > 3 else acc_track
         try:
-            ok = link.move(axis, ccw, pulses, rpm, acc_track, now=now)
+            ok = link.move(axis, ccw, pulses, rpm, acc, now=now)
         except Exception:
             ok = False
         if ok is False:
@@ -2056,9 +2097,9 @@ from .algo import (deviation, edge_lengths, order_quad, profile_samples,
 from .output import (Preview, TouchButtons, aligned_frame, apply_commands, display_result,
                     draw_preview, perf_line, stop_motion)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
-from .zdt import StepperLink, estimate_move_seconds
+from .zdt import StepperLink, estimate_move_seconds, speed_profile
 
-BUILD_ID = "1.10.0-2026-11-23"
+BUILD_ID = "1.11.0-2026-11-23"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -2755,9 +2796,16 @@ class GimbalAim:
             raise ValueError("gain must be in (0, 1]")
         return fine + self._mix(error)*(coarse-fine)
 
-    def _rpm(self, error=0):
-        fine, coarse = self.cfg.RPM_FINE, self.cfg.RPM_COARSE
-        return max(1, round(fine+self._mix(error)*(coarse-fine)))
+    def _speed(self, error):
+        """远快近慢：目标角速度随误差线性上升，上下限夹住。
+
+        单位是**电机轴**度/秒；有减速比时输出端按比例更慢。这里只管"想多快"，
+        真正的 rpm/acc 换算在驱动层 `zdt.speed_profile`。
+        """
+        per_px = float(getattr(self.cfg, "AIM_DEG_S_PER_PX", 0.5))
+        low = float(getattr(self.cfg, "AIM_MIN_DEG_S", 8.0))
+        high = float(getattr(self.cfg, "AIM_MAX_DEG_S", 60.0))
+        return max(low, min(high, abs(float(error))*per_px))
 
     def mark_stopped(self, now, axis=None):
         for name in ("yaw", "pitch") if axis is None else (axis,):
@@ -2813,10 +2861,13 @@ class GimbalAim:
             self.fault("invalid_direction:"+axis)
             return None
         self.last_command_time[axis] = now
-        rpm = self._rpm(error)
+        # 速度按"误差大走得快、误差小走得慢"排，斜坡时间固定；驱动器自己完成
+        # 加速—匀速—减速，一条指令就是一次完整动作，不会一顿一顿。
+        rpm, acc = speed_profile(self._speed(error),
+                                 float(getattr(cfg, "AIM_RAMP_S", 0.12)))
         self._direction[axis] = error
-        self._busy_until[axis] = now+estimate_move_seconds(pulses, rpm, getattr(cfg, "ACC_TRACK", 80), getattr(cfg, "MOTOR_PULSES_PER_REV", 3200))+getattr(cfg, "AIM_MOTION_MARGIN_S", .03)
-        return ccw, pulses, rpm
+        self._busy_until[axis] = now+estimate_move_seconds(pulses, rpm, acc, getattr(cfg, "MOTOR_PULSES_PER_REV", 3200))+getattr(cfg, "AIM_MOTION_MARGIN_S", .03)
+        return ccw, pulses, rpm, acc
 
 
 
@@ -2913,7 +2964,7 @@ class VisionControl:
             self._stop_motion(now)
             return
         ok, _, applied = apply_commands(self.link, self.aim,
-                                         {axis: (ccw, pulses, rpm)}, now, acc)
+                                         {axis: (ccw, pulses, rpm, acc)}, now, acc)
         if not ok:
             self._action = None
             return
@@ -3618,7 +3669,7 @@ for _full in _MOD_ORDER:
 del _m, _full, _MOD_SRC
 
 # --------------------------------------------------------------------------
-# ② 主程序：main.py 原文照搬，exec 进本文件全局命名空间
+# ② 主程序：入口原文照搬，exec 进本文件全局命名空间
 #    这样 __name__ == "__main__" 判断、traceback 文件名都与原来一致
 # --------------------------------------------------------------------------
 exec(compile(_MAIN_SRC, 'main.py', "exec"), globals())

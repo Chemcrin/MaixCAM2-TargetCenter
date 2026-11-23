@@ -70,10 +70,10 @@ def sha1_of(path):
         return hashlib.sha1(f.read()).hexdigest()
 
 
-def collect():
-    """读取所有源码，返回 (源码字典, sha1 字典)。"""
+def collect(entry_rel=MAIN_REL):
+    """读取所有源码，返回 (源码字典, sha1 字典)。entry_rel 是本次的入口文件。"""
     src, sha = {}, {}
-    for rel in [rel for _, rel in MODULES] + [MAIN_REL]:
+    for rel in [rel for _, rel in MODULES] + [entry_rel]:
         p = os.path.join(ROOT, rel)
         if not os.path.isfile(p):
             raise SystemExit("[build] 找不到源文件: %s" % p)
@@ -100,19 +100,21 @@ def as_raw_literal(text, rel):
     )
 
 
-def build():
-    src, sha = collect()
+def build(entry_rel=MAIN_REL, out_py=OUT_PY):
+    """把入口文件 + 全部模块打成单文件。entry_rel 换掉就能产出标定等旁路脚本。"""
+    src, sha = collect(entry_rel)
     now = time.strftime("%Y-%m-%d %H:%M:%S")
+    title = os.path.basename(out_py)
 
     buf = io.StringIO()
     w = buf.write
     w('#!/usr/bin/env python3\n')
     w('# -*- coding: utf-8 -*-\n')
     w('"""\n')
-    w('main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版\n')
+    w('%s · 25E 靶心识别（轨道 B）—— 单文件自包含版\n' % title)
     w('=' * 80 + '\n')
     w('★ 本文件由 tools/build_single.py 自动生成，请勿手改！\n')
-    w('    改参数 -> config.py ；改算法 -> vision/*.py ；改流程 -> main.py\n')
+    w('    改参数 -> config.py ；改算法 -> vision/*.py ；改流程 -> %s\n' % entry_rel)
     w('    改完在本目录重新执行：  python tools/build_single.py\n')
     w('\n')
     w('用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。\n')
@@ -135,7 +137,7 @@ def build():
     for name, rel in MODULES:
         w('# ===== %s  (%s) =====\n' % (name, rel))
         w('_MOD_SRC[%r] = %s\n\n' % (name, as_raw_literal(src[rel], rel)))
-    w('_MAIN_SRC = %s\n' % as_raw_literal(src[MAIN_REL], MAIN_REL))
+    w('_MAIN_SRC = %s\n' % as_raw_literal(src[entry_rel], entry_rel))
     w('\n')
     w('_MOD_ORDER = (%s)\n\n' % ", ".join(repr(n) for n, _ in MODULES))
     w('_REL_OF = {%s}\n\n' % ", ".join("%r: %r" % (n, rel) for n, rel in MODULES))
@@ -163,13 +165,13 @@ def build():
     w('del _m, _full, _MOD_SRC\n')
     w('\n')
     w('# ' + '-' * 74 + '\n')
-    w('# ② 主程序：main.py 原文照搬，exec 进本文件全局命名空间\n')
+    w('# ② 主程序：入口原文照搬，exec 进本文件全局命名空间\n')
     w('#    这样 __name__ == "__main__" 判断、traceback 文件名都与原来一致\n')
     w('# ' + '-' * 74 + '\n')
-    w('exec(compile(_MAIN_SRC, %r, "exec"), globals())\n' % MAIN_REL)
+    w('exec(compile(_MAIN_SRC, %r, "exec"), globals())\n' % entry_rel)
 
-    os.makedirs(OUT_DIR, exist_ok=True)
-    with open(OUT_PY, "w", encoding="utf-8", newline="\n") as f:
+    os.makedirs(os.path.dirname(out_py) or ".", exist_ok=True)
+    with open(out_py, "w", encoding="utf-8", newline="\n") as f:
         f.write(buf.getvalue())
     return sha
 
@@ -241,15 +243,26 @@ def smoke():
     return 0
 
 
+def _arg(argv, flag, default):
+    if flag in argv:
+        i = argv.index(flag)
+        if i + 1 >= len(argv):
+            raise SystemExit("[build] %s 缺少参数" % flag)
+        return argv[i + 1]
+    return default
+
+
 def main(argv):
     if "--check" in argv:
         return check()
     if "--smoke" in argv:
         return smoke()
-    sha = build()
-    size = os.path.getsize(OUT_PY)
-    print("[build] 已生成 %s" % OUT_PY)
-    print("[build] 大小 %.1f KB，包含 %d 个源文件：" % (size / 1024.0, len(sha)))
+    entry = _arg(argv, "--entry", MAIN_REL)
+    out = _arg(argv, "--out", OUT_PY)
+    sha = build(entry, out)
+    size = os.path.getsize(out)
+    print("[build] 已生成 %s" % out)
+    print("[build] 入口 %s，大小 %.1f KB，包含 %d 个源文件：" % (entry, size / 1024.0, len(sha)))
     for k in sorted(sha):
         print("        %-28s %s" % (k, sha[k][:12]))
     print("[build] 用法：MaixVision 打开该文件后点「运行当前文件」即可。")

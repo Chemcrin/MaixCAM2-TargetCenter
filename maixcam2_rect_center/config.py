@@ -124,7 +124,13 @@ class Config:
     # ---- 瞄准调度 ----
     AIM_PROFILE = "smooth"        # 见文件末尾 profiles：覆盖 6 个增益/转速/限幅
     AIM_PROGRESSIVE = True
-    ACC_TRACK = 80                # 曲线加减速档位：0 = 瞬时启停（勿用）；越小越柔
+    ACC_TRACK = 80                # 兼容旧命令的兜底斜坡档（新命令自带 acc）
+    # ★ 速度曲线：误差大走得快、误差小走得慢，一条指令一次完整的加速—匀速—减速。
+    #   单位是**电机轴**度/秒；有减速比时输出端按比例更慢。
+    AIM_DEG_S_PER_PX = 0.5        # 每 1px 误差想要多少度/秒（线性段）
+    AIM_MIN_DEG_S = 8.0           # 最低速度：再小驱动器只有 1rpm 档，实际约 6°/s
+    AIM_MAX_DEG_S = 60.0          # 最高速度：限制"短时间内转一大截"
+    AIM_RAMP_S = 0.12             # 起停斜坡时间（驱动器按此反解 acc 档位）
     AIM_WAIT_MOTION = True
     AIM_MOTION_MARGIN_S = 0.03
     AIM_HISTORY_MAX_GAP_S = 0.30
@@ -135,8 +141,8 @@ class Config:
     GIMBAL_CALIBRATED = True      # 改过脉冲/像素后若闭环发散，先置 False 只跑识别
     SEARCH_ANGLE_DEG = 60.0       # 从启动位置向左右各扫 60 度；确认机械行程后启用
     SELF_TEST_ANGLE_DEG = 5.0     # 自检按左、右、上、下往返，结束回到起点
-    MANUAL_RPM = 120
-    MANUAL_ACC = 80
+    MANUAL_RPM = 15               # 手动/自检速度：15rpm ≈ 90°/s，可见又不甩
+    MANUAL_ACC = 150              # 斜坡档：约 0.08s，起停不顿
     MANUAL_SETTLE_S = 0.25
     ENABLE_TOUCH_BUTTONS = True
     AUTO_TRACK_ON_BOOT = False   # 按 SEARCH 后才开始追踪；无触屏可用 AimLoop.request_search()

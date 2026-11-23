@@ -36,9 +36,9 @@ from .algo import (deviation, edge_lengths, order_quad, profile_samples,
 from .output import (Preview, TouchButtons, aligned_frame, apply_commands, display_result,
                     draw_preview, perf_line, stop_motion)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
-from .zdt import StepperLink, estimate_move_seconds
+from .zdt import StepperLink, estimate_move_seconds, speed_profile
 
-BUILD_ID = "1.10.0-2026-11-23"
+BUILD_ID = "1.11.0-2026-11-23"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -735,9 +735,16 @@ class GimbalAim:
             raise ValueError("gain must be in (0, 1]")
         return fine + self._mix(error)*(coarse-fine)
 
-    def _rpm(self, error=0):
-        fine, coarse = self.cfg.RPM_FINE, self.cfg.RPM_COARSE
-        return max(1, round(fine+self._mix(error)*(coarse-fine)))
+    def _speed(self, error):
+        """远快近慢：目标角速度随误差线性上升，上下限夹住。
+
+        单位是**电机轴**度/秒；有减速比时输出端按比例更慢。这里只管"想多快"，
+        真正的 rpm/acc 换算在驱动层 `zdt.speed_profile`。
+        """
+        per_px = float(getattr(self.cfg, "AIM_DEG_S_PER_PX", 0.5))
+        low = float(getattr(self.cfg, "AIM_MIN_DEG_S", 8.0))
+        high = float(getattr(self.cfg, "AIM_MAX_DEG_S", 60.0))
+        return max(low, min(high, abs(float(error))*per_px))
 
     def mark_stopped(self, now, axis=None):
         for name in ("yaw", "pitch") if axis is None else (axis,):
@@ -793,10 +800,13 @@ class GimbalAim:
             self.fault("invalid_direction:"+axis)
             return None
         self.last_command_time[axis] = now
-        rpm = self._rpm(error)
+        # 速度按"误差大走得快、误差小走得慢"排，斜坡时间固定；驱动器自己完成
+        # 加速—匀速—减速，一条指令就是一次完整动作，不会一顿一顿。
+        rpm, acc = speed_profile(self._speed(error),
+                                 float(getattr(cfg, "AIM_RAMP_S", 0.12)))
         self._direction[axis] = error
-        self._busy_until[axis] = now+estimate_move_seconds(pulses, rpm, getattr(cfg, "ACC_TRACK", 80), getattr(cfg, "MOTOR_PULSES_PER_REV", 3200))+getattr(cfg, "AIM_MOTION_MARGIN_S", .03)
-        return ccw, pulses, rpm
+        self._busy_until[axis] = now+estimate_move_seconds(pulses, rpm, acc, getattr(cfg, "MOTOR_PULSES_PER_REV", 3200))+getattr(cfg, "AIM_MOTION_MARGIN_S", .03)
+        return ccw, pulses, rpm, acc
 
 
 
@@ -893,7 +903,7 @@ class VisionControl:
             self._stop_motion(now)
             return
         ok, _, applied = apply_commands(self.link, self.aim,
-                                         {axis: (ccw, pulses, rpm)}, now, acc)
+                                         {axis: (ccw, pulses, rpm, acc)}, now, acc)
         if not ok:
             self._action = None
             return

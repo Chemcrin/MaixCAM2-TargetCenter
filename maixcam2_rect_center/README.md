@@ -108,6 +108,7 @@ tools/               门禁与 PC 复现脚本：check_app / check_pc / build_si
 | 协议帧 | `zdt.cmd_*` | 0x6B 校验、大端参数、0xFD 相对位置；纯函数可逐字节回归 |
 | 双串口链路 | `zdt.StepperLink` | 非阻塞收发 + ACK/E2 看门狗（**按轴独立武装**） |
 | 闭环 | `logic.GimbalAim` | 脉冲 = 误差px × `PULSE_PER_PX` × `GAIN`；死区/限幅/离群拒收/发散看护 |
+| 速度曲线 | `logic.GimbalAim._speed` → `zdt.speed_profile` | 误差大走得快、误差小走得慢；一条指令一次加速—匀速—减速 |
 | 仲裁与下发 | `logic.VisionControl` → `output.apply_commands` | 串口唯一所有者；停机失败立即终止决策链 |
 
 轴映射与方向的**实机定案**（哪个串口是 yaw、正方向朝哪、pinmap 注意事项）
@@ -145,6 +146,9 @@ MaixVision 图传走独立进程（`vision/maixvision_stream.py`），不占识�
 - 屏幕/窗框被误认成靶纸时，收紧 `RECT_ASPECT_MIN/MAX` 或提高 `MIN_EDGE_COVERAGE`；
   本链路不提供"是不是靶纸"的判据，别在这里加图案识别；
 - 云台不动先看 `[gimbal]` 的 pinmap readback 与 `[aim] state=`；方向反了看 `AGENTS.md` §2。
+- **云台标定**：`python tools/build_single.py --entry tools/calib_main.py --out dist/calib_gimbal.py`
+  生成单文件标定脚本；MaixVision「运行当前文件」跑它，靶纸完整入画后自动测
+  `PULSE_PER_PX` / `DIR_SIGN`，结果打印在控制台，手工填回 `config.py`。
 
 ## 8. 开发流程
 
