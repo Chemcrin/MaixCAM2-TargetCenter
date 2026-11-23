@@ -27,33 +27,38 @@
 纸面上的同心圆**不参与**这条链路：实际场景里它又细又淡，距离一远基本看不见，
 拿它当判据会让识别随距离时好时坏。环的定位按另一条独立任务处理（固定云台角度）。
 
-## 2. 代码结构（4 层 + 入口）
+## 2. 代码结构（4 层 + 设备驱动 + 入口）
 
 ```
 main.py              入口桩（属逻辑层）：sys.path 引导 → vision.logic.run
-config.py            全部可调参数，现场只改这一个文件（层外共享，四层只读）
+config.py            全部可调参数，现场只改这一个文件（层外共享，各层只读）
 target_api.py        对外门面（属逻辑层）：detect_black_frame / CenterTracker / AimLoop
 vision/poll.py       ① 轮询层：取帧 → 灰度、帧率计、识别线程（时间轴 B）
 vision/algo.py       ② 算法层：纯函数（几何 / 采样模板 / 四边形判据 / 偏差）
 vision/logic.py      ③ 逻辑层：结果契约 + 检测器（提案-验证-精修） + 闭环决策 + 主循环
-vision/output.py     ④ 执行层：绘制 + 激光面板 + 显示线程（时间轴 C）+ ZDT 协议 + 下发
+vision/output.py     ④ 执行层：绘制 + 激光面板 + 显示线程（时间轴 C）+ 下发入口
+vision/zdt.py        ④b 驱动层：张大头 ZDT 协议帧 + 双串口链路（使能 / 转动 / 停止 / 读回）
 tools/               门禁与 PC 复现脚本：check_app / check_pc / build_single / run_pc（不进应用包）
 ```
 
-`vision/` 刻意只留 4 个文件，**一个文件就是一层**，文件名即层名：
+`vision/` 只留 5 个文件：四个分层各一个，外加一个设备驱动。文件名即层名：
 
 | 文件 | 层 | 一句话职责 | 硬约束 |
 |---|---|---|---|
-| `poll.py` | ① 轮询 | 把画面安全搬进识别线程 | 不产生识别判据；跨线程必须 copy；不 import 其余三层 |
+| `poll.py` | ① 轮询 | 把画面安全搬进识别线程 | 不产生识别判据；跨线程必须 copy；不 import 其余层 |
 | `algo.py` | ② 算法 | 几何、采样模板与偏差 | 纯函数：无状态、无 I/O、不读 `config` |
 | `logic.py` | ③ 逻辑 | 决定该做什么 | 不调 `link.*`，只产出 `commands` 决策值 |
-| `output.py` | ④ 执行 | 画到屏幕、把误差变成电机动作 | `link.move` / `link.stop` **只允许出现在这里** |
+| `output.py` | ④ 执行 | 画到屏幕、决定该不该发 | `link.move` / `link.stop` **只允许出现在这里** |
+| `zdt.py` | ④b 驱动 | 拼帧、开串口、收发、读状态 | 只做收发，不做决策；不 import 其它 vision 模块 |
 
-依赖方向单向：`poll ← algo ← output ← logic`（箭头指"被依赖"），反向一律禁止。
+依赖方向单向：`poll ← algo ← zdt ← output ← logic`（箭头指"被依赖"），反向一律禁止。
 反向依赖属评审否决项：`check_app.py` 只核对包内清单与语法，不做依赖图检查，
 改 `vision/` 时按上表逐条自查。
 
-顶层不 import maix（`StepperLink`/`Preview` 构造时才 import），因此 4 层全部能在 PC 上导入与离线验证。
+要转云台，上层只能调 `zdt.StepperLink` 的 `enable / move / speed / stop`；
+协议帧与串口设备名只允许出现在 `zdt.py`。
+
+顶层不 import maix（`StepperLink`/`Preview` 构造时才 import），因此 5 个模块全部能在 PC 上导入与离线验证。
 
 ## 3. 三条时间轴
 
@@ -100,8 +105,8 @@ tools/               门禁与 PC 复现脚本：check_app / check_pc / build_si
 
 | 环节 | 位置 | 关键设计 |
 |---|---|---|
-| 协议帧 | `output.cmd_*` | 0x6B 校验、大端参数、0xFD 相对位置；纯函数可逐字节回归 |
-| 双串口链路 | `output.StepperLink` | 非阻塞收发 + ACK/E2 看门狗（**按轴独立武装**） |
+| 协议帧 | `zdt.cmd_*` | 0x6B 校验、大端参数、0xFD 相对位置；纯函数可逐字节回归 |
+| 双串口链路 | `zdt.StepperLink` | 非阻塞收发 + ACK/E2 看门狗（**按轴独立武装**） |
 | 闭环 | `logic.GimbalAim` | 脉冲 = 误差px × `PULSE_PER_PX` × `GAIN`；死区/限幅/离群拒收/发散看护 |
 | 仲裁与下发 | `logic.VisionControl` → `output.apply_commands` | 串口唯一所有者；停机失败立即终止决策链 |
 

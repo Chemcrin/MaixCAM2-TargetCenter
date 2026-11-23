@@ -45,13 +45,15 @@ OUT_DIR = os.path.join(ROOT, "dist")
 OUT_PY = os.path.join(OUT_DIR, "main_single.py")
 
 # 需要打进单文件的模块：(模块名, 相对路径) —— 顺序即执行顺序，被依赖的在前
-# 四层结构（v1.3.0 起）：poll / algo 为最底层，output 依赖二者，logic 依赖前三者，
-# target_api 依赖 logic。单文件版按序 exec，被依赖者必须排在前面。
+# 分层：poll / algo 为最底层；zdt（电机驱动）依赖不到任何 vision 模块；
+# output 依赖 poll/algo/zdt；logic 依赖前四者；target_api 依赖 logic。
+# 单文件版按序 exec，被依赖者必须排在前面。
 MODULES = (
     ('config', 'config.py'),
     ('vision.poll', 'vision/poll.py'),
     ('vision.algo', 'vision/algo.py'),
     ('vision.maixvision_stream', 'vision/maixvision_stream.py'),
+    ('vision.zdt', 'vision/zdt.py'),
     ('vision.output', 'vision/output.py'),
     ('vision.logic', 'vision/logic.py'),
     ('vision', 'vision/__init__.py'),

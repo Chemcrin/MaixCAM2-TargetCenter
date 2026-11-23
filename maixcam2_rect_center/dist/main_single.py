@@ -10,22 +10,23 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-12 16:08:38
+生成时间：2026-11-23 21:41:46
     config.py                    sha1=a05d0b827af5
-    main.py                      sha1=f008fb1cc851
-    target_api.py                sha1=0c48a301aa89
-    vision/__init__.py           sha1=aec45202f46e
+    main.py                      sha1=c68e3bb2cf72
+    target_api.py                sha1=422ad394dbd2
+    vision/__init__.py           sha1=01904dd699d3
     vision/algo.py               sha1=a4578a955777
-    vision/logic.py              sha1=a9baede99075
+    vision/logic.py              sha1=d2fb9755bf5c
     vision/maixvision_stream.py  sha1=c30d784f26a0
-    vision/output.py             sha1=df7a0e9c4fe3
+    vision/output.py             sha1=bc62c2213dbc
     vision/poll.py               sha1=992056fd530e
+    vision/zdt.py                sha1=373f114cd014
 """
 
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': 'a05d0b827af5e48d2764cb15507c72c6a4eb17cf', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/output.py': 'df7a0e9c4fe3aa2068bc0860145505d34ba6bc51', 'vision/logic.py': 'a9baede990751f926cfa0a78b0b9f0954705fdc8', 'vision/__init__.py': 'aec45202f46e3fa9734791b432bf3c4b8f802758', 'target_api.py': '0c48a301aa8924580bfd7c2cae20c03bd2e2d6e0', 'main.py': 'f008fb1cc851ae4ef1b54de3dcfe23b46ed538c3'}
+_SRC_SHA1 = {'config.py': 'a05d0b827af5e48d2764cb15507c72c6a4eb17cf', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/zdt.py': '373f114cd0143181565d5fa45d2b0836c1a4cb4d', 'vision/output.py': 'bc62c2213dbceebee0f5e2833ff9c882d00b7009', 'vision/logic.py': 'd2fb9755bf5c3688c4770dc1f74c920afda79aa8', 'vision/__init__.py': '01904dd699d3c76bbd3d776a3b3a967cdbf01103', 'target_api.py': '422ad394dbd28847a6939976f12dfd38c2e9b674', 'main.py': 'c68e3bb2cf7254779363683353cbe8e58ee15a96'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -955,6 +956,384 @@ def _child(inherited_fd, width, height, host, port, stream_width, quality, retry
         delay = min(retry_max, max(.05, delay*2))
 '''
 
+# ===== vision.zdt  (vision/zdt.py) =====
+_MOD_SRC['vision.zdt'] = r'''
+"""张大头（ZDT）Emm_V5.0 闭环步进驱动器 —— 设备驱动层。
+
+本文件是**唯一**知道"电机怎么说话"的地方：协议帧怎么拼、两条串口怎么开、
+返回帧怎么切、ACK/E2 怎么统计、运动时间怎么估。上层（云台决策、识别追踪）
+只调用 ``StepperLink.enable()`` / ``move()`` / ``speed()`` / ``stop()`` / ``poll()``，
+不关心字节序、校验字节和串口设备名。
+
+**为什么单独成文件**：驱动是"设备方言"，和画图、显示、日志没有关系。原先两者
+合在 ``output.py`` 里，改一个显示配色要翻电机协议，改协议又怕碰坏显示。分开之后
+驱动可以单独回归（``tools/test_gimbal_actions.py`` 用假链路跑动作时序）。
+
+层次位置：在 ``algo`` 之上、``output`` 之下。
+
+    依赖方向：poll ← algo ← zdt ← output ← logic
+
+本文件**不 import** 任何其它 vision 模块，也不在顶层 import maix
+（``StepperLink`` 构造时才按需 import uart/pinmap），所以 PC 上能直接导入。
+
+帧格式（Emm_V5.0，手册 p.36-38）::
+
+    | addr | func | data ... | 0x6B |
+
+    F3 使能    AB + 使能位 + 同步位
+    FD 位置    方向 + 转速(2B) + 加减速档 + 脉冲数(4B) + 绝对/相对 + 同步位
+    FE 立即停  98 + 同步位
+    F6 速度    方向 + 转速(2B) + 加减速档 + 同步位
+
+⚠ 驱动器菜单三项必须先改：``P_Serial → UART_FUN``（出厂 ``RxTx_OFF``，不改则串口
+完全不响应）、``Checksum = 0x6B``、两轴 ``ID_Addr`` 分别为 1 / 2。写串口不校验
+对端是否存在，这几项没配好时代码这边**看不出任何异常**，只是电机不动。
+"""
+import math
+import time
+
+__all__ = ["CR", "STATUS_OK", "STATUS_E2",
+           "cmd_enable", "cmd_speed", "cmd_position", "cmd_stop_now",
+           "frame_status", "estimate_move_seconds", "StepperLink"]
+
+# ZDT Emm_V5.0 帧头校验字节与状态码（手册 p.36-38）
+CR = 0x6B
+STATUS_OK = 0x02
+STATUS_E2 = 0xE2        # 未使能 / 堵转类故障
+
+
+def _frame(addr, func, data=()):
+    return bytes([int(addr) & 0xFF, int(func) & 0xFF] +
+                 [int(x) & 0xFF for x in data] + [CR])
+
+
+def cmd_enable(addr, enable=True, sync=False):
+    return _frame(addr, 0xF3, (0xAB, 1 if enable else 0, 1 if sync else 0))
+
+
+def cmd_speed(addr, ccw, rpm, acc=0, sync=False):
+    rpm = max(0, min(5000, int(rpm)))
+    return _frame(addr, 0xF6, (1 if ccw else 0, rpm >> 8, rpm,
+                               int(acc), 1 if sync else 0))
+
+
+def cmd_position(addr, ccw, rpm, pulses, acc=0, absolute=False, sync=False):
+    rpm = max(0, min(5000, int(rpm)))
+    pulses = max(0, min(0xFFFFFFFF, int(abs(pulses))))
+    return _frame(addr, 0xFD, (
+        1 if ccw else 0, rpm >> 8, rpm, int(acc),
+        pulses >> 24, pulses >> 16, pulses >> 8, pulses,
+        1 if absolute else 0, 1 if sync else 0))
+
+
+def cmd_stop_now(addr, sync=False):
+    return _frame(addr, 0xFE, (0x98, 1 if sync else 0))
+
+
+def frame_status(frame):
+    """返回帧第 3 字节 = 命令状态；帧太短返回 None。"""
+    return int(frame[2]) if frame is not None and len(frame) >= 3 else None
+
+
+def estimate_move_seconds(pulses, rpm, acc=0, pulses_per_rev=3200):
+    """ZDT 的梯形/三角速度模型：估算走完指定脉冲需要多久（秒）。"""
+    values = tuple(map(float, (pulses, rpm, acc, pulses_per_rev)))
+    if not all(math.isfinite(v) for v in values):
+        raise ValueError("non-finite motion parameters")
+    pulses, rpm, acc, ppr = values
+    if ppr <= 0 or rpm <= 0 or not 0 <= acc <= 255:
+        raise ValueError("invalid motion parameters")
+    pulses, rpm = abs(pulses), min(5000., rpm)
+    speed = rpm*ppr/60
+    if acc == 0:
+        return pulses/speed
+    ramp = (256-acc)*50e-6
+    acceleration = ppr/(60*ramp)
+    ramp_seconds = rpm*ramp
+    ramp_distance = speed*ramp_seconds
+    if pulses <= ramp_distance:
+        return 2*math.sqrt(pulses/acceleration)
+    return 2*ramp_seconds+(pulses-ramp_distance)/speed
+
+
+def _readback_pin(pinmap, pin):
+    """回读引脚当前实际功能（"某轴不通"的第一手证据）。失败返回 '?'。"""
+    try:
+        return pinmap.get_pin_function(pin)
+    except Exception:
+        return "?"
+
+
+class StepperLink:
+    """两条独立 UART 链路；任一轴打开失败不会阻塞另一轴。
+
+    对外只暴露五个动作：``enable(axis=None)`` / ``move(axis, ccw, pulses, rpm, acc)`` /
+    ``speed(...)`` / ``stop(axis=None)`` / ``poll(now)``，外加 ``stats()`` / ``close()``。
+    上层不需要知道帧长什么样。
+    """
+
+    def __init__(self, cfg, clock=None):
+        self._clock = clock if clock is not None else time
+        self.cfg = cfg
+        self._ports = {}
+        self._rxbuf = {"yaw": bytearray(), "pitch": bytearray()}
+        self._stats = {"tx": 0, "rx": 0, "ok": 0, "e2": 0, "err": 0,
+                       "timeout": 0, "yaw": True, "pitch": True}
+        self._last_status = {"yaw": None, "pitch": None}
+        self._last_cmd = {"yaw": 0.0, "pitch": 0.0}
+        self._last_ack = {"yaw": 0.0, "pitch": 0.0}
+        self._pending_ack_since = {"yaw": None, "pitch": None}
+        # ★ ACK 看门狗必须**按轴独立武装**（板端实锤）：
+        #   原先用全局 `_stats["ok"] > 0` 武装，只要 yaw 会回帧，pitch 就被一并
+        #   要求回帧；而 pitch 的驱动器 Response=None（或未接线/ID 不符）时永远
+        #   不回帧 → 累计 20 次超时 → `FAULT: link:ack_timeout:pitch`，整机锁死，
+        #   连一条运动指令都发不出去。从未回过帧的轴不应据此判障。
+        self._ack_seen = {"yaw": False, "pitch": False}
+        self._no_ack_warned = {"yaw": False, "pitch": False}
+        self._timeout_count = {"yaw": 0, "pitch": 0}
+        self._e2_times = []
+        self.fault_reason = None
+        try:
+            from maix import uart, pinmap
+        except Exception as exc:
+            self._stats["err"] += 1
+            self._stats["yaw"] = self._stats["pitch"] = False
+            print("[gimbal] maix uart/pinmap 不可用，双轴链路关闭: %s" % exc)
+            return
+        # ★ 实测轴映射定案（AGENTS.md §2）：yaw=UART2/B0B1/ttyS2/ID2，pitch=UART0/A28A29/ttyS0/ID1。
+        #   两轴都要显式 pinmap（U0 走空表会静默不通）；ID 跟着"电机"走，不跟着端口。
+        pin_sets = {
+            "yaw": getattr(cfg, "YAW_PINS", {"B0": "UART2_TX", "B1": "UART2_RX"}),
+            "pitch": getattr(cfg, "PITCH_PINS", {"A28": "UART0_TX", "A29": "UART0_RX"}),
+        }
+        devices = {"yaw": (getattr(cfg, "YAW_DEV", "/dev/ttyS2"),
+                           getattr(cfg, "YAW_BAUD", 115200)),
+                   "pitch": (getattr(cfg, "PITCH_DEV", "/dev/ttyS0"),
+                             getattr(cfg, "PITCH_BAUD", 115200))}
+        strict = bool(getattr(cfg, "PINMAP_STRICT", False))
+        flush_rx = bool(getattr(cfg, "FLUSH_RX_ON_START", False))
+        for axis in ("yaw", "pitch"):
+            try:
+                for pin, func in pin_sets[axis].items():
+                    try:
+                        result = pinmap.set_pin_function(pin, func)
+                        failed = (result is not None and hasattr(result, "value")
+                                  and result.value != 0)
+                    except Exception as exc:              # 无该引脚 / 固件不支持
+                        result, failed = exc, True
+                    if failed:
+                        message = "pinmap %s=%s failed: %s" % (pin, func, result)
+                        if strict:
+                            raise RuntimeError(message)
+                        # 非严格模式：只告警，仍尝试打开 UART —— 否则真故障会被藏成"打不开"。
+                        print("[gimbal] WARN " + message)
+                    else:
+                        print("[gimbal] pinmap %s=%s ok (readback=%s)" %
+                              (pin, func, _readback_pin(pinmap, pin)))
+                self._ports[axis] = uart.UART(*devices[axis])
+                if flush_rx:
+                    # U0(pitch) 是系统日志口：开机先丢掉内核启动日志/终端回显等 RX 残留。
+                    self._flush_rx(axis)
+            except Exception as exc:
+                self._stats[axis] = False
+                self._stats["err"] += 1
+                print("[gimbal] %s UART open failed: %s" % (axis, exc))
+
+    # ------------------------------------------------------------- 发送
+    def _flush_rx(self, axis):
+        """清空该轴串口开机前的 RX 残留（U0=系统日志口，会混内核启动日志/终端回显）。"""
+        port = self._ports.get(axis)
+        if port is None:
+            return
+        try:
+            available = int(port.available(0))
+            if available > 0:
+                port.read(min(available, int(getattr(self.cfg, "UART_RX_MAX_BYTES", 256))), timeout=0)
+        except Exception:
+            pass
+        self._rxbuf[axis] = bytearray()
+
+    def _write(self, axis, payload, now=None):
+        port = self._ports.get(axis)
+        if port is None:
+            return False
+        try:
+            n = port.write(payload)
+            if n is not None and int(n) != len(payload):
+                raise IOError("write returned %s" % n)
+            self._stats["tx"] += 1
+            self._last_cmd[axis] = self._clock.perf_counter() if now is None else float(now)
+            pending = getattr(self, "_pending_ack_since", None)
+            if pending is None:
+                pending = self._pending_ack_since = {"yaw": None, "pitch": None}
+            if pending[axis] is None:
+                pending[axis] = self._last_cmd[axis]
+            return True
+        except Exception as exc:
+            self._stats["err"] += 1
+            print("[gimbal] %s TX failed: %s" % (axis, exc))
+            return False
+
+    def enable(self, axis=None, now=None):
+        axes = ("yaw", "pitch") if axis is None else (axis,)
+        ok = True
+        for name in axes:
+            ok = self._write(name, cmd_enable(self._addr(name)), now=now) and ok
+        return ok
+
+    def move(self, axis, ccw, pulses, rpm, acc=0, now=None):
+        if axis not in ("yaw", "pitch"):
+            raise ValueError("axis must be yaw or pitch")
+        if int(pulses) <= 0:
+            return False
+        return self._write(axis, cmd_position(self._addr(axis), ccw, rpm, pulses, acc=acc),
+                           now=now)
+
+    def speed(self, axis, ccw, rpm, acc=0, now=None):
+        return self._write(axis, cmd_speed(self._addr(axis), ccw, rpm, acc=acc), now=now)
+
+    def stop(self, axis=None, now=None):
+        axes = ("yaw", "pitch") if axis is None else (axis,)
+        ok = True
+        for name in axes:
+            ok = self._write(name, cmd_stop_now(self._addr(name)), now=now) and ok
+        return ok
+
+    def _addr(self, axis):
+        return int(getattr(self.cfg, "ADDR_YAW" if axis == "yaw" else "ADDR_PITCH",
+                           1 if axis == "yaw" else 2))
+
+    # ------------------------------------------------------------- 接收
+    def _drain(self):
+        """非阻塞读走两条串口现有字节，切出完整返回帧。"""
+        frames = []
+        for axis, port in tuple(self._ports.items()):
+            try:
+                available = int(port.available(0))
+                if available > 0:
+                    data = port.read(min(available, int(getattr(self.cfg, "UART_RX_MAX_BYTES", 256))), timeout=0)
+                    if data:
+                        self._rxbuf[axis].extend(bytes(data))
+                buf = self._rxbuf[axis]
+                limit = max(4, int(getattr(self.cfg, "UART_RX_BUFFER_MAX_BYTES", 1024)))
+                if len(buf) > limit:
+                    del buf[:-limit]
+                while len(buf) >= 4:
+                    if buf[0] != self._addr(axis):
+                        del buf[0]
+                        continue
+                    end = buf.find(bytes([CR]), 1)
+                    if end < 0:
+                        break
+                    if end < 3:
+                        del buf[0]
+                        continue
+                    frames.append((axis, bytes(buf[:end + 1])))
+                    del buf[:end + 1]
+                    self._stats["rx"] += 1
+            except Exception:
+                self._stats["err"] += 1
+        return frames
+
+    def _ingest(self, frames, now):
+        """解析返回帧：统计成功/E2、E2 自动补使能、E2 洪水与 ACK 超时判障。
+
+        返回 dict(ok, e2, reenabled, fault, reason)。本方法不碰 MaixPy，可直接单测。
+        """
+        now = float(now)
+        if not hasattr(self, "_pending_ack_since"):
+            self._pending_ack_since = {"yaw": None, "pitch": None}
+        if not hasattr(self, "_ack_seen"):
+            # 兼容用 __new__ 构造的轻量实例（离线解析），与上面的 _pending 同口径。
+            self._ack_seen = {"yaw": False, "pitch": False}
+            self._no_ack_warned = {"yaw": False, "pitch": False}
+        out = {"frames": list(frames), "ok": 0, "e2": 0,
+               "reenabled": [], "fault": False, "reason": None}
+        e2_axes = []
+        for axis, frame in frames:
+            status = frame_status(frame)
+            self._last_status[axis] = status
+            if status is None:
+                continue
+            # 凡是能解析出状态的帧都证明链路活着 -> 刷新该轴 ACK 时刻。
+            self._last_ack[axis] = now
+            self._ack_seen[axis] = True
+            self._pending_ack_since[axis] = None
+            self._timeout_count[axis] = 0
+            if status == STATUS_OK:
+                out["ok"] += 1
+                self._stats["ok"] += 1
+            elif status == STATUS_E2:
+                out["e2"] += 1
+                self._stats["e2"] += 1
+                e2_axes.append(axis)
+                self._e2_times.append(now)
+        if not bool(getattr(self.cfg, "ENABLE_ACK_WATCHDOG", True)):
+            return out
+        if e2_axes and bool(getattr(self.cfg, "E2_REENABLE", True)):
+            for axis in sorted(set(e2_axes)):
+                if self.enable(axis, now=now):
+                    out["reenabled"].append(axis)
+        window = float(getattr(self.cfg, "E2_WINDOW_S", 2.0))
+        self._e2_times = [t for t in self._e2_times if now - t <= window]
+        limit = int(getattr(self.cfg, "E2_FAULT_COUNT", 10))
+        if limit > 0 and len(self._e2_times) > limit:
+            out["fault"] = True
+            out["reason"] = "e2_flood(%d in %.1fs)" % (len(self._e2_times), window)
+            self.fault_reason = out["reason"]
+            return out
+        # ACK 硬超时：**按轴独立**启用 —— 只有该轴自己回过确认帧
+        # （Response=Receive/Reached/Both）才要求它继续回帧；从未回过帧的轴
+        # （Response=None / 未接线 / ID 不符）只告警一次、不再据此判障，
+        # 否则另一轴正常也会把整机拖进 FAULT。
+        timeout_ms = float(getattr(self.cfg, "RX_TIMEOUT_MS", 0) or 0)
+        if timeout_ms > 0:
+            for axis in self._ports:
+                if not self._ack_seen[axis]:
+                    if (self._last_cmd[axis] > self._last_ack[axis]
+                            and not self._no_ack_warned[axis]):
+                        self._no_ack_warned[axis] = True
+                        out["no_ack"] = axis
+                        print("[gimbal] WARN %s 从未返回确认帧：驱动器 Response 可能不是 "
+                              "Receive/Reached/Both；该轴 ACK 看门狗已停用（不影响发令，"
+                              "但无法确认到位）" % axis)
+                    self._timeout_count[axis] = 0
+                    continue
+                pending = self._pending_ack_since.get(axis)
+                if pending is None and self._last_cmd[axis] > self._last_ack[axis]:
+                    pending = self._last_cmd[axis]
+                if pending is None or now - pending <= timeout_ms / 1000.0:
+                    self._timeout_count[axis] = 0
+                    continue
+                if self._last_ack[axis] >= self._last_cmd[axis]:
+                    self._timeout_count[axis] = 0
+                    continue
+                self._timeout_count[axis] += 1
+                self._stats["timeout"] += 1
+                if self._timeout_count[axis] > int(getattr(self.cfg, "RX_TIMEOUT_LIMIT", 20)):
+                    out["fault"] = True
+                    out["reason"] = "ack_timeout:%s" % axis
+                    self.fault_reason = out["reason"]
+                    return out
+        return out
+
+    def poll(self, now=None):
+        """非阻塞读两条串口并处理反馈；返回 `_ingest` 的 dict（含 frames）。"""
+        now = self._clock.perf_counter() if now is None else float(now)
+        return self._ingest(self._drain(), now)
+
+    def stats(self):
+        return dict(self._stats)
+
+    def close(self):
+        for port in tuple(self._ports.values()):
+            try:
+                port.close()
+            except Exception:
+                pass
+        self._ports.clear()
+'''
+
 # ===== vision.output  (vision/output.py) =====
 _MOD_SRC['vision.output'] = r'''
 """④ 执行层：**唯一允许产生副作用的地方** —— 画布、屏幕、串口、脉冲、停机、日志。
@@ -964,10 +1343,8 @@ _MOD_SRC['vision.output'] = r'''
     画面  draw_result / draw_laser_overlay / display_result / aligned_frame
           Preview（画布池 + 独立显示线程，show() 慢也只掉预览帧）
           draw_preview（组帧 → 投递渲染）
-    云台  cmd_* / frame_status（ZDT 协议帧，纯字节构造）
-          estimate_move_seconds（梯形/三角速度模型 → 运动耗时）
-          StepperLink（双串口链路：非阻塞收发 + ACK/E2 看门狗）
-          stop_motion / apply_commands（把逻辑层的决策真正下发）
+    云台  stop_motion / apply_commands（把逻辑层的决策真正下发）
+          协议帧与双串口链路在 `vision/zdt.py`，本层再导出以兼容旧调用点
     日志  perf_line（[perf] 行拼装）
 
 三条约束：
@@ -991,6 +1368,9 @@ import numpy as np
 
 from .algo import deviation
 from .poll import FrameRate
+from .zdt import (CR, STATUS_E2, STATUS_OK, StepperLink, cmd_enable,
+                  cmd_position, cmd_speed, cmd_stop_now, estimate_move_seconds,
+                  frame_status)
 
 __all__ = ["draw_result", "draw_laser_overlay", "PANEL_H", "display_result",
            "aligned_frame", "draw_preview", "Preview", "perf_line",
@@ -1537,342 +1917,10 @@ class Preview:
                 pass
 
 
-# ================================================================== 协议帧
-# ZDT Emm_V5.0 帧头校验字节与状态码（手册 p.36-38）
-CR = 0x6B
-STATUS_OK = 0x02
-STATUS_E2 = 0xE2        # 未使能 / 堵转类故障
-
-
-def _frame(addr, func, data=()):
-    return bytes([int(addr) & 0xFF, int(func) & 0xFF] +
-                 [int(x) & 0xFF for x in data] + [CR])
-
-
-def cmd_enable(addr, enable=True, sync=False):
-    return _frame(addr, 0xF3, (0xAB, 1 if enable else 0, 1 if sync else 0))
-
-
-def cmd_speed(addr, ccw, rpm, acc=0, sync=False):
-    rpm = max(0, min(5000, int(rpm)))
-    return _frame(addr, 0xF6, (1 if ccw else 0, rpm >> 8, rpm,
-                               int(acc), 1 if sync else 0))
-
-
-def cmd_position(addr, ccw, rpm, pulses, acc=0, absolute=False, sync=False):
-    rpm = max(0, min(5000, int(rpm)))
-    pulses = max(0, min(0xFFFFFFFF, int(abs(pulses))))
-    return _frame(addr, 0xFD, (
-        1 if ccw else 0, rpm >> 8, rpm, int(acc),
-        pulses >> 24, pulses >> 16, pulses >> 8, pulses,
-        1 if absolute else 0, 1 if sync else 0))
-
-
-def cmd_stop_now(addr, sync=False):
-    return _frame(addr, 0xFE, (0x98, 1 if sync else 0))
-
-
-def frame_status(frame):
-    """返回帧第 3 字节 = 命令状态；帧太短返回 None。"""
-    return int(frame[2]) if frame is not None and len(frame) >= 3 else None
-
-
-def estimate_move_seconds(pulses, rpm, acc=0, pulses_per_rev=3200):
-    """ZDT 的梯形/三角速度模型：估算走完指定脉冲需要多久（秒）。"""
-    values = tuple(map(float, (pulses, rpm, acc, pulses_per_rev)))
-    if not all(math.isfinite(v) for v in values):
-        raise ValueError("non-finite motion parameters")
-    pulses, rpm, acc, ppr = values
-    if ppr <= 0 or rpm <= 0 or not 0 <= acc <= 255:
-        raise ValueError("invalid motion parameters")
-    pulses, rpm = abs(pulses), min(5000., rpm)
-    speed = rpm*ppr/60
-    if acc == 0:
-        return pulses/speed
-    ramp = (256-acc)*50e-6
-    acceleration = ppr/(60*ramp)
-    ramp_seconds = rpm*ramp
-    ramp_distance = speed*ramp_seconds
-    if pulses <= ramp_distance:
-        return 2*math.sqrt(pulses/acceleration)
-    return 2*ramp_seconds+(pulses-ramp_distance)/speed
-
-
-def _readback_pin(pinmap, pin):
-    """回读引脚当前实际功能（"某轴不通"的第一手证据）。失败返回 '?'。"""
-    try:
-        return pinmap.get_pin_function(pin)
-    except Exception:
-        return "?"
-
-
-
-# ================================================================== 双轴链路
-class StepperLink:
-    """两条独立 UART 链路；任一轴打开失败不会阻塞另一轴。"""
-
-    def __init__(self, cfg, clock=None):
-        self._clock = clock if clock is not None else time
-        self.cfg = cfg
-        self._ports = {}
-        self._rxbuf = {"yaw": bytearray(), "pitch": bytearray()}
-        self._stats = {"tx": 0, "rx": 0, "ok": 0, "e2": 0, "err": 0,
-                       "timeout": 0, "yaw": True, "pitch": True}
-        self._last_status = {"yaw": None, "pitch": None}
-        self._last_cmd = {"yaw": 0.0, "pitch": 0.0}
-        self._last_ack = {"yaw": 0.0, "pitch": 0.0}
-        self._pending_ack_since = {"yaw": None, "pitch": None}
-        # ★ ACK 看门狗必须**按轴独立武装**（板端实锤）：
-        #   原先用全局 `_stats["ok"] > 0` 武装，只要 yaw 会回帧，pitch 就被一并
-        #   要求回帧；而 pitch 的驱动器 Response=None（或未接线/ID 不符）时永远
-        #   不回帧 → 累计 20 次超时 → `FAULT: link:ack_timeout:pitch`，整机锁死，
-        #   连一条运动指令都发不出去。从未回过帧的轴不应据此判障。
-        self._ack_seen = {"yaw": False, "pitch": False}
-        self._no_ack_warned = {"yaw": False, "pitch": False}
-        self._timeout_count = {"yaw": 0, "pitch": 0}
-        self._e2_times = []
-        self.fault_reason = None
-        try:
-            from maix import uart, pinmap
-        except Exception as exc:
-            self._stats["err"] += 1
-            self._stats["yaw"] = self._stats["pitch"] = False
-            print("[gimbal] maix uart/pinmap 不可用，双轴链路关闭: %s" % exc)
-            return
-        # ★ 实测轴映射定案（AGENTS.md §2）：yaw=UART2/B0B1/ttyS2/ID2，pitch=UART0/A28A29/ttyS0/ID1。
-        #   两轴都要显式 pinmap（U0 走空表会静默不通）；ID 跟着"电机"走，不跟着端口。
-        pin_sets = {
-            "yaw": getattr(cfg, "YAW_PINS", {"B0": "UART2_TX", "B1": "UART2_RX"}),
-            "pitch": getattr(cfg, "PITCH_PINS", {"A28": "UART0_TX", "A29": "UART0_RX"}),
-        }
-        devices = {"yaw": (getattr(cfg, "YAW_DEV", "/dev/ttyS2"),
-                           getattr(cfg, "YAW_BAUD", 115200)),
-                   "pitch": (getattr(cfg, "PITCH_DEV", "/dev/ttyS0"),
-                             getattr(cfg, "PITCH_BAUD", 115200))}
-        strict = bool(getattr(cfg, "PINMAP_STRICT", False))
-        flush_rx = bool(getattr(cfg, "FLUSH_RX_ON_START", False))
-        for axis in ("yaw", "pitch"):
-            try:
-                for pin, func in pin_sets[axis].items():
-                    try:
-                        result = pinmap.set_pin_function(pin, func)
-                        failed = (result is not None and hasattr(result, "value")
-                                  and result.value != 0)
-                    except Exception as exc:              # 无该引脚 / 固件不支持
-                        result, failed = exc, True
-                    if failed:
-                        message = "pinmap %s=%s failed: %s" % (pin, func, result)
-                        if strict:
-                            raise RuntimeError(message)
-                        # 非严格模式：只告警，仍尝试打开 UART —— 否则真故障会被藏成"打不开"。
-                        print("[gimbal] WARN " + message)
-                    else:
-                        print("[gimbal] pinmap %s=%s ok (readback=%s)" %
-                              (pin, func, _readback_pin(pinmap, pin)))
-                self._ports[axis] = uart.UART(*devices[axis])
-                if flush_rx:
-                    # U0(pitch) 是系统日志口：开机先丢掉内核启动日志/终端回显等 RX 残留。
-                    self._flush_rx(axis)
-            except Exception as exc:
-                self._stats[axis] = False
-                self._stats["err"] += 1
-                print("[gimbal] %s UART open failed: %s" % (axis, exc))
-
-    # ------------------------------------------------------------- 发送
-    def _flush_rx(self, axis):
-        """清空该轴串口开机前的 RX 残留（U0=系统日志口，会混内核启动日志/终端回显）。"""
-        port = self._ports.get(axis)
-        if port is None:
-            return
-        try:
-            available = int(port.available(0))
-            if available > 0:
-                port.read(min(available, int(getattr(self.cfg, "UART_RX_MAX_BYTES", 256))), timeout=0)
-        except Exception:
-            pass
-        self._rxbuf[axis] = bytearray()
-
-    def _write(self, axis, payload, now=None):
-        port = self._ports.get(axis)
-        if port is None:
-            return False
-        try:
-            n = port.write(payload)
-            if n is not None and int(n) != len(payload):
-                raise IOError("write returned %s" % n)
-            self._stats["tx"] += 1
-            self._last_cmd[axis] = self._clock.perf_counter() if now is None else float(now)
-            pending = getattr(self, "_pending_ack_since", None)
-            if pending is None:
-                pending = self._pending_ack_since = {"yaw": None, "pitch": None}
-            if pending[axis] is None:
-                pending[axis] = self._last_cmd[axis]
-            return True
-        except Exception as exc:
-            self._stats["err"] += 1
-            print("[gimbal] %s TX failed: %s" % (axis, exc))
-            return False
-
-    def enable(self, axis=None, now=None):
-        axes = ("yaw", "pitch") if axis is None else (axis,)
-        ok = True
-        for name in axes:
-            ok = self._write(name, cmd_enable(self._addr(name)), now=now) and ok
-        return ok
-
-    def move(self, axis, ccw, pulses, rpm, acc=0, now=None):
-        if axis not in ("yaw", "pitch"):
-            raise ValueError("axis must be yaw or pitch")
-        if int(pulses) <= 0:
-            return False
-        return self._write(axis, cmd_position(self._addr(axis), ccw, rpm, pulses, acc=acc),
-                           now=now)
-
-    def speed(self, axis, ccw, rpm, acc=0, now=None):
-        return self._write(axis, cmd_speed(self._addr(axis), ccw, rpm, acc=acc), now=now)
-
-    def stop(self, axis=None, now=None):
-        axes = ("yaw", "pitch") if axis is None else (axis,)
-        ok = True
-        for name in axes:
-            ok = self._write(name, cmd_stop_now(self._addr(name)), now=now) and ok
-        return ok
-
-    def _addr(self, axis):
-        return int(getattr(self.cfg, "ADDR_YAW" if axis == "yaw" else "ADDR_PITCH",
-                           1 if axis == "yaw" else 2))
-
-    # ------------------------------------------------------------- 接收
-    def _drain(self):
-        """非阻塞读走两条串口现有字节，切出完整返回帧。"""
-        frames = []
-        for axis, port in tuple(self._ports.items()):
-            try:
-                available = int(port.available(0))
-                if available > 0:
-                    data = port.read(min(available, int(getattr(self.cfg, "UART_RX_MAX_BYTES", 256))), timeout=0)
-                    if data:
-                        self._rxbuf[axis].extend(bytes(data))
-                buf = self._rxbuf[axis]
-                limit = max(4, int(getattr(self.cfg, "UART_RX_BUFFER_MAX_BYTES", 1024)))
-                if len(buf) > limit:
-                    del buf[:-limit]
-                while len(buf) >= 4:
-                    if buf[0] != self._addr(axis):
-                        del buf[0]
-                        continue
-                    end = buf.find(bytes([CR]), 1)
-                    if end < 0:
-                        break
-                    if end < 3:
-                        del buf[0]
-                        continue
-                    frames.append((axis, bytes(buf[:end + 1])))
-                    del buf[:end + 1]
-                    self._stats["rx"] += 1
-            except Exception:
-                self._stats["err"] += 1
-        return frames
-
-    def _ingest(self, frames, now):
-        """解析返回帧：统计成功/E2、E2 自动补使能、E2 洪水与 ACK 超时判障。
-
-        返回 dict(ok, e2, reenabled, fault, reason)。本方法不碰 MaixPy，可直接单测。
-        """
-        now = float(now)
-        if not hasattr(self, "_pending_ack_since"):
-            self._pending_ack_since = {"yaw": None, "pitch": None}
-        if not hasattr(self, "_ack_seen"):
-            # 兼容用 __new__ 构造的轻量实例（离线解析），与上面的 _pending 同口径。
-            self._ack_seen = {"yaw": False, "pitch": False}
-            self._no_ack_warned = {"yaw": False, "pitch": False}
-        out = {"frames": list(frames), "ok": 0, "e2": 0,
-               "reenabled": [], "fault": False, "reason": None}
-        e2_axes = []
-        for axis, frame in frames:
-            status = frame_status(frame)
-            self._last_status[axis] = status
-            if status is None:
-                continue
-            # 凡是能解析出状态的帧都证明链路活着 -> 刷新该轴 ACK 时刻。
-            self._last_ack[axis] = now
-            self._ack_seen[axis] = True
-            self._pending_ack_since[axis] = None
-            self._timeout_count[axis] = 0
-            if status == STATUS_OK:
-                out["ok"] += 1
-                self._stats["ok"] += 1
-            elif status == STATUS_E2:
-                out["e2"] += 1
-                self._stats["e2"] += 1
-                e2_axes.append(axis)
-                self._e2_times.append(now)
-        if not bool(getattr(self.cfg, "ENABLE_ACK_WATCHDOG", True)):
-            return out
-        if e2_axes and bool(getattr(self.cfg, "E2_REENABLE", True)):
-            for axis in sorted(set(e2_axes)):
-                if self.enable(axis, now=now):
-                    out["reenabled"].append(axis)
-        window = float(getattr(self.cfg, "E2_WINDOW_S", 2.0))
-        self._e2_times = [t for t in self._e2_times if now - t <= window]
-        limit = int(getattr(self.cfg, "E2_FAULT_COUNT", 10))
-        if limit > 0 and len(self._e2_times) > limit:
-            out["fault"] = True
-            out["reason"] = "e2_flood(%d in %.1fs)" % (len(self._e2_times), window)
-            self.fault_reason = out["reason"]
-            return out
-        # ACK 硬超时：**按轴独立**启用 —— 只有该轴自己回过确认帧
-        # （Response=Receive/Reached/Both）才要求它继续回帧；从未回过帧的轴
-        # （Response=None / 未接线 / ID 不符）只告警一次、不再据此判障，
-        # 否则另一轴正常也会把整机拖进 FAULT。
-        timeout_ms = float(getattr(self.cfg, "RX_TIMEOUT_MS", 0) or 0)
-        if timeout_ms > 0:
-            for axis in self._ports:
-                if not self._ack_seen[axis]:
-                    if (self._last_cmd[axis] > self._last_ack[axis]
-                            and not self._no_ack_warned[axis]):
-                        self._no_ack_warned[axis] = True
-                        out["no_ack"] = axis
-                        print("[gimbal] WARN %s 从未返回确认帧：驱动器 Response 可能不是 "
-                              "Receive/Reached/Both；该轴 ACK 看门狗已停用（不影响发令，"
-                              "但无法确认到位）" % axis)
-                    self._timeout_count[axis] = 0
-                    continue
-                pending = self._pending_ack_since.get(axis)
-                if pending is None and self._last_cmd[axis] > self._last_ack[axis]:
-                    pending = self._last_cmd[axis]
-                if pending is None or now - pending <= timeout_ms / 1000.0:
-                    self._timeout_count[axis] = 0
-                    continue
-                if self._last_ack[axis] >= self._last_cmd[axis]:
-                    self._timeout_count[axis] = 0
-                    continue
-                self._timeout_count[axis] += 1
-                self._stats["timeout"] += 1
-                if self._timeout_count[axis] > int(getattr(self.cfg, "RX_TIMEOUT_LIMIT", 20)):
-                    out["fault"] = True
-                    out["reason"] = "ack_timeout:%s" % axis
-                    self.fault_reason = out["reason"]
-                    return out
-        return out
-
-    def poll(self, now=None):
-        """非阻塞读两条串口并处理反馈；返回 `_ingest` 的 dict（含 frames）。"""
-        now = self._clock.perf_counter() if now is None else float(now)
-        return self._ingest(self._drain(), now)
-
-    def stats(self):
-        return dict(self._stats)
-
-    def close(self):
-        for port in tuple(self._ports.values()):
-            try:
-                port.close()
-            except Exception:
-                pass
-        self._ports.clear()
-
-
+# ================================================================== 电机驱动
+# 协议帧、双串口收发、ACK/E2 看门狗全部在 `vision/zdt.py`（设备驱动层）。
+# 本层只保留"把决策真正下发"的 stop_motion / apply_commands，并把驱动符号
+# 再导出，旧调用点（logic.py / target_api.py / tools）无需改动。
 
 # ================================================================== 下发
 def stop_motion(link, aim, now, axis=None):
@@ -2006,11 +2054,11 @@ from .algo import (deviation, edge_lengths, order_quad, profile_samples,
                    project_points, quad_diagonal_center, rect_quad,
                    refine_sample_points, sample_points, valid_quad)
 from .output import (Preview, TouchButtons, aligned_frame, apply_commands, display_result,
-                    draw_preview, estimate_move_seconds, perf_line, stop_motion,
-                    StepperLink)
+                    draw_preview, perf_line, stop_motion)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
+from .zdt import StepperLink, estimate_move_seconds
 
-BUILD_ID = "1.9.0-2026-11-12"
+BUILD_ID = "1.10.0-2026-11-23"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -3106,21 +3154,28 @@ def run():
 
 # ===== vision  (vision/__init__.py) =====
 _MOD_SRC['vision'] = r'''
-"""vision 包：四个模块，一一对应四层。目录结构即分层结构。
+"""vision 包：四个分层 + 一个设备驱动，目录结构即分层结构。
 
     ① poll.py     轮询层  取帧 → 灰度 → 帧率 → 识别线程
     ② algo.py     算法层  纯函数：几何 / 采样模板 / 四边形判据 / 偏差
     ③ logic.py    逻辑层  结果契约 / 检测器（提案-验证-精修） / 闭环决策 / 主循环
-    ④ output.py   执行层  绘制 / 屏幕 / 串口 / 电机 —— 唯一允许产生副作用处
+    ④ output.py   执行层  绘制 / 屏幕 / 下发入口 —— 唯一允许产生副作用处
+       zdt.py     驱动层  张大头 ZDT 步进：协议帧 + 双串口链路（只管收发，不做决策）
+
+`zdt` 是 `output` 的下层：电机怎么说话只有它知道；`output` 只决定"该不该发、发什么"。
+其它模块要转云台，一律通过 `zdt.StepperLink` 的 enable / move / speed / stop，
+不允许自己拼协议帧、也不允许直接开串口。
 
 依赖方向单向，不可反向：
 
-    poll  ←──  algo
-      ↑         ↑
-      └── output ←── logic
+    poll  ←──  algo  ←──  zdt
+      ↑                    ↑
+      └────────  output ←──┘
+                   ↑
+                 logic
 
-    logic → {poll, algo, output}      output → {poll, algo}
-    algo  → {}                        poll   → {}
+    logic  → {poll, algo, output, zdt}    output → {poll, algo, zdt}
+    zdt    → {}                           algo   → {}          poll → {}
 
 `main.py`（应用根目录）也属逻辑层，只做路径引导后转交 `logic.run`。
 
@@ -3437,7 +3492,7 @@ class AimLoop:
         self.closed = False
         if enable_motors:
             from vision.logic import GimbalAim
-            from vision.output import StepperLink
+            from vision.zdt import StepperLink
             self.link = StepperLink(self.cfg, clock=self.clock)
             self.aim = GimbalAim(self.cfg)
             if self.link.enable() is False:
@@ -3492,7 +3547,8 @@ _MAIN_SRC = r'''
     vision/poll.py     ① 轮询层  取帧 → 灰度 → 帧率 → 识别线程
     vision/algo.py     ② 算法层  纯函数：模糊 / 二值化 / 轮廓 / 几何 / 偏差
     vision/logic.py    ③ 逻辑层  结果契约 + 检测器 + 闭环决策 + 主循环（本文件的业务本体）
-    vision/output.py   ④ 执行层  绘制 / 屏幕 / 串口 / 电机 —— 唯一允许产生副作用处
+    vision/output.py   ④ 执行层  绘制 / 屏幕 / 下发入口 —— 唯一允许产生副作用处
+    vision/zdt.py      ④b 驱动层 张大头 ZDT 协议帧 + 双串口（使能 / 转动 / 停止）
 
 **本文件属逻辑层**：MaixCAM 要求入口必须名为 `main.py` 且位于应用根目录，
 所以这里只保留 `sys.path` 引导与一次转交。装配、三条时间轴调度、退出释放
@@ -3534,9 +3590,9 @@ if __name__ == "__main__":
         print("MaixPy SDK unavailable. PC: python -B tools/check_app.py")
 '''
 
-_MOD_ORDER = ('config', 'vision.poll', 'vision.algo', 'vision.maixvision_stream', 'vision.output', 'vision.logic', 'vision', 'target_api')
+_MOD_ORDER = ('config', 'vision.poll', 'vision.algo', 'vision.maixvision_stream', 'vision.zdt', 'vision.output', 'vision.logic', 'vision', 'target_api')
 
-_REL_OF = {'config': 'config.py', 'vision.poll': 'vision/poll.py', 'vision.algo': 'vision/algo.py', 'vision.maixvision_stream': 'vision/maixvision_stream.py', 'vision.output': 'vision/output.py', 'vision.logic': 'vision/logic.py', 'vision': 'vision/__init__.py', 'target_api': 'target_api.py'}
+_REL_OF = {'config': 'config.py', 'vision.poll': 'vision/poll.py', 'vision.algo': 'vision/algo.py', 'vision.maixvision_stream': 'vision/maixvision_stream.py', 'vision.zdt': 'vision/zdt.py', 'vision.output': 'vision/output.py', 'vision.logic': 'vision/logic.py', 'vision': 'vision/__init__.py', 'target_api': 'target_api.py'}
 
 _pkg = _types.ModuleType("vision")          # 造出虚拟包 vision
 _pkg.__path__ = []

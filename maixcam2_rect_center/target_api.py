@@ -303,7 +303,7 @@ class AimLoop:
         self.closed = False
         if enable_motors:
             from vision.logic import GimbalAim
-            from vision.output import StepperLink
+            from vision.zdt import StepperLink
             self.link = StepperLink(self.cfg, clock=self.clock)
             self.aim = GimbalAim(self.cfg)
             if self.link.enable() is False:

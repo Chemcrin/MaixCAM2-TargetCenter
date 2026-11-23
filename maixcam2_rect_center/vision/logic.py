@@ -34,11 +34,11 @@ from .algo import (deviation, edge_lengths, order_quad, profile_samples,
                    project_points, quad_diagonal_center, rect_quad,
                    refine_sample_points, sample_points, valid_quad)
 from .output import (Preview, TouchButtons, aligned_frame, apply_commands, display_result,
-                    draw_preview, estimate_move_seconds, perf_line, stop_motion,
-                    StepperLink)
+                    draw_preview, perf_line, stop_motion)
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
+from .zdt import StepperLink, estimate_move_seconds
 
-BUILD_ID = "1.9.0-2026-11-12"
+BUILD_ID = "1.10.0-2026-11-23"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
