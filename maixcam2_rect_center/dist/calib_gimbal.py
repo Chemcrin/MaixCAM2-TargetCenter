@@ -10,23 +10,23 @@ calib_gimbal.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-23 22:05:54
-    config.py                    sha1=0fd3ce7033f9
+生成时间：2026-11-24 00:09:30
+    config.py                    sha1=79a5b2cd663e
     target_api.py                sha1=7b8df44fb443
     tools/calib_main.py          sha1=3c95f124966e
     vision/__init__.py           sha1=01904dd699d3
     vision/algo.py               sha1=a4578a955777
-    vision/logic.py              sha1=5a4c52a576cb
+    vision/logic.py              sha1=3753d234da0a
     vision/maixvision_stream.py  sha1=c30d784f26a0
     vision/output.py             sha1=7dc04c56e5d0
     vision/poll.py               sha1=992056fd530e
-    vision/zdt.py                sha1=4fdd1d511e53
+    vision/zdt.py                sha1=e50382172f2d
 """
 
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': '0fd3ce7033f971c9c6c7800997bc2a289e015272', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/zdt.py': '4fdd1d511e538ef258cc06dca3f3fa16ecea60e2', 'vision/output.py': '7dc04c56e5d04fcc50fd21ec0357aad222fa2023', 'vision/logic.py': '5a4c52a576cbb9b49d483b474a8759433475ca07', 'vision/__init__.py': '01904dd699d3c76bbd3d776a3b3a967cdbf01103', 'target_api.py': '7b8df44fb4432cc20b8e675e1f77d4a532e625aa', 'tools/calib_main.py': '3c95f124966e66a91036b1659e2da3058f232dc1'}
+_SRC_SHA1 = {'config.py': '79a5b2cd663e7084f2b656d1b433138d32db7920', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/zdt.py': 'e50382172f2d8b2c183e856fe0fe5bcbb5a9c907', 'vision/output.py': '7dc04c56e5d04fcc50fd21ec0357aad222fa2023', 'vision/logic.py': '3753d234da0a8ab429ac87ca91bcaa610bea4133', 'vision/__init__.py': '01904dd699d3c76bbd3d776a3b3a967cdbf01103', 'target_api.py': '7b8df44fb4432cc20b8e675e1f77d4a532e625aa', 'tools/calib_main.py': '3c95f124966e66a91036b1659e2da3058f232dc1'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -159,14 +159,14 @@ class Config:
     LASER_SMOOTH_ALPHA = 0.60
 
     # ---- 瞄准调度 ----
-    AIM_PROFILE = "smooth"        # 见文件末尾 profiles：覆盖 6 个增益/转速/限幅
+    AIM_PROFILE = "smooth"        # 见文件末尾 profiles：覆盖比例档/速度/单次脉冲限幅
     AIM_PROGRESSIVE = True
     ACC_TRACK = 80                # 兼容旧命令的兜底斜坡档（新命令自带 acc）
     # ★ 速度曲线：误差大走得快、误差小走得慢，一条指令一次完整的加速—匀速—减速。
     #   单位是**电机轴**度/秒；有减速比时输出端按比例更慢。
     AIM_DEG_S_PER_PX = 0.5        # 每 1px 误差想要多少度/秒（线性段）
-    AIM_MIN_DEG_S = 8.0           # 最低速度：再小驱动器只有 1rpm 档，实际约 6°/s
-    AIM_MAX_DEG_S = 60.0          # 最高速度：限制"短时间内转一大截"
+    AIM_MIN_DEG_S = 120.0           # 最低速度：再小驱动器只有 1rpm 档，实际约 6°/s
+    AIM_MAX_DEG_S = 180.0          # 最高速度：限制"短时间内转一大截"
     AIM_RAMP_S = 0.12             # 起停斜坡时间（驱动器按此反解 acc 档位）
     AIM_WAIT_MOTION = True
     AIM_MOTION_MARGIN_S = 0.03
@@ -180,7 +180,7 @@ class Config:
     #   测完直接写进运行期 tuning，不改磁盘配置；日志会打印可粘贴的 config 行。
     AUTO_CALIBRATE = True
     CAL_PROBE_PULSES = 60         # 探针脉冲数（3200 细分下约 6.8°）
-    CAL_PROBE_DEG_S = 25.0        # 探针速度：慢，能看清
+    CAL_PROBE_DEG_S = 120.0        # 探针速度：慢，能看清
     CAL_RAMP_S = 0.15             # 起停斜坡
     CAL_SETTLE_S = 0.45           # 停稳后再量（齿隙回弹要时间）
     CAL_TIMEOUT_S = 2.0           # 单个相位等测量超时
@@ -189,8 +189,8 @@ class Config:
     CAL_STABLE_PX = 3.0           # 这几帧中心的最大离散度
     SEARCH_ANGLE_DEG = 60.0       # 从启动位置向左右各扫 60 度；确认机械行程后启用
     SELF_TEST_ANGLE_DEG = 5.0     # 自检按左、右、上、下往返，结束回到起点
-    MANUAL_RPM = 15               # 手动/自检速度：15rpm ≈ 90°/s，可见又不甩
-    MANUAL_ACC = 150              # 斜坡档：约 0.08s，起停不顿
+    MANUAL_RPM = 120              # 恢复 1.10 已知可用值（15rpm 实测不动）
+    MANUAL_ACC = 80               # 恢复 1.10 已知可用值
     MANUAL_SETTLE_S = 0.25
     ENABLE_TOUCH_BUTTONS = True
     AUTO_TRACK_ON_BOOT = True     # 上电等目标即追；False = 只识别，按 SEARCH 才允许动
@@ -1073,6 +1073,11 @@ def estimate_move_seconds(pulses, rpm, acc=0, pulses_per_rev=3200):
     return 2*ramp_seconds+(pulses-ramp_distance)/speed
 
 
+# 驱动器低速不启动的实测下限（假设值，待本轮验证）：20rpm ≈ 120°/s。
+# 低于它时驱动器可能接收指令但不出力，表现为"指令发了、轴不动"。
+MIN_RPM = 20
+
+
 def speed_profile(deg_s, ramp_s):
     """把"电机轴角速度 + 起停斜坡时间"换算成驱动器要的 (rpm, acc)。
 
@@ -1085,7 +1090,7 @@ def speed_profile(deg_s, ramp_s):
     """
     deg_s = max(0.0, float(deg_s))
     rpm = int(round(deg_s * 60.0 / 360.0))
-    rpm = max(1, min(5000, rpm))
+    rpm = max(MIN_RPM, min(5000, rpm))
     ramp_s = max(0.0, float(ramp_s))
     if ramp_s <= 0:
         return rpm, 0                     # 0 = 不加速（瞬时启停），仅调试用
@@ -2110,7 +2115,7 @@ from .output import (Preview, TouchButtons, aligned_frame, apply_commands, displ
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 from .zdt import StepperLink, estimate_move_seconds, speed_profile
 
-BUILD_ID = "1.12.0-2026-11-23"
+BUILD_ID = "2.0.0-2026-11-24"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
@@ -2722,6 +2727,8 @@ class GimbalAim:
         self._stops = []
         self._guard_error = {"yaw": None, "pitch": None}
         self._diverge = {"yaw": 0, "pitch": 0}
+        self._gate = {"yaw": "-", "pitch": "-"}   # 最后一次没发指令的原因（排障用）
+        self._tx = {"yaw": 0, "pitch": 0}         # 已下发指令计数（排障用）
         # 运行期可改的换算系数与方向：开机自标定直接写这里，不改磁盘配置。
         self.tuning = {
             "yaw": {"ppp": float(getattr(cfg, "PULSE_PER_PX_YAW", 3.67)),
@@ -2793,10 +2800,15 @@ class GimbalAim:
             if not cmd:
                 return "-"
             return ("CCW" if cmd[0] else "CW") + "/%dp" % cmd[1]
-        return "[aim] state=%s dx=%s dy=%s yaw=%s pit=%s lost=%d" % (
+        return ("[aim] state=%s dx=%s dy=%s yaw=%s pit=%s lost=%d tx=yaw:%d,pit:%d "
+                "gate=yaw:%s,pit:%s tune=yaw:%.3f/%+d,pit:%.3f/%+d") % (
             self.last.get("state", self.state), self.last.get("dx"), self.last.get("dy"),
             fmt(self.last.get("cmds", {}).get("yaw")),
-            fmt(self.last.get("cmds", {}).get("pitch")), self._lost)
+            fmt(self.last.get("cmds", {}).get("pitch")), self._lost,
+            self._tx["yaw"], self._tx["pitch"],
+            self._gate["yaw"], self._gate["pitch"],
+            self.tuning["yaw"]["ppp"], self.tuning["yaw"]["sign"],
+            self.tuning["pitch"]["ppp"], self.tuning["pitch"]["sign"])
 
     # ------------------------------------------------------------- 内部实现
     def _emit(self, dx, dy, cmds):
@@ -2847,21 +2859,26 @@ class GimbalAim:
     def _axis_command(self, axis, error, now):
         cfg = self.cfg
         if self.state == FAULT:
+            self._gate[axis] = "fault"
             return None
         # 离群拒收：单帧超大误差先当误检丢弃，连续若干帧才采信（防甩头）。
         jump = float(getattr(cfg, "JUMP_REJECT_PX", 0.0))
         if jump > 0 and abs(error) > jump:
             self._jump[axis] += 1
             if self._jump[axis] < int(getattr(cfg, "JUMP_CONFIRM_FRAMES", 3)):
+                self._gate[axis] = "jump"
                 return None
         else:
             self._jump[axis] = 0
         if abs(error) <= self._deadband():
+            self._gate[axis] = "dead"
             return None
         interval = float(getattr(cfg, "COMMAND_INTERVAL_S", 0.08))
         if now - self.last_command_time[axis] < interval:
+            self._gate[axis] = "interval"
             return None
         if getattr(cfg, "AIM_WAIT_MOTION", True) and (now < self._busy_until[axis] or self._captured_at <= max(self._busy_until[axis], self._capture_after[axis])):
+            self._gate[axis] = "wait"
             return None
         if getattr(cfg, "DIVERGE_GUARD", False):
             previous = self._guard_error[axis]
@@ -2884,13 +2901,17 @@ class GimbalAim:
         else:
             ppp = float(tune["ppp"])
             if not math.isfinite(ppp) or ppp <= 0:
+                self._gate[axis] = "scale"
                 self.fault("invalid_scale:"+axis)
                 return None
             pulses = min(max_pulses, max(1, int(round(abs(error) * ppp * self._gain(axis, error)))))
             ccw = error * sign > 0
         if not math.isfinite(sign) or abs(sign) != 1:
+            self._gate[axis] = "dir"
             self.fault("invalid_direction:"+axis)
             return None
+        self._gate[axis] = "ok"
+        self._tx[axis] += 1
         self.last_command_time[axis] = now
         # 速度按"误差大走得快、误差小走得慢"排，斜坡时间固定；驱动器自己完成
         # 加速—匀速—减速，一条指令就是一次完整动作，不会一顿一顿。
@@ -2928,6 +2949,8 @@ class VisionControl:
         self._action_index = 0
         self._action_ready_at = 0.0
         self._manual_hold = not getattr(cfg, 'AUTO_TRACK_ON_BOOT', True)
+        self._cmd_prints = 0
+        self._last_enable = -1e9        # 使能心跳：驱动器与应用同时上电时，第一帧可能丢
         # 开机自标定：拿到第一段稳定目标后自己走四步探针，测换算系数与方向。
         auto = bool(getattr(cfg, 'AUTO_CALIBRATE', False)) if calibrate is None else bool(calibrate)
         self._calib_done = not (auto and link is not None and aim is not None)
@@ -3026,6 +3049,7 @@ class VisionControl:
         return max(8, min(int(self.cfg.CAL_PROBE_PULSES), int(margin*0.6/4.0)))
 
     def _calib_send(self, axis, ccw, pulses, now):
+        self.link.enable(axis, now=now)     # 探针前先确保该轴使能
         rpm, acc = speed_profile(float(self.cfg.CAL_PROBE_DEG_S),
                                  float(self.cfg.CAL_RAMP_S))
         ok, _failed, _applied = apply_commands(
@@ -3210,6 +3234,11 @@ class VisionControl:
         # FAULT before poll: even E2 re-enable is forbidden once motion is faulted.
         if aim.state == 'FAULT':
             return
+        # 使能心跳：驱动器上电比应用慢时，开机那一帧 F3 会丢，之后永远不动。
+        # 每 2s 补一次，代价可忽略；收不到回帧也不影响（开环发令）。
+        if now - self._last_enable > 2.0:
+            self._last_enable = now
+            link.enable(now=now)
         feedback = link.poll(now)
         if feedback and feedback.get('fault'):
             self._stop_motion(now)
@@ -3264,6 +3293,9 @@ class VisionControl:
         if not ok:
             return
         self.commands.update(applied)
+        if applied and self._cmd_prints < 5:
+            self._cmd_prints += 1
+            print('[aim] send %s' % applied)
 
 
 # ================================================================== 主循环

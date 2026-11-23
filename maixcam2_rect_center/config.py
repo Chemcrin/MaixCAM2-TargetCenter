@@ -122,7 +122,7 @@ class Config:
     LASER_SMOOTH_ALPHA = 0.60
 
     # ---- 瞄准调度 ----
-    AIM_PROFILE = "smooth"        # 见文件末尾 profiles：覆盖 6 个增益/转速/限幅
+    AIM_PROFILE = "smooth"        # 见文件末尾 profiles：覆盖比例档/速度/单次脉冲限幅
     AIM_PROGRESSIVE = True
     ACC_TRACK = 80                # 兼容旧命令的兜底斜坡档（新命令自带 acc）
     # ★ 速度曲线：误差大走得快、误差小走得慢，一条指令一次完整的加速—匀速—减速。

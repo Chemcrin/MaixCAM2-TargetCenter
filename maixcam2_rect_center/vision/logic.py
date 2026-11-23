@@ -38,7 +38,7 @@ from .output import (Preview, TouchButtons, aligned_frame, apply_commands, displ
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 from .zdt import StepperLink, estimate_move_seconds, speed_profile
 
-BUILD_ID = "1.12.4-2026-11-23"
+BUILD_ID = "2.0.0-2026-11-24"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0

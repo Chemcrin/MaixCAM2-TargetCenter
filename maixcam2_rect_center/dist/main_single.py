@@ -10,13 +10,13 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 用途：在 MaixVision 里点「运行当前文件」即可运行（不必用「运行项目」）。
       行为与模块化工程完全一致，输出也就完全一致。
 
-生成时间：2026-11-23 22:34:26
-    config.py                    sha1=c84810610e4e
+生成时间：2026-11-24 00:09:30
+    config.py                    sha1=79a5b2cd663e
     main.py                      sha1=c68e3bb2cf72
     target_api.py                sha1=7b8df44fb443
     vision/__init__.py           sha1=01904dd699d3
     vision/algo.py               sha1=a4578a955777
-    vision/logic.py              sha1=339a87dbd432
+    vision/logic.py              sha1=3753d234da0a
     vision/maixvision_stream.py  sha1=c30d784f26a0
     vision/output.py             sha1=7dc04c56e5d0
     vision/poll.py               sha1=992056fd530e
@@ -26,7 +26,7 @@ main_single.py · 25E 靶心识别（轨道 B）—— 单文件自包含版
 import sys as _sys
 import types as _types
 
-_SRC_SHA1 = {'config.py': 'c84810610e4e695bb72b65382610335c2c93fdd6', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/zdt.py': 'e50382172f2d8b2c183e856fe0fe5bcbb5a9c907', 'vision/output.py': '7dc04c56e5d04fcc50fd21ec0357aad222fa2023', 'vision/logic.py': '339a87dbd43287252eacf505442d630d01ba509a', 'vision/__init__.py': '01904dd699d3c76bbd3d776a3b3a967cdbf01103', 'target_api.py': '7b8df44fb4432cc20b8e675e1f77d4a532e625aa', 'main.py': 'c68e3bb2cf7254779363683353cbe8e58ee15a96'}
+_SRC_SHA1 = {'config.py': '79a5b2cd663e7084f2b656d1b433138d32db7920', 'vision/poll.py': '992056fd530ecec7480c50b887eb69b6b1716aec', 'vision/algo.py': 'a4578a9557779521fea57262ea0a67d69c0aa05a', 'vision/maixvision_stream.py': 'c30d784f26a0da91756e9a63f71ba795fdda7a8d', 'vision/zdt.py': 'e50382172f2d8b2c183e856fe0fe5bcbb5a9c907', 'vision/output.py': '7dc04c56e5d04fcc50fd21ec0357aad222fa2023', 'vision/logic.py': '3753d234da0a8ab429ac87ca91bcaa610bea4133', 'vision/__init__.py': '01904dd699d3c76bbd3d776a3b3a967cdbf01103', 'target_api.py': '7b8df44fb4432cc20b8e675e1f77d4a532e625aa', 'main.py': 'c68e3bb2cf7254779363683353cbe8e58ee15a96'}
 
 # --------------------------------------------------------------------------
 # ① 各模块源码原样嵌入，运行时装进 sys.modules（保持原 import 语义）
@@ -159,7 +159,7 @@ class Config:
     LASER_SMOOTH_ALPHA = 0.60
 
     # ---- 瞄准调度 ----
-    AIM_PROFILE = "smooth"        # 见文件末尾 profiles：覆盖 6 个增益/转速/限幅
+    AIM_PROFILE = "smooth"        # 见文件末尾 profiles：覆盖比例档/速度/单次脉冲限幅
     AIM_PROGRESSIVE = True
     ACC_TRACK = 80                # 兼容旧命令的兜底斜坡档（新命令自带 acc）
     # ★ 速度曲线：误差大走得快、误差小走得慢，一条指令一次完整的加速—匀速—减速。
@@ -2115,7 +2115,7 @@ from .output import (Preview, TouchButtons, aligned_frame, apply_commands, displ
 from .poll import FramePoller, FrameRate, LatestFrameWorker, to_gray_frame
 from .zdt import StepperLink, estimate_move_seconds, speed_profile
 
-BUILD_ID = "1.12.4-2026-11-23"
+BUILD_ID = "2.0.0-2026-11-24"
 
 # 主循环单轮超过该毫秒数（不含 show）即判为"慢"，打一次归因提示。
 MAIN_LOOP_SLOW_MS = 66.0
